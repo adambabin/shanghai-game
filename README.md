@@ -16,12 +16,13 @@ The host has to keep their page open for the whole game. If the host refreshes o
 ## House rules
 
 - 11 rounds, lowest total score wins. The contracts are listed under **How to play** in the game and live in [`js/rules.js`](js/rules.js).
-- Sets are 3+ of a rank, runs are 4+ in a row of one suit (ace high or low, no wrapping). Every set or run needs at least 2 real cards.
+- Sets are 3+ of a rank, runs are 4+ in a row of one suit (aces are high only: J-Q-K-A, never A-2-3-4). Every set or run needs at least 2 real cards.
 - **Only jokers are wild.** The 2♣ is a normal card (the host can turn 2♣-wild on in the lobby).
-- **Buying:** out of turn you can buy the top discard before the next player draws. You get the card plus one penalty card. The player whose turn it is gets first choice; between buyers, the one next in turn order wins. 2 buys per round, and not once you've laid down.
-- **Shanghai!** If a player who has laid down discards a card that could have been played on any pile, anyone can hit the SHANGHAI! button before the next player draws. The discarder picks up 3 cards and the card is dead.
+- **Buying:** at the start of your turn you pick **No thanks** (take the discard or draw, nobody buys) or **Allow buy**. If you allow it, everyone who can buy gets 10 seconds to answer Buy or No thanks; the one next in turn order wins and takes the card plus 2 from the deck. Then you draw from the deck (or take the discard if nobody bought it). 2 buys per round, and not once you've laid down.
+- **Shanghai!** If anyone discards a card that could have been played on any pile, anyone can hit the SHANGHAI! button before the next player draws. The discarder picks up 3 cards and the card is dead.
   - The button is always live. Calling Shanghai when there isn't one costs you 2 cards and blocks you from calling again until your next turn.
-  - To get rid of a playable card on purpose, tap SHANGHAI! on your own turn before discarding. Your discard is declared dead: no penalty, but nobody can pick it up or buy it until another card covers it.
+  - To get rid of a playable card on purpose, tap SHANGHAI! on your own turn before discarding. Your discard is declared dead: no penalty, but nobody can pick it up or buy it until another card covers it. If the card couldn't actually go anywhere, you get a heads-up and it stays live.
+- **Swapping wilds:** once you've laid down, you can swap the real card for a joker in any run and take the joker. You must play that joker before you can discard. Runs only.
 - **Going out:** you can't go out on a discard. Your last cards (at least 2 on the final turn) must be played onto piles. **Undo** takes back plays you made this turn, until you discard.
 - Scoring: 2–9 face value, 10/J/Q/K 10, ace 20, joker 50.
 

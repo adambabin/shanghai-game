@@ -820,3 +820,44 @@ table.scores td.zero {
   font-size: 14px;
   padding: 4px;
 }
+
+/* ---------- buying ---------- */
+.buy-bar {
+  margin: 0 12px 6px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  font-size: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 10px;
+  text-align: center;
+  flex: none;
+}
+.buy-bar.ask {
+  background: rgba(242, 193, 78, 0.18);
+  border: 2px solid var(--gold);
+}
+.buy-bar.muted-bar {
+  color: var(--ink-dim);
+}
+.buy-bar .buy-actions {
+  display: flex;
+  gap: 8px;
+}
+.buy-bar .buy-actions button {
+  padding: 8px 16px;
+}
+.countdown {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 99px;
+  background: var(--gold);
+  color: #3a2a00;
+  font-weight: 800;
+}

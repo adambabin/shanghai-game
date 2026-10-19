@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSet, buildRun, addCards, fitsAnyMeld, runHi } from '../js/melds.js';
+import { buildSet, buildRun, addCards, fitsAnyMeld, runHi, placements } from '../js/melds.js';
 import { wildTest } from '../js/cards.js';
-import { createGame, applyAction, viewFor, totals, nextRound } from '../js/engine.js';
+import { createGame, applyAction, viewFor, totals, nextRound, resolveBuyWindow } from '../js/engine.js';
 
 const isWild = wildTest({ twoClubsWild: false });
 let nid = 1000;
@@ -23,18 +23,24 @@ test('2 of clubs is not wild by default', () => {
   assert.ok(buildSet([c(7, 'S'), c(7, 'H'), c(2, 'C')], wild2));
 });
 
-test('runs: 4+ same suit, wilds fill gaps, ace high or low but no wrap', () => {
+test('runs: 4+ same suit, wilds fill gaps, aces only high', () => {
   const r = buildRun([c(5, 'H'), c(6, 'H'), c(8, 'H'), J()], isWild);
   assert.equal(r.lo, 5);
   assert.equal(runHi(r), 8);
   assert.equal(r.cards[3].r, 8);
-  assert.ok(buildRun([c(1, 'S'), c(2, 'S'), c(3, 'S'), c(4, 'S')], isWild));
+  assert.equal(buildRun([c(1, 'S'), c(2, 'S'), c(3, 'S'), c(4, 'S')], isWild), null, 'ace is not low');
   const high = buildRun([c(11, 'S'), c(12, 'S'), c(13, 'S'), c(1, 'S')], isWild);
   assert.equal(runHi(high), 14);
   assert.equal(buildRun([c(12, 'S'), c(13, 'S'), c(1, 'S'), c(2, 'S')], isWild), null);
   assert.equal(buildRun([c(5, 'H'), c(6, 'D'), c(7, 'H'), c(8, 'H')], isWild), null);
   assert.equal(buildRun([c(5, 'H'), J(), J(), c(9, 'H')], isWild), null);
   assert.equal(buildRun([c(5, 'H'), c(6, 'H'), c(7, 'H')], isWild), null);
+  // a spare wild can't sit below the 2
+  const low = buildRun([c(2, 'C'), c(3, 'C'), c(4, 'C'), J()], isWild, 'low');
+  assert.equal(low.lo, 2);
+  assert.equal(runHi(low), 5);
+  assert.deepEqual(placements(low, c(1, 'C'), isWild), []);
+  assert.deepEqual(placements(low, J(), isWild), ['high']);
 });
 
 test('spare wilds in a run go to the chosen end', () => {
@@ -151,24 +157,78 @@ test('cannot discard your last card; undo takes plays back; going out on two pil
   assert.deepEqual(totals(g), [0, 85]);
 });
 
-test('buying: next player has first refusal, closest buyer wins, limit of 2', () => {
+test('buying: only after the current player allows it; closest buyer wins; card + 2 extra; limit of 2', () => {
   const hands = [0, 1, 2, 3].map(() => Array.from({ length: 11 }, (_, i) => c((i % 13) + 1, 'D')));
   const g = rigged(hands, { discard: [c(7, 'S')] });
   g.turn = 1;
-  assert.ok(applyAction(g, 3, { type: 'buy' }).ok);
-  assert.ok(applyAction(g, 2, { type: 'buy' }).ok);
-  assert.ok(!applyAction(g, 1, { type: 'buy' }).ok);
-  applyAction(g, 1, { type: 'drawDeck' });
-  assert.equal(g.hands[2].length, 13);
+  assert.ok(!applyAction(g, 3, { type: 'buyAnswer', buy: true }).ok, 'no buying until allowed');
+  assert.ok(applyAction(g, 1, { type: 'allowBuy' }).ok);
+  assert.deepEqual(g.buyWindow.eligible, [0, 2, 3]);
+  assert.ok(!applyAction(g, 1, { type: 'drawDeck' }).ok, 'current player waits for buyers');
+  applyAction(g, 3, { type: 'buyAnswer', buy: true });
+  assert.ok(g.buyWindow, 'still waiting on seat 2, who is ahead of seat 3');
+  applyAction(g, 2, { type: 'buyAnswer', buy: true });
+  assert.equal(g.buyWindow, null, 'seat 2 is closest, so it resolves at once');
+  assert.equal(g.hands[2].length, 14);
   assert.equal(g.hands[3].length, 11);
   assert.equal(g.buysUsed[2], 1);
-  g.buysUsed[3] = 2;
+  assert.ok(!applyAction(g, 1, { type: 'drawDiscard' }).ok, 'after a buy the current player draws from the deck');
+  assert.ok(applyAction(g, 1, { type: 'drawDeck' }).ok);
+
+  // nobody buys before the timeout: current player can still take the discard
   applyAction(g, 1, { type: 'discard', id: g.hands[1][0].id });
-  assert.ok(!applyAction(g, 3, { type: 'buy' }).ok);
-  // current player taking the discard cancels buys
-  assert.ok(applyAction(g, 0, { type: 'buy' }).ok);
-  applyAction(g, 2, { type: 'drawDiscard' });
-  assert.equal(g.buysUsed[0], 0);
+  g.buysUsed[3] = 2;
+  applyAction(g, 2, { type: 'allowBuy' });
+  assert.deepEqual(g.buyWindow.eligible, [0], 'seat 3 is out of buys and seat 1 discarded it');
+  resolveBuyWindow(g, true);
+  assert.equal(g.buyWindow, null);
+  assert.ok(applyAction(g, 2, { type: 'drawDiscard' }).ok);
+});
+
+test('Shanghai counts on anyone, laid down or not; a self-Shanghai that is not one stays live', () => {
+  const p0 = [c(4, 'S'), c(4, 'H'), c(4, 'D'), c(9, 'S'), c(9, 'H'), c(9, 'C'), c(8, 'S'), c(12, 'D')];
+  const p1 = [c(4, 'C'), c(3, 'D'), c(6, 'C'), c(7, 'C'), c(13, 'S')];
+  const p2 = [c(2, 'H'), c(3, 'H'), c(6, 'S'), c(7, 'S'), c(10, 'S')];
+  const g = rigged([p0, p1, p2]);
+  applyAction(g, 0, { type: 'drawDeck' });
+  applyAction(g, 0, { type: 'layDown', groups: [{ type: 'set', ids: [p0[0].id, p0[1].id, p0[2].id] }, { type: 'set', ids: [p0[3].id, p0[4].id, p0[5].id] }] });
+  applyAction(g, 0, { type: 'discard', id: p0[6].id });
+  // p1 (not laid down) discards the 4C, which fits on p0's 4s
+  applyAction(g, 1, { type: 'drawDeck' });
+  applyAction(g, 1, { type: 'discard', id: p1[0].id });
+  assert.equal(applyAction(g, 2, { type: 'shanghai' }).result, 'hit');
+  assert.equal(g.hands[1].length, 5 + 3);
+  // p2 says Shanghai on the 2H, which fits nowhere: no penalty, card stays live
+  applyAction(g, 2, { type: 'drawDeck' });
+  applyAction(g, 2, { type: 'discard', id: p2[0].id, declare: true });
+  assert.ok(!g.topDead);
+  assert.equal(g.log[g.log.length - 1].kind, 'notshanghai');
+  assert.ok(applyAction(g, 0, { type: 'drawDiscard' }).ok);
+});
+
+test('swapping a natural card for a wild in a run, which then must be played', () => {
+  const p0 = [c(5, 'H'), c(6, 'H'), c(0, 'J'), c(8, 'H'), c(9, 'S'), c(9, 'H'), c(9, 'C'), c(7, 'H'), c(3, 'D'), c(12, 'S')];
+  const p1 = [c(2, 'H'), c(3, 'C'), c(6, 'C'), c(7, 'C')];
+  const g = rigged([p0, p1]);
+  g.round = 1; // 1 set + 1 run
+  applyAction(g, 0, { type: 'drawDeck' });
+  assert.ok(!applyAction(g, 0, { type: 'swapWild', meldId: 1, id: p0[7].id }).ok);
+  assert.ok(applyAction(g, 0, { type: 'layDown', groups: [{ type: 'run', ids: [p0[0].id, p0[1].id, p0[2].id, p0[3].id] }, { type: 'set', ids: [p0[4].id, p0[5].id, p0[6].id] }] }).ok);
+  const run = g.melds.find((m) => m.type === 'run');
+  assert.ok(!applyAction(g, 0, { type: 'swapWild', meldId: run.id, id: p0[8].id }).ok, '3D does not replace the joker');
+  assert.ok(applyAction(g, 0, { type: 'swapWild', meldId: run.id, id: p0[7].id }).ok);
+  assert.deepEqual(run.cards.map((x) => x.r), [5, 6, 7, 8]);
+  assert.ok(g.hands[0].some((x) => x.r === 0));
+  const d = applyAction(g, 0, { type: 'discard', id: p0[9].id });
+  assert.ok(!d.ok);
+  assert.match(d.error, /wild card you swapped/);
+  // undo puts it back
+  assert.ok(applyAction(g, 0, { type: 'undo' }).ok);
+  assert.equal(run.cards[2].r, 0);
+  assert.ok(applyAction(g, 0, { type: 'swapWild', meldId: run.id, id: p0[7].id }).ok);
+  const joker = g.hands[0].find((x) => x.r === 0);
+  assert.ok(applyAction(g, 0, { type: 'addToMeld', meldId: run.id, ids: [joker.id] }).ok);
+  assert.ok(applyAction(g, 0, { type: 'discard', id: p0[9].id }).ok);
 });
 
 test('view hides other hands', () => {
