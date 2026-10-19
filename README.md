@@ -1,1 +1,53 @@
-# shanghai-game
+# Shanghai
+
+A browser version of Shanghai rummy with our family's house rules. Play against the computer, or host a game and have friends and family join from their own phones or computers with a room code.
+
+No accounts, no server to run. The host's browser runs the game and everyone else connects to it directly over WebRTC (through [PeerJS](https://peerjs.com)).
+
+## Playing
+
+1. Open the site and enter your name.
+2. **Play against the computer** starts a solo game with two computer players (add or remove more in the lobby).
+3. **Host a game** gives you a 5-letter room code and a **Share invite link** button. Send the link to everyone. When they open it and type their name, they're in your lobby.
+4. In the lobby the host can add computer players to fill seats, adjust the house rules, and start the game (2–8 players).
+
+The host has to keep their page open for the whole game. If the host refreshes or their browser restarts, **Resume your last game** on the start page reopens the same room, and everyone reconnects automatically. If a player drops off, they can reopen the invite link (even on another device, using the same name) to get their seat back. Meanwhile the host can open the ☰ menu and let the computer play for them.
+
+## House rules
+
+- 11 rounds, lowest total score wins. The contracts are listed under **How to play** in the game and live in [`js/rules.js`](js/rules.js).
+- Sets are 3+ of a rank, runs are 4+ in a row of one suit (ace high or low, no wrapping). Every set or run needs at least 2 real cards.
+- **Only jokers are wild.** The 2♣ is a normal card (the host can turn 2♣-wild on in the lobby).
+- **Buying:** out of turn you can buy the top discard before the next player draws. You get the card plus one penalty card. The player whose turn it is gets first choice; between buyers, the one next in turn order wins. 2 buys per round, and not once you've laid down.
+- **Shanghai!** If a player who has laid down discards a card that could have been played on any pile, anyone can hit the SHANGHAI! button before the next player draws. The discarder picks up 3 cards and the card is dead.
+  - The button is always live. Calling Shanghai when there isn't one costs you 2 cards and blocks you from calling again until your next turn.
+  - To get rid of a playable card on purpose, tap SHANGHAI! on your own turn before discarding. Your discard is declared dead: no penalty, but nobody can pick it up or buy it until another card covers it.
+- **Going out:** you can't go out on a discard. Your last cards (at least 2 on the final turn) must be played onto piles. **Undo** takes back plays you made this turn, until you discard.
+- Scoring: 2–9 face value, 10/J/Q/K 10, ace 20, joker 50.
+
+The host can change buy limits, penalty sizes, 2♣ wild and computer speed in the lobby.
+
+## Hosting the site
+
+It's a static site with no build step. Any static host works.
+
+**GitHub Pages:** the workflow in `.github/workflows/pages.yml` runs the tests and publishes the site on every push to `main`. Turn it on once under the repo's **Settings → Pages → Build and deployment → Source: GitHub Actions**. The site then appears at `https://<your-username>.github.io/shanghai-game/`. (GitHub Pages on a private repo needs a paid GitHub plan; otherwise make the repo public.)
+
+**Locally:** `npm start` (or `python3 -m http.server 8080`) and open http://localhost:8080.
+
+Connections use the free public PeerJS server to introduce players to each other, and PeerJS's relay servers when two networks can't connect directly. To use your own [PeerJS server](https://github.com/peers/peerjs-server) instead, add `?peerserver=yourhost:9000` to the URL. Invite links carry it along.
+
+## Code
+
+| File | What it does |
+| --- | --- |
+| `js/rules.js` | Round contracts, deal sizes, default house-rule options |
+| `js/cards.js` | Deck, wilds, card points |
+| `js/melds.js` | Set and run validation, adding cards to piles |
+| `js/engine.js` | The game itself: turns, buying, Shanghai calls, dead cards, going out, scoring |
+| `js/bot.js` | Computer players |
+| `js/host.js` | Host session (lobby, seats, bots, saving) and the client session |
+| `js/net.js` | PeerJS connections, heartbeats and reconnects |
+| `js/main.js` | The interface |
+
+`npm test` runs the rules tests plus simulated all-computer games.
