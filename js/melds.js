@@ -1,8 +1,15 @@
 // Set and run validation. Melds on the table look like:
 //   { id, owner, type: 'set', rank, cards }
-//   { id, owner, type: 'run', suit, lo, cards }  // cards[i] sits at rank value lo + i (1 = low ace, 14 = high ace)
+//   { id, owner, type: 'run', suit, lo, cards }  // cards[i] sits at rank value lo + i (2..14; aces are high only)
 
 import { SET_MIN, RUN_MIN, MIN_NATURALS } from './rules.js';
+
+const LOW = 2; // aces only count high, so a run can't go below 2
+const HIGH = 14;
+
+export function runValue(card) {
+  return card.r === 1 ? HIGH : card.r;
+}
 
 export function runHi(meld) {
   return meld.lo + meld.cards.length - 1;
@@ -26,45 +33,31 @@ export function buildRun(cards, isWild, wildEnd = 'high') {
   const suit = naturals[0].s;
   if (naturals.some((c) => c.s !== suit)) return null;
 
-  const aces = naturals.filter((c) => c.r === 1).length;
-  const options = [(c) => (c.r === 1 ? 1 : c.r), (c) => (c.r === 1 ? 14 : c.r)];
-  if (aces === 2) {
-    // A-2-...-K-A: first ace low, second high
-    options.push((c, i) => (c.r === 1 ? (i === 0 ? 1 : 14) : c.r));
+  const placed = naturals.map((c) => ({ c, v: runValue(c) })).sort((a, b) => a.v - b.v);
+  if (placed.some((p, i) => i > 0 && p.v === placed[i - 1].v)) return null;
+  const min = placed[0].v;
+  const max = placed[placed.length - 1].v;
+  const gaps = max - min + 1 - placed.length;
+  if (gaps > wilds.length) return null;
+  const extra = wilds.length - gaps;
+  let loExtra, hiExtra;
+  if (wildEnd === 'low') {
+    loExtra = Math.min(extra, min - LOW);
+    hiExtra = extra - loExtra;
+  } else {
+    hiExtra = Math.min(extra, HIGH - max);
+    loExtra = extra - hiExtra;
   }
-
-  let best = null;
-  for (const valOf of options) {
-    let ai = 0;
-    const placed = naturals.map((c) => ({ c, v: valOf(c, c.r === 1 ? ai++ : -1) }));
-    placed.sort((a, b) => a.v - b.v);
-    if (placed.some((p, i) => i > 0 && p.v === placed[i - 1].v)) continue;
-    const min = placed[0].v;
-    const max = placed[placed.length - 1].v;
-    const gaps = max - min + 1 - placed.length;
-    if (gaps > wilds.length) continue;
-    let extra = wilds.length - gaps;
-    let loExtra, hiExtra;
-    if (wildEnd === 'low') {
-      loExtra = Math.min(extra, min - 1);
-      hiExtra = extra - loExtra;
-    } else {
-      hiExtra = Math.min(extra, 14 - max);
-      loExtra = extra - hiExtra;
-    }
-    if (min - loExtra < 1 || max + hiExtra > 14) continue;
-    const lo = min - loExtra;
-    const hi = max + hiExtra;
-    const slots = [];
-    const wq = [...wilds];
-    let pi = 0;
-    for (let v = lo; v <= hi; v++) {
-      if (pi < placed.length && placed[pi].v === v) slots.push(placed[pi++].c);
-      else slots.push(wq.shift());
-    }
-    if (!best || gaps < best.gaps) best = { gaps, meld: { type: 'run', suit, lo, cards: slots } };
+  if (min - loExtra < LOW || max + hiExtra > HIGH) return null;
+  const lo = min - loExtra;
+  const slots = [];
+  const wq = [...wilds];
+  let pi = 0;
+  for (let v = lo; v <= max + hiExtra; v++) {
+    if (pi < placed.length && placed[pi].v === v) slots.push(placed[pi++].c);
+    else slots.push(wq.shift());
   }
-  return best ? best.meld : null;
+  return { type: 'run', suit, lo, cards: slots };
 }
 
 // Where a single card could go on a meld: [] if nowhere, else a list of 'low' / 'high' / 'set'.
@@ -73,15 +66,21 @@ export function placements(meld, card, isWild) {
   const hi = runHi(meld);
   const out = [];
   if (isWild(card)) {
-    if (hi < 14) out.push('high');
-    if (meld.lo > 1) out.push('low');
+    if (hi < HIGH) out.push('high');
+    if (meld.lo > LOW) out.push('low');
     return out;
   }
   if (card.s !== meld.suit) return out;
-  const vals = card.r === 1 ? [1, 14] : [card.r];
-  if (vals.includes(hi + 1)) out.push('high');
-  if (vals.includes(meld.lo - 1)) out.push('low');
+  if (runValue(card) === hi + 1) out.push('high');
+  if (runValue(card) === meld.lo - 1) out.push('low');
   return out;
+}
+
+// Index of the wild card in a run that this natural card would replace, or -1.
+export function wildSlotFor(meld, card, isWild) {
+  if (meld.type !== 'run' || isWild(card) || card.s !== meld.suit) return -1;
+  const idx = runValue(card) - meld.lo;
+  return idx >= 0 && idx < meld.cards.length && isWild(meld.cards[idx]) ? idx : -1;
 }
 
 function addOne(meld, card, isWild, wildEnd) {

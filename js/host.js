@@ -1,7 +1,7 @@
 // Runs in the host's browser: owns the lobby and the game, drives the bots, and sends each
 // player their own view of the game.
 
-import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner } from './engine.js';
+import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, resolveBuyWindow } from './engine.js';
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai } from './bot.js';
 import { DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
 import { openRoom, randomCode } from './net.js';
@@ -305,20 +305,37 @@ export class HostSession {
     this.timers.delete(this.turnTimer);
     if (!g || (g.phase !== 'draw' && g.phase !== 'play')) return;
     const bots = g.players.map((p, i) => (p.bot ? i : -1)).filter((i) => i >= 0);
-    if (!bots.length) return;
 
-    // reactions to the latest discard: Shanghai calls and buys, decided once per discard per bot
+    // buy window: computers answer, players who dropped off pass, and the clock runs out after 10 seconds
+    const w = g.buyWindow;
+    if (w && this.windowArmed !== w) {
+      this.windowArmed = w;
+      const answer = (seat, buy) => g.buyWindow === w && !w.answers[seat] && this.act(seat, { type: 'buyAnswer', buy });
+      for (const seat of w.eligible) {
+        const s = this.lobby.seats[seat];
+        if (g.players[seat].bot) this.later(700 + Math.random() * 1500, () => answer(seat, wantsToBuy(viewFor(g, seat))));
+        else if (s && !s.isHost && !s.connected) this.later(300, () => answer(seat, false));
+      }
+      const t = setTimeout(() => {
+        this.timers.delete(t);
+        if (this.game === g && g.buyWindow === w) {
+          resolveBuyWindow(g, true);
+          this.changed();
+        }
+      }, Math.max(0, w.deadline - Date.now()) + 250);
+      this.timers.add(t);
+    }
+
+    // Shanghai calls on the latest discard, decided once per discard per bot
     if (g.phase === 'draw') {
       const key = `${g.round}:${g.discard.length}:${g.discard[g.discard.length - 1]?.id}`;
       for (const seat of bots) {
         if (seat === g.turn || this.reacted.has(key + ':' + seat)) continue;
         const v = viewFor(g, seat);
-        const call = seesShanghai(v) && Math.random() < 0.75;
-        const buy = wantsToBuy(v);
-        if (!call && !buy) continue;
+        if (!seesShanghai(v)) continue;
         this.reacted.add(key + ':' + seat);
-        if (call) this.later(1200 + Math.random() * 2500, () => this.game === g && seesShanghai(viewFor(g, seat)) && this.act(seat, { type: 'shanghai' }));
-        if (buy) this.later(500 + Math.random() * 1200, () => this.game === g && g.phase === 'draw' && wantsToBuy(viewFor(g, seat)) && this.act(seat, { type: 'buy' }));
+        if (Math.random() < 0.75)
+          this.later(1200 + Math.random() * 2500, () => this.game === g && seesShanghai(viewFor(g, seat)) && this.act(seat, { type: 'shanghai' }));
       }
       if (this.reacted.size > 500) this.reacted.clear();
     }
@@ -326,9 +343,13 @@ export class HostSession {
     if (!g.players[g.turn].bot) return;
     const seat = g.turn;
     if (g.phase === 'draw') {
-      // give people a moment to buy or call Shanghai before the bot draws
-      const wait = g.lastDiscard && g.lastDiscard.open ? 3200 : 1600;
-      this.turnTimer = this.later(wait, () => this.act(seat, chooseDraw(viewFor(g, seat))));
+      if (g.buyWindow) return; // wait for buyers; resolving the window reschedules us
+      // give people a moment to call Shanghai before the bot draws
+      const wait = g.lastDiscard && g.lastDiscard.open && !g.buyOffered ? 3200 : 1200;
+      this.turnTimer = this.later(wait, () => {
+        const a = chooseDraw(viewFor(g, seat));
+        if (a) this.act(seat, a);
+      });
     } else {
       this.turnTimer = this.later(900, () => {
         const res = this.act(seat, choosePlay(viewFor(g, seat)));

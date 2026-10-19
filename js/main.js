@@ -1,7 +1,7 @@
 import { HostSession, ClientSession } from './host.js';
 import { joinRoom } from './net.js';
 import { SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
-import { buildSet, buildRun, addCards } from './melds.js';
+import { buildSet, buildRun, addCards, wildSlotFor } from './melds.js';
 import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
 
 const $app = document.getElementById('app');
@@ -120,6 +120,7 @@ function onSnapshot(snap) {
   if (v) {
     syncHand(v);
     processLog(v);
+    ui.windowDeadline = v.buyWindow ? Date.now() + v.buyWindow.msLeft : null;
     const turnKey = `${v.round}:${v.turn}:${v.phase}`;
     if (turnKey !== ui.lastTurnKey) {
       if (v.turn !== (prev && prev.view && prev.view.turn)) ui.armed = false;
@@ -146,7 +147,9 @@ function processLog(v) {
       beep([220, 180], 0.2);
     } else if (e.kind === 'win') {
       beep([523, 659, 784]);
-    } else if (['buy', 'buyreq', 'laydown', 'dead'].includes(e.kind)) {
+    } else if (e.kind === 'notshanghai') {
+      if (e.seat === v.you) toast(e.note, false, 5000);
+    } else if (['buy', 'buyreq', 'laydown', 'dead', 'swap', 'buywindow'].includes(e.kind)) {
       // you already know what you just did
       if (e.seat === v.you) continue;
       toast(e.text, false);
@@ -160,8 +163,8 @@ function syncHand(v) {
   const idSet = new Set(ids);
   if (ui.handRound !== v.round) {
     ui.handRound = v.round;
-    ui.order = sortIds(v.hand, 'rank');
-    ui.lastSort = 'rank';
+    ui.sortMode = ui.sortMode || 'rank';
+    ui.order = sortIds(v.hand, ui.sortMode === 'manual' ? 'rank' : ui.sortMode);
     ui.staged = [];
     ui.selected.clear();
     ui.fresh.clear();
@@ -170,6 +173,8 @@ function syncHand(v) {
   const known = new Set(ui.order);
   const added = ids.filter((id) => !known.has(id));
   ui.order = ui.order.filter((id) => idSet.has(id)).concat(added);
+  // keep the hand in the chosen order as cards come and go (unless you've arranged it by hand)
+  if (ui.sortMode !== 'manual') ui.order = sortIds(v.hand, ui.sortMode);
   if (added.length) {
     ui.fresh = new Set(added);
   }
@@ -277,6 +282,7 @@ function lobbyHTML(snap) {
     <h3 style="margin-top:6px">House rules</h3>
     <div class="options">
       ${optionRow('Buys per round', 'buyLimit', [[0, 'None'], [1, '1'], [2, '2'], [3, '3'], [4, '4']], o, isHost)}
+      ${optionRow('Extra cards per buy', 'buyPenalty', [[0, 'None'], [1, '1'], [2, '2'], [3, '3']], o, isHost)}
       ${optionRow('2♣ wild', 'twoClubsWild', [[false, 'No (jokers only)'], [true, 'Yes']], o, isHost)}
       ${optionRow('Shanghai penalty', 'shanghaiPenalty', [[2, '2 cards'], [3, '3 cards'], [4, '4 cards']], o, isHost)}
       ${optionRow('Wrong Shanghai call', 'falseCallPenalty', [[1, '1 card'], [2, '2 cards'], [3, '3 cards']], o, isHost)}
@@ -341,7 +347,7 @@ function tableHTML(v, isWild) {
     if (!melds.length) return;
     const html = melds
       .map((m) => {
-        const ok = playable && addCards(m, sel, isWild);
+        const ok = playable && (addCards(m, sel, isWild) || (sel.length === 1 && wildSlotFor(m, sel[0], isWild) >= 0));
         return `<div class="meld ${ok ? 'target' : ''}" ${ok ? `data-act="playOn" data-meld="${m.id}"` : ''} title="${m.type}">
           ${m.cards.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>`;
       })
@@ -361,12 +367,16 @@ function statusText(v) {
     return v.phase === 'draw' ? `Waiting for <b>${turnName}</b> to draw…` : `<b>${turnName}</b> is playing…`;
   }
   if (v.phase === 'draw') {
+    if (v.buyWindow) return 'Waiting while others decide whether to buy…';
+    if (v.deckOnly) return '<b>Your turn!</b> The discard was bought, so draw from the deck.';
     if (v.topDead) return '<b>Your turn!</b> Draw from the deck (the discard is dead).';
     return '<b>Your turn!</b> Tap the deck or the discard pile to draw.';
   }
+  if (v.mustPlay.some((id) => v.hand.some((c) => c.id === id)))
+    return '<span class="warn">Play the wild card you swapped out before you discard.</span>';
   if (v.hand.length === 1) return `<span class="warn">You can't discard your last card. Play it on a pile, or Undo.</span>`;
   if (!p.laid) return `Lay down <b>${contractText(v.round)}</b>, or select a card and Discard.`;
-  if (ui.selected.size) return 'Tap a glowing pile to play the selected cards, or Discard.';
+  if (ui.selected.size) return 'Tap a glowing pile to play the selected cards (or swap out a joker), or Discard.';
   return 'Select cards to play on any pile, then discard.';
 }
 
@@ -374,9 +384,9 @@ function centerHTML(v, isWild) {
   const me = v.you;
   const myTurn = me != null && v.turn === me;
   const p = me != null ? v.players[me] : null;
-  const canDraw = myTurn && v.phase === 'draw';
+  const canDraw = myTurn && v.phase === 'draw' && !v.buyWindow;
   const top = v.discardTop;
-  const discardClickable = canDraw && top && !v.topDead;
+  const discardClickable = canDraw && top && !v.topDead && !v.deckOnly;
   const deck = `<div class="pile ${canDraw ? 'clickable' : ''}"><div class="stack" ${canDraw ? 'data-act="drawDeck"' : ''}>${
     v.deckCount ? '<div class="card-back"></div>' : '<div class="empty-pile"></div>'
   }</div><span>Deck · ${v.deckCount}</span></div>`;
@@ -392,15 +402,39 @@ function centerHTML(v, isWild) {
         `<button class="shanghai-btn ${ui.armed ? 'armed' : ''}" data-act="arm">${ui.armed ? 'Shanghai said: next discard is dead' : 'SHANGHAI!'}</button>`
       );
     else actions.push('<button class="shanghai-btn" data-act="callShanghai">SHANGHAI!</button>');
-
-    const ld = v.lastDiscard;
-    const ownDiscard = ld && top && ld.by === me && ld.cardId === top.id;
-    const canBuy = !myTurn && v.phase === 'draw' && top && !v.topDead && !p.laid && p.buysUsed < v.options.buyLimit && !ownDiscard;
-    if (p.buying) actions.push(`<button class="ghost" data-act="cancelBuy">Cancel buy</button>`);
-    else if (canBuy)
-      actions.push(`<button class="primary" data-act="buy">Buy ${esc(cardLabel(top))} (${v.options.buyLimit - p.buysUsed} left)</button>`);
   }
-  return `<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div></div>`;
+  return `<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div></div>${buyBarHTML(v)}`;
+}
+
+function secondsLeft() {
+  return ui.windowDeadline ? Math.max(0, Math.ceil((ui.windowDeadline - Date.now()) / 1000)) : 0;
+}
+
+// The buying conversation: the current player decides whether to let others buy, then eligible players get 10 seconds.
+function buyBarHTML(v) {
+  const me = v.you;
+  if (me == null || v.phase !== 'draw') return '';
+  const top = v.discardTop;
+  const w = v.buyWindow;
+  const timer = `<span class="countdown" data-countdown>${secondsLeft()}</span>`;
+  if (w) {
+    if (v.turn === me) return `<div class="buy-bar"><span>Others are deciding whether to buy the ${esc(cardLabel(top))}…</span> ${timer}</div>`;
+    if (!w.eligible.includes(me)) return `<div class="buy-bar muted-bar"><span>Buying is open for the ${esc(cardLabel(top))}…</span> ${timer}</div>`;
+    if (w.myAnswer === 'buy') return `<div class="buy-bar"><span>You asked to buy the ${esc(cardLabel(top))}. Waiting…</span> ${timer}</div>`;
+    if (w.myAnswer === 'pass') return `<div class="buy-bar muted-bar"><span>You passed on the ${esc(cardLabel(top))}.</span> ${timer}</div>`;
+    const left = v.options.buyLimit - v.players[me].buysUsed;
+    return `<div class="buy-bar ask"><span>Buy the <b>${esc(cardLabel(top))}</b>? You also take ${v.options.buyPenalty} from the deck. (${left} buy${left === 1 ? '' : 's'} left)</span> ${timer}
+      <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No thanks</button></span></div>`;
+  }
+  if (v.turn === me && top && !v.topDead && !v.deckOnly && !v.buyOffered && v.buyEligible.length && ui.declinedTurn !== turnId(v)) {
+    return `<div class="buy-bar ask"><span>Let others buy the <b>${esc(cardLabel(top))}</b>?</span>
+      <span class="buy-actions"><button class="primary" data-act="allowBuy">Allow buy</button><button class="ghost" data-act="declineBuy">No thanks</button></span></div>`;
+  }
+  return '';
+}
+
+function turnId(v) {
+  return `${v.round}:${v.turn}:${v.discardCount}:${v.lastDiscard ? v.lastDiscard.cardId : ''}`;
 }
 
 function stagingHTML(v, isWild) {
@@ -443,7 +477,7 @@ function handHTML(v, isWild) {
   );
   if (v.canUndo) btns.push('<button class="ghost" data-act="undo">Undo</button>');
   if (n) btns.push('<button class="ghost" data-act="clearSel">Clear</button>');
-  btns.push(`<button class="ghost" data-act="sort" data-how="${ui.lastSort === 'rank' ? 'suit' : 'rank'}">${ui.lastSort === 'rank' ? 'Sort by suit' : 'Sort by rank'}</button>`);
+  btns.push(`<button class="ghost" data-act="sort" data-how="${ui.sortMode === 'rank' ? 'suit' : 'rank'}">${ui.sortMode === 'rank' ? 'Sort by suit' : 'Sort by rank'}</button>`);
   return `<div class="hand-area"><div class="hand" id="hand">${cards
     .map((c) =>
       cardHTML(c, {
@@ -506,6 +540,12 @@ function modalHTML(snap) {
       );
     case 'menu':
       return menuModal(snap);
+    case 'swap':
+      return wrapModal(
+        'Swap or add?',
+        '<p>Swap your card in for the wild card (you then have to play the wild), or add your card to the end of the run?</p>',
+        `<button class="primary" data-act="swapOrAdd" data-choice="swap">Swap for the wild</button><button data-act="swapOrAdd" data-choice="add">Add to the end</button>`
+      );
     case 'wild':
       return wrapModal(
         'Which end?',
@@ -600,19 +640,23 @@ function rulesModal(o) {
     <p>Lowest score after ${ROUNDS.length} rounds wins. Each round has a contract you must lay down before you can play on any piles.</p>
     <ul>${rounds}</ul>
     <h3>Sets &amp; runs</h3>
-    <ul><li>Set: 3 or more of the same rank.</li><li>Run: 4 or more in a row, same suit. Ace is high or low, no wrapping.</li>
+    <ul><li>Set: 3 or more of the same rank.</li><li>Run: 4 or more in a row, same suit. Aces are high only (J-Q-K-A, never A-2-3-4).</li>
     <li>Jokers are wild${o.twoClubsWild ? ', and so is the 2♣' : '. The 2♣ is NOT wild'}. Every set or run needs at least 2 real cards.</li></ul>
     <h3>Your turn</h3>
     <ul><li>Draw from the deck or take the top discard.</li><li>Lay down your contract (exactly the sets and runs listed). Once you're down you can add cards to anyone's piles, on this turn or later.</li>
     <li>End your turn by discarding one card.</li></ul>
     <h3>Buying</h3>
-    <ul><li>When it isn't your turn, you can buy the top discard before the next player draws. You get the card plus 1 penalty card from the deck.</li>
-    <li>The player whose turn it is gets first choice. If several people buy, the one next in turn order gets it.</li>
+    <ul><li>At the start of your turn you choose: <b>No thanks</b> (take the discard or draw from the deck, nobody buys) or <b>Allow buy</b>.</li>
+    <li>If you allow it, everyone who can buy gets 10 seconds to say Buy or No thanks. If several people buy, the one next in turn order gets it. The buyer takes the card plus ${o.buyPenalty} from the deck.</li>
+    <li>If someone bought it, you draw from the deck. If nobody did, you can still take it.</li>
     <li>${o.buyLimit} buys per round. Once you've laid down you can't buy.</li></ul>
     <h3>Shanghai!</h3>
-    <ul><li>If someone who has laid down discards a card that could have gone on a pile, anyone can hit <b>SHANGHAI!</b> before the next player draws. The discarder picks up ${o.shanghaiPenalty} cards and that card is dead.</li>
+    <ul><li>If anyone discards a card that could have gone on a pile, anyone else can hit <b>SHANGHAI!</b> before the next player draws. The discarder picks up ${o.shanghaiPenalty} cards and that card is dead.</li>
     <li>Calling Shanghai when there isn't one costs you ${o.falseCallPenalty} cards, and you can't call again until your next turn.</li>
-    <li>Want to get rid of a playable card on purpose? Before discarding, tap SHANGHAI! yourself. Your discard is declared dead: no penalty, but nobody can pick it up or buy it until another card covers it.</li></ul>
+    <li>Want to get rid of a playable card on purpose? Before discarding, tap SHANGHAI! yourself. Your discard is declared dead: no penalty, but nobody can pick it up or buy it until another card covers it. (If the card couldn't actually go anywhere, it isn't a Shanghai: you'll get a heads-up and the card stays live.)</li></ul>
+    <h3>Swapping wild cards</h3>
+    <ul><li>Once you've laid down, if a run on the table has a joker standing in for a card you hold, select that card and tap the run to swap it in. You take the joker.</li>
+    <li>You have to play the joker you took before you can discard. Only runs, never sets.</li></ul>
     <h3>Going out</h3>
     <ul><li>You can't go out on a discard. Your last cards (at least 2 on that final turn) have to be played onto piles.</li>
     <li>Made a mistake? Undo takes back plays you made this turn, until you discard.</li></ul>
@@ -687,6 +731,7 @@ function onPointerUp(e) {
     visible.splice(from, 1);
     visible.splice(to, 0, d.id);
     ui.order = [...visible, ...ui.order.filter((id) => stagedIds.has(id))];
+    ui.sortMode = 'manual';
   } else {
     if (ui.selected.has(d.id)) ui.selected.delete(d.id);
     else ui.selected.add(d.id);
@@ -814,8 +859,7 @@ function onClick(e) {
     case 'playAgain':
     case 'drawDeck':
     case 'drawDiscard':
-    case 'buy':
-    case 'cancelBuy':
+    case 'allowBuy':
     case 'undo':
       ui.modal = null;
       send({ type: act });
@@ -831,6 +875,25 @@ function onClick(e) {
       ui.modal = null;
       send({ type: act, seat: Number(t.dataset.seat) });
       return render();
+    case 'buyAnswer':
+      send({ type: 'buyAnswer', buy: t.dataset.buy === '1' });
+      return render();
+    case 'declineBuy':
+      ui.declinedTurn = turnId(v);
+      return render();
+    case 'swapOrAdd': {
+      const wp = ui.wildPrompt;
+      ui.modal = null;
+      ui.wildPrompt = null;
+      if (wp) {
+        const res =
+          t.dataset.choice === 'swap'
+            ? send({ type: 'swapWild', meldId: wp.meldId, id: wp.ids[0] })
+            : send({ type: 'addToMeld', meldId: wp.meldId, ids: wp.ids });
+        if (res.ok) ui.selected.clear();
+      }
+      return render();
+    }
     case 'callShanghai':
       send({ type: 'shanghai' });
       return;
@@ -875,13 +938,24 @@ function onClick(e) {
       return render();
     case 'sort': {
       const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
-      ui.lastSort = t.dataset.how;
+      ui.sortMode = t.dataset.how;
       ui.order = sortIds(v.hand, t.dataset.how).sort((a, b) => Number(stagedIds.has(a)) - Number(stagedIds.has(b)));
       return render();
     }
     case 'playOn': {
       const meld = v.melds.find((m) => m.id === Number(t.dataset.meld));
       const cards = selectedCards(v);
+      const canSwap = cards.length === 1 && wildSlotFor(meld, cards[0], isWild) >= 0;
+      if (canSwap) {
+        if (addCards(meld, cards, isWild)) {
+          ui.wildPrompt = { meldId: meld.id, ids: [cards[0].id] };
+          ui.modal = 'swap';
+          return render();
+        }
+        const res = send({ type: 'swapWild', meldId: meld.id, id: cards[0].id });
+        if (res.ok) ui.selected.clear();
+        return render();
+      }
       const wild = cards.some(isWild);
       if (wild && meld.type === 'run') {
         const lowOk = addCards(meld, cards, isWild, 'low');
@@ -943,6 +1017,10 @@ window.addEventListener('pointercancel', (e) => {
   }
 });
 window.addEventListener('resize', layoutHand);
+setInterval(() => {
+  if (!ui.windowDeadline) return;
+  document.querySelectorAll('[data-countdown]').forEach((el) => (el.textContent = secondsLeft()));
+}, 250);
 
 // Test hook: ?debug exposes UI state to automated browser tests
 if (new URLSearchParams(location.search).has('debug')) window.__shanghai = ui;

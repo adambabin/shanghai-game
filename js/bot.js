@@ -1,7 +1,7 @@
 // Computer player. Decisions are made from the same filtered view a human gets.
 
 import { wildTest, cardPoints } from './cards.js';
-import { addCards, fitsAnyMeld, placements, buildSet, buildRun } from './melds.js';
+import { addCards, fitsAnyMeld, placements, buildSet, buildRun, runValue, wildSlotFor } from './melds.js';
 import { ROUNDS, SET_MIN, RUN_MIN, MIN_NATURALS } from './rules.js';
 
 // ---------- Finding a lay down ----------
@@ -30,10 +30,9 @@ function runCandidates(cards, isWild) {
     const byVal = new Map();
     for (const c of cards) {
       if (isWild(c) || c.s !== suit) continue;
-      const vals = c.r === 1 ? [1, 14] : [c.r];
-      for (const v of vals) if (!byVal.has(v)) byVal.set(v, c);
+      if (!byVal.has(runValue(c))) byVal.set(runValue(c), c);
     }
-    for (let start = 1; start + RUN_MIN - 1 <= 14; start++) {
+    for (let start = 2; start + RUN_MIN - 1 <= 14; start++) {
       const picked = [];
       let missing = 0;
       for (let v = start; v < start + RUN_MIN; v++) {
@@ -96,9 +95,9 @@ function planHand(hand, round, isWild) {
       const byVal = new Map();
       for (const c of naturals) {
         if (c.s !== suit) continue;
-        for (const v of c.r === 1 ? [1, 14] : [c.r]) if (!byVal.has(v)) byVal.set(v, c);
+        if (!byVal.has(runValue(c))) byVal.set(runValue(c), c);
       }
-      for (let start = 1; start + RUN_MIN - 1 <= 14; start++) {
+      for (let start = 2; start + RUN_MIN - 1 <= 14; start++) {
         const cards = [];
         for (let v = start; v < start + RUN_MIN; v++) if (byVal.has(v) && !cards.includes(byVal.get(v))) cards.push(byVal.get(v));
         if (cards.length >= 2) windows.push({ suit, start, cards });
@@ -129,7 +128,7 @@ function worstCard(hand, view, isWild) {
   const laid = view.players[view.you].laid;
   let best = null;
   for (const c of hand) {
-    const fits = laid && fitsAnyMeld(c, view.melds, isWild);
+    const fits = fitsAnyMeld(c, view.melds, isWild);
     // after laying down only table plays matter: dump high cards that don't fit anywhere
     const keep = laid ? (fits ? 1000 : 0) : usefulness(c, hand, view.round, isWild);
     const score = keep - cardPoints(c, isWild) / 25;
@@ -140,28 +139,36 @@ function worstCard(hand, view, isWild) {
 
 // ---------- Decisions ----------
 
-export function chooseDraw(view) {
-  const isWild = wildTest(view.options);
+function wantsDiscard(view, isWild) {
   const top = view.discardTop;
-  if (!top || view.topDead) return { type: 'drawDeck' };
   const me = view.players[view.you];
   const hand = view.hand;
-  if (me.laid) return fitsAnyMeld(top, view.melds, isWild) ? { type: 'drawDiscard' } : { type: 'drawDeck' };
-  if (isWild(top)) return { type: 'drawDiscard' };
-  if (!findContract(hand, view.round, isWild) && findContract([...hand, top], view.round, isWild)) return { type: 'drawDiscard' };
+  if (me.laid) return fitsAnyMeld(top, view.melds, isWild);
+  if (isWild(top)) return true;
+  if (!findContract(hand, view.round, isWild) && findContract([...hand, top], view.round, isWild)) return true;
   const u = usefulness(top, [...hand, top], view.round, isWild);
   const worst = worstCard(hand, view, isWild);
-  return u >= 7 && u > worst.score + 2 ? { type: 'drawDiscard' } : { type: 'drawDeck' };
+  return u >= 7 && u > worst.score + 2;
+}
+
+// Draw-phase decision on the bot's own turn. Returns null while others are deciding whether to buy.
+export function chooseDraw(view) {
+  const isWild = wildTest(view.options);
+  if (view.buyWindow) return null;
+  const top = view.discardTop;
+  if (!top || view.topDead || view.deckOnly) return { type: 'drawDeck' };
+  if (wantsDiscard(view, isWild)) return { type: 'drawDiscard' };
+  // not interested: give everyone else a chance to buy it first
+  if (!view.buyOffered && view.buyEligible.length) return { type: 'allowBuy' };
+  return { type: 'drawDeck' };
 }
 
 export function wantsToBuy(view) {
   const isWild = wildTest(view.options);
   const me = view.players[view.you];
   const top = view.discardTop;
-  if (!top || view.topDead || me.laid || me.buying) return false;
-  if (me.buysUsed >= view.options.buyLimit) return false;
-  if (view.lastDiscard && view.lastDiscard.by === view.you && view.lastDiscard.cardId === top.id) return false;
-  if (view.turn === view.you) return false;
+  if (!top || view.topDead || me.laid) return false;
+  if (!view.buyEligible.includes(view.you)) return false;
   if (isWild(top)) return true;
   const hand = view.hand;
   if (!findContract(hand, view.round, isWild) && findContract([...hand, top], view.round, isWild)) return true;
@@ -179,7 +186,6 @@ export function seesShanghai(view) {
   const top = view.discardTop;
   if (!ld || !top || ld.declared || ld.called || ld.by === view.you || ld.cardId !== top.id) return false;
   if (view.phase !== 'draw' || view.players[view.you].blocked) return false;
-  if (!view.players[ld.by].laid) return false;
   // only while the window is still open: the next player hasn't drawn yet
   return fitsAnyMeld(top, view.melds, wildTest(view.options));
 }
@@ -190,6 +196,14 @@ export function choosePlay(view) {
   const me = view.players[view.you];
   const hand = view.hand;
 
+  // a wild we swapped out has to be played before we can discard
+  const owed = hand.find((c) => view.mustPlay.includes(c.id));
+  if (owed) {
+    const m = view.melds.find((m) => placements(m, owed, isWild).length);
+    if (m) return { type: 'addToMeld', meldId: m.id, ids: [owed.id] };
+    return { type: 'undo' };
+  }
+
   if (!me.laid) {
     const groups = findContract(hand, view.round, isWild);
     if (groups) {
@@ -199,6 +213,15 @@ export function choosePlay(view) {
         return { type: 'layDown', groups };
     }
   } else {
+    // swap a natural card for a wild in a run (only with cards to spare, so the wild can be played and we can still discard)
+    if (hand.length >= 3) {
+      for (const c of hand) {
+        const m = view.melds.find((m) => wildSlotFor(m, c, isWild) >= 0);
+        if (!m) continue;
+        const wild = m.cards[wildSlotFor(m, c, isWild)];
+        if (view.melds.some((o) => placements(o, wild, isWild).length)) return { type: 'swapWild', meldId: m.id, id: c.id };
+      }
+    }
     const plays = [];
     for (const c of hand) {
       for (const m of view.melds) if (placements(m, c, isWild).length) { plays.push({ c, m }); break; }
@@ -220,7 +243,8 @@ export function choosePlay(view) {
   // stuck holding one card we can't play: take back the last play
   if (hand.length === 1) return { type: 'undo' };
   const worst = worstCard(hand, view, isWild);
-  return { type: 'discard', id: worst.c.id, declare: !!(me.laid && worst.fits) };
+  // discarding a card that could go on a pile: say Shanghai first so nobody can catch it
+  return { type: 'discard', id: worst.c.id, declare: !!worst.fits };
 }
 
 function canFinishAfter(leftover, view, groups, isWild) {

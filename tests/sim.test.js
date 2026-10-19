@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, applyAction, viewFor, nextRound, totals, endRoundNoWinner } from '../js/engine.js';
+import { createGame, applyAction, viewFor, nextRound, totals, endRoundNoWinner, resolveBuyWindow } from '../js/engine.js';
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai } from '../js/bot.js';
 
 function seeded(seed) {
@@ -29,11 +29,16 @@ function playGame(players, seed) {
             assert.equal(r.result, 'hit');
             stats.shanghais++;
           }
-          if (s !== g.turn && wantsToBuy(viewFor(g, s))) assert.ok(applyAction(g, s, { type: 'buy' }).ok);
+        }
+        if (g.buyWindow) {
+          for (const s of [...g.buyWindow.eligible]) if (g.buyWindow) applyAction(g, s, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, s)) });
+          if (g.buyWindow) resolveBuyWindow(g, true);
+          continue;
         }
         const before = g.buysUsed.reduce((a, b) => a + b, 0);
-        const r = applyAction(g, g.turn, chooseDraw(viewFor(g, g.turn)));
-        assert.ok(r.ok, r.error);
+        const a = chooseDraw(viewFor(g, g.turn));
+        const r = applyAction(g, g.turn, a);
+        assert.ok(r.ok, `${a.type}: ${r.error}`);
         stats.buys += g.buysUsed.reduce((a, b) => a + b, 0) - before;
       } else {
         const seat = g.turn;
