@@ -36,7 +36,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - Purely local UI state lives in the `ui` object and never reaches the engine: hand order and sort mode, selection, staged lay-down groups, the armed Shanghai declaration, dock collapse.
   - Per-player settings (card back color, low-to-high or high-to-low sorting, sound) live in `ui` too and are saved to `localStorage` via `store` (keys prefixed `shanghai.`). No accounts: they stay on that browser/device. Card back colors are `[data-back=…]` CSS blocks in `style.css`.
   - The home screen and Settings offer "Add to your home screen" on phones (hidden once opened from the icon). It matters on iPhone: Safari clears a site's storage after about a week unused, but a home screen app keeps its own (separate) storage. On Android it uses Chrome's install prompt when available.
-  - All in-game messaging goes through the activity box under the deck row (`activityHTML`). It shows, in priority order: a prompt you must answer, then your-turn status, then a brief `toast()` flash, then the turn status. Tapping the box (when it isn't a prompt) opens the game log. `toast()` only floats a pop-up outside a game.
+  - All in-game messaging goes through the activity box above the deck row (`activityHTML`; it grows upward over the table, so the piles and hand never move). It shows, in priority order: a prompt you must answer, then your-turn status, then a brief `toast()` flash, then the turn status. Tapping the box (when it isn't a prompt) opens the game log. `toast()` only floats a pop-up outside a game.
   - `layoutHand()` positions cards absolutely after render, wrapping into rows and shrinking for big hands.
   - The deck row, activity box and hand sit in `.bottom`. `markTableOverflow()` gives it an upward shadow (`.raised`) when the piles on the table don't all fit above it.
   - Pop-ups built with `wrapModal()` keep the title and the Close button fixed; only `.modal-body` scrolls.
@@ -51,7 +51,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 `ready` → `draw` → `play` → (discard) → next player's `draw` … → `roundOver` / `gameOver`.
 
 - **`ready`:** each round opens here until every human sends `ready`. Bots are pre-ready, and the host can force `startNow`.
-- **`draw` with a live discard:** if anyone could buy it, the current player must choose `drawDiscard` ("No, take card") or `allowBuy`. `drawDeck` is refused until they choose (`mustDecideOnDiscard`).
+- **`draw` with a live discard:** if anyone could buy it, the current player must choose `drawDiscard` ("Take it") or `allowBuy`. `drawDeck` is refused until they choose (`mustDecideOnDiscard`).
   - `allowBuy` opens `buyWindow`, which asks eligible players one at a time in turn order, each with `BUY_WINDOW_MS`.
   - A buy gives the card plus `buyPenalty` extra cards. The exposed card underneath is offered again: `buyOffered` resets.
 - **`play`:** lay down the contract, `addToMeld`, `swapWild` (runs only, after laying down; the taken wild goes into `mustPlay` and must be played before discarding), `undo` (reverses this turn's plays via `history`; undoing past everything puts a picked-up discard back and returns to `draw`), then `discard`.
