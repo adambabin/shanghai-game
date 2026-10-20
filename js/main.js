@@ -56,6 +56,7 @@ const CARD_BACKS = [
   ['red', 'Red'],
   ['blue', 'Blue'],
   ['green', 'Green'],
+  ['yellow', 'Yellow'],
   ['black', 'Black'],
 ];
 function applyCardBack() {
