@@ -29,11 +29,16 @@ export const DEFAULT_OPTIONS = {
   shanghaiPenalty: 2, // cards the discarder picks up when Shanghai is called on them
   falseCallPenalty: 2, // cards picked up for calling Shanghai when there isn't one
   botSpeed: 1, // 0.5 = fast, 1 = normal, 2 = slow
+  decks: 3, // standard decks shuffled together, each with its 2 jokers; 3 to 6
 };
 
-// Always 3 standard decks with their 2 jokers each: 162 cards.
-export function decksFor() {
-  return 3;
+export const MIN_DECKS = 3;
+export const MAX_DECKS = 6;
+
+// How many decks a game uses (3 by default, 162 cards). Older saved games have no setting and get the default.
+export function decksFor(options = {}) {
+  const n = Number(options.decks) || DEFAULT_OPTIONS.decks;
+  return Math.min(MAX_DECKS, Math.max(MIN_DECKS, n));
 }
 
 export function contractText(round) {

@@ -44,7 +44,7 @@ export function startRound(state) {
   const n = state.players.length;
   if (state.round > 0) state.dealer = (state.dealer + 1) % n;
   const cfg = ROUNDS[state.round];
-  state.deck = shuffle(makeDecks(decksFor(n)), rngOf(state));
+  state.deck = shuffle(makeDecks(decksFor(state.options)), rngOf(state));
   state.hands = state.players.map(() => state.deck.splice(0, cfg.deal));
   state.discard = [state.deck.pop()];
   state.topDead = false;

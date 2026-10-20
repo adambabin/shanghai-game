@@ -322,3 +322,21 @@ test('undo puts a picked-up discard back so you can choose again', () => {
   assert.equal(g.phase, 'play');
   assert.equal(g.hands[0].length, 4);
 });
+
+test('the host can pick how many decks: 3 by default, 3 to 6, two jokers each', () => {
+  const total = (g) => g.deck.length + g.discard.length + g.hands.reduce((n, h) => n + h.length, 0);
+  const jokers = (g) => [...g.deck, ...g.discard, ...g.hands.flat()].filter((c) => c.r === 0).length;
+  const players = [{ name: 'A' }, { name: 'B' }];
+  const g3 = createGame(players, {}, () => 0.5);
+  assert.equal(total(g3), 3 * 54);
+  assert.equal(jokers(g3), 6);
+  const g5 = createGame(players, { decks: 5 }, () => 0.5);
+  assert.equal(total(g5), 5 * 54);
+  assert.equal(jokers(g5), 10);
+  // out-of-range values are clamped, and every card id is unique
+  assert.equal(total(createGame(players, { decks: 1 }, () => 0.5)), 3 * 54);
+  const g9 = createGame(players, { decks: 9 }, () => 0.5);
+  assert.equal(total(g9), 6 * 54);
+  const ids = [...g9.deck, ...g9.discard, ...g9.hands.flat()].map((c) => c.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
