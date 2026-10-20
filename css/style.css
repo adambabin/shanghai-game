@@ -387,9 +387,11 @@ label.field {
 }
 .chip .pstats {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap; /* stack "11 cards" over "2 buys" when the tile is narrow */
+  column-gap: 8px;
   color: var(--ink-dim);
   white-space: nowrap;
+  min-width: 0;
 }
 .chip .ptags:empty {
   display: none;
@@ -907,4 +909,17 @@ table.scores td.zero {
 }
 .staged-cards .card + .card {
   margin-left: calc(var(--sw) * -0.45);
+}
+
+/* the discard pile when it's where your selected card will go */
+.pile.discard-target .stack > :first-child {
+  box-shadow: 0 0 0 3px var(--gold), 0 0 18px rgba(242, 193, 78, 0.6);
+  animation: glow 1.4s infinite;
+}
+.pile.discard-target.armed .stack > :first-child {
+  box-shadow: 0 0 0 3px var(--red), 0 0 18px rgba(214, 59, 59, 0.7);
+}
+.pile.discard-target > span {
+  color: var(--gold);
+  font-weight: 700;
 }

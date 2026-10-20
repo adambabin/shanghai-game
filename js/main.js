@@ -375,9 +375,9 @@ function statusText(v) {
   if (v.mustPlay.some((id) => v.hand.some((c) => c.id === id)))
     return '<span class="warn">Play the wild card you swapped out before you discard.</span>';
   if (v.hand.length === 1) return `<span class="warn">You can't discard your last card. Play it on a pile, or Undo.</span>`;
-  if (!p.laid) return `Lay down <b>${contractText(v.round)}</b>, or select a card and Discard.`;
-  if (ui.selected.size) return 'Tap a glowing pile to play the selected cards (or swap out a joker), or Discard.';
-  return 'Select cards to play on any pile, then discard.';
+  if (!p.laid) return `Lay down <b>${contractText(v.round)}</b>, or select a card and tap the discard pile.`;
+  if (ui.selected.size) return 'Tap a pile to play the selected cards (or swap out a joker), or tap the discard pile.';
+  return 'Select cards to play on any pile, then select a card and tap the discard pile.';
 }
 
 function centerHTML(v, isWild) {
@@ -391,9 +391,15 @@ function centerHTML(v, isWild) {
   const deck = `<div class="pile ${deckClickable ? 'clickable' : ''}"><div class="stack" ${deckClickable ? 'data-act="drawDeck"' : ''}>${
     v.deckCount ? '<div class="card-back"></div>' : '<div class="empty-pile"></div>'
   }</div><span>Deck</span></div>`;
-  const discard = `<div class="pile ${discardClickable ? 'clickable' : ''}"><div class="stack" ${discardClickable ? 'data-act="drawDiscard"' : ''}>${
-    top ? cardHTML(top, { isWild }) : '<div class="empty-pile"></div>'
-  }${v.topDead ? '<div class="dead-stamp"><span>DEAD</span></div>' : ''}</div><span>${v.topDead ? 'Dead card' : 'Discard'}</span></div>`;
+  // with one card selected on your turn, the discard pile is where you tap to discard it
+  const canDiscard = myTurn && v.phase === 'play' && ui.selected.size === 1;
+  const pileAct = discardClickable ? 'drawDiscard' : canDiscard ? 'discard' : null;
+  const pileLabel = canDiscard ? (ui.armed ? 'Tap to discard (dead)' : 'Tap to discard') : v.topDead ? 'Dead card' : 'Discard';
+  const discard = `<div class="pile ${pileAct ? 'clickable' : ''} ${canDiscard ? 'discard-target' : ''} ${canDiscard && ui.armed ? 'armed' : ''}"><div class="stack" ${
+    pileAct ? `data-act="${pileAct}"` : ''
+  }>${top ? cardHTML(top, { isWild }) : '<div class="empty-pile"></div>'}${
+    v.topDead ? '<div class="dead-stamp"><span>DEAD</span></div>' : ''
+  }</div><span>${pileLabel}</span></div>`;
 
   const actions = [];
   if (p) {
@@ -480,7 +486,6 @@ function handHTML(v, isWild) {
   const cards = ui.order.filter((id) => !stagedIds.has(id)).map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
   const me = v.you;
   const p = v.players[me];
-  const myPlay = v.turn === me && v.phase === 'play';
   const n = ui.selected.size;
   const btns = [];
   if (!p.laid && v.phase !== 'roundOver' && n >= 2) {
@@ -489,9 +494,6 @@ function handHTML(v, isWild) {
     if (couldBeSet(sel, isWild)) btns.push('<button class="primary" data-act="stage" data-type="set">Make set</button>');
     if (couldBeRun(sel, isWild)) btns.push('<button class="primary" data-act="stage" data-type="run">Make run</button>');
   }
-  btns.push(
-    `<button class="${ui.armed ? 'danger' : 'primary'}" data-act="discard" ${myPlay && n === 1 ? '' : 'disabled'}>${ui.armed ? 'Discard (dead)' : 'Discard'}</button>`
-  );
   if (v.canUndo) btns.push('<button class="ghost" data-act="undo">Undo</button>');
   if (n) btns.push('<button class="ghost" data-act="clearSel">Clear</button>');
   btns.push(`<button class="ghost" data-act="sort" data-how="${ui.sortMode === 'rank' ? 'suit' : 'rank'}">${ui.sortMode === 'rank' ? 'Sort by suit' : 'Sort by rank'}</button>`);
