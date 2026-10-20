@@ -42,8 +42,11 @@ body {
   overflow-x: hidden;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  background: radial-gradient(ellipse at 50% 30%, var(--felt-light), var(--felt) 55%, var(--felt-dark));
-  background-attachment: fixed;
+  /* solid felt first: some browsers (e.g. Firefox on iPhone) skip gradients */
+  background-color: var(--felt);
+  background-image: radial-gradient(ellipse at 50% 30%, var(--felt-light), var(--felt) 55%, var(--felt-dark));
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
   overscroll-behavior: none;
 }
 body {
@@ -269,7 +272,8 @@ label.field {
   padding-left: calc(var(--cw) * 0.18);
 }
 .card.joker {
-  background: linear-gradient(160deg, #fff6d8, #ffe08a);
+  background-color: #ffeaa6;
+  background-image: linear-gradient(160deg, #fff6d8, #ffe08a);
   color: #7a3db8;
 }
 .card.joker .mid {
@@ -314,7 +318,8 @@ label.field {
   height: var(--ch);
   border-radius: 8px;
   border: 3px solid var(--card);
-  background: repeating-linear-gradient(45deg, #b33a3a 0 6px, #9a2f2f 6px 12px);
+  background-color: #a8353a;
+  background-image: repeating-linear-gradient(45deg, #b33a3a 0 6px, #9a2f2f 6px 12px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 .empty-pile {
