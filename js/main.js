@@ -190,6 +190,7 @@ function onSnapshot(snap) {
       if ((v.turn === v.you && v.phase === 'draw') || v.phase === 'ready') ui.dockCollapsed = false;
       if (v.turn === v.you && v.phase === 'draw' && ui.lastTurnKey) beep([660, 880]);
       ui.lastTurnKey = turnKey;
+      ui.revealTurn = true;
     }
   }
   render();
@@ -290,6 +291,8 @@ function render() {
     return;
   }
   // re-rendering replaces the table and pop-ups, so carry their scroll positions over
+  const oldPlayers = $app.querySelector('.players');
+  const playersLeft = oldPlayers ? oldPlayers.scrollLeft : null;
   const oldTable = $app.querySelector('.table');
   const tableTop = oldTable ? oldTable.scrollTop : null;
   const oldModalBody = $app.querySelector('.modal-body');
@@ -303,6 +306,13 @@ function render() {
   else $app.innerHTML = gameHTML(snap);
   layoutHand();
   markTableOverflow();
+  const players = $app.querySelector('.players');
+  if (players) {
+    if (playersLeft != null) players.scrollLeft = playersLeft;
+    if (ui.revealTurn) revealTurn(players, playersLeft != null);
+    ui.revealTurn = false;
+    markPlayersFade(players);
+  }
   const modalBody = $app.querySelector('.modal-body');
   if (modalBody && modalTop != null) modalBody.scrollTop = modalTop;
   const table = $app.querySelector('.table');
@@ -314,6 +324,24 @@ function render() {
     ui.revealPlayed = false;
     revealPlayed(table);
   }
+}
+
+// The row of player tiles scrolls sideways when it doesn't fit; bring whoever's turn it is into view.
+function revealTurn(players, smooth) {
+  const chip = players.querySelector('.chip.turn');
+  if (!chip) return;
+  const pad = 32; // clear of the edge fade
+  const left = chip.offsetLeft - pad;
+  const right = chip.offsetLeft + chip.offsetWidth + pad - players.clientWidth;
+  const to = left < players.scrollLeft ? left : right > players.scrollLeft ? right : null;
+  if (to != null) players.scrollTo({ left: Math.max(0, to), behavior: smooth ? 'smooth' : 'auto' });
+}
+
+// fade whichever edge has more players past it
+function markPlayersFade(players) {
+  const max = players.scrollWidth - players.clientWidth;
+  players.classList.toggle('more-left', players.scrollLeft > 1);
+  players.classList.toggle('more-right', players.scrollLeft < max - 1);
 }
 
 // Scroll the table just enough to show the piles that were played on, if any of them are out of view.
@@ -448,8 +476,10 @@ function playerChips(v) {
       const left = p.laid ? 0 : Math.max(0, v.options.buyLimit - p.buysUsed);
       const dots = left ? `<span class="buy-dots" title="${left} buy${left === 1 ? '' : 's'} left">${'<i></i>'.repeat(left)}</span>` : '';
       const dealer = i === v.dealer;
+      // names longer than 15 characters are cut short; the full name shows on hover
+      const short = p.name.length > 15 ? p.name.slice(0, 14).trimEnd() + '…' : p.name;
       return `<div class="chip ${i === v.turn ? 'turn' : ''} ${i === v.you ? 'me' : ''} ${dealer ? 'dealer' : ''}">
-        ${dealer ? '<span class="dealer-badge" title="Dealer">D</span>' : ''}<span class="pname">${esc(p.name)}</span>
+        ${dealer ? '<span class="dealer-badge" title="Dealer">D</span>' : ''}<span class="pname" title="${esc(p.name)}">${esc(short)}</span>
         <span class="pstats"><span>${p.cards} card${p.cards === 1 ? '' : 's'}</span>${dots}</span>
         <span class="ptags">${tags.join('')}</span></div>`;
     })
@@ -1257,6 +1287,10 @@ function onKey(e) {
   }
 }
 
+// scroll events don't bubble, so listen while they pass down to the player row
+$app.addEventListener('scroll', (e) => {
+  if (e.target.classList && e.target.classList.contains('players')) markPlayersFade(e.target);
+}, true);
 // any scrolling by hand wins over an auto-scroll still in progress
 for (const type of ['touchstart', 'wheel', 'pointerdown'])
   $app.addEventListener(type, (e) => {

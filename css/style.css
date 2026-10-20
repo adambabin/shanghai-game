@@ -390,12 +390,31 @@ label.field {
   font-size: 15px;
 }
 
+/* one row of player tiles that scrolls sideways when they don't all fit */
 .players {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  position: relative;
+  display: flex;
   gap: 6px;
   padding: 8px 12px;
   flex: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.players::-webkit-scrollbar {
+  display: none;
+}
+.players.more-right {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.players.more-left {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 32px);
+  mask-image: linear-gradient(to right, transparent, #000 32px);
+}
+.players.more-left.more-right {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
 }
 .chip {
   display: flex;
@@ -404,7 +423,8 @@ label.field {
   padding: 5px 8px;
   border-radius: 10px;
   background: var(--panel);
-  min-width: 0;
+  flex: none;
+  min-width: 118px; /* grows to fit the name */
   border: 2px solid transparent;
   font-size: 12px;
 }
@@ -441,8 +461,6 @@ label.field {
   font-weight: 700;
   font-size: 14px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .chip .pstats {
   display: flex;
