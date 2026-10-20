@@ -552,7 +552,7 @@ label.field {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 6px 12px;
+  padding: 8px 12px 6px; /* 8px on top matches the gap above the activity box */
   flex: none;
 }
 .pile {
@@ -565,6 +565,7 @@ label.field {
   white-space: nowrap;
   gap: 3px;
   font-size: 12px;
+  line-height: 15px;
   color: var(--ink-dim);
 }
 .pile .stack {
@@ -601,6 +602,8 @@ label.field {
   gap: 8px;
   align-items: stretch;
   width: 140px;
+  /* the piles have a label under the card (15px line + 3px gap); match it so the button lines up with the cards */
+  margin-bottom: 18px;
 }
 .shanghai-btn {
   background: var(--red);
