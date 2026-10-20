@@ -398,11 +398,21 @@ label.field {
 }
 .chip .pstats {
   display: flex;
-  flex-wrap: wrap; /* stack "11 cards" over "2 buys" when the tile is narrow */
-  column-gap: 8px;
+  align-items: center;
+  column-gap: 6px;
   color: var(--ink-dim);
   white-space: nowrap;
   min-width: 0;
+}
+.chip .buy-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.chip .buy-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold);
 }
 .chip .ptags:empty {
   display: none;

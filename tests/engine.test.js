@@ -112,7 +112,7 @@ test('round 1 lay down, play on piles, and Shanghai call penalties', () => {
   assert.equal(g.hands[0].length, before + 2);
   assert.ok(!g.blocked[0], 'no more blocking after a wrong call');
   assert.equal(applyAction(g, 2, { type: 'shanghai' }).result, 'hit');
-  assert.equal(g.hands[0].length, before + 2 + 3);
+  assert.equal(g.hands[0].length, before + 2 + 2);
   assert.ok(g.topDead);
   assert.ok(!applyAction(g, 1, { type: 'drawDiscard' }).ok, 'dead card cannot be picked up');
   assert.ok(!applyAction(g, 2, { type: 'buy' }).ok, 'dead card cannot be bought');
@@ -239,7 +239,7 @@ test('Shanghai counts on anyone, laid down or not; a self-Shanghai that is not o
   deckDraw(g, 1);
   applyAction(g, 1, { type: 'discard', id: p1[0].id });
   assert.equal(applyAction(g, 2, { type: 'shanghai' }).result, 'hit');
-  assert.equal(g.hands[1].length, 5 + 3);
+  assert.equal(g.hands[1].length, 5 + 2);
   // p2 says Shanghai on the 2H, which fits nowhere: no penalty, card stays live
   deckDraw(g, 2);
   applyAction(g, 2, { type: 'discard', id: p2[0].id, declare: true });
@@ -301,4 +301,24 @@ test('view hides other hands', () => {
   assert.equal(v.hand.length, 11);
   assert.equal(v.players[1].cards, 11);
   assert.ok(!JSON.stringify(v).includes('"deck"'));
+});
+
+test('undo puts a picked-up discard back so you can choose again', () => {
+  const p0 = [c(4, 'S'), c(5, 'H'), c(9, 'D')];
+  const p1 = [c(1, 'H'), c(13, 'D'), c(5, 'C')];
+  const g = rigged([p0, p1], { deck: [c(9, 'C'), c(10, 'C')] });
+  const top = g.discard[g.discard.length - 1];
+  assert.ok(viewFor(g, 0).mustDecide);
+  assert.ok(applyAction(g, 0, { type: 'drawDiscard' }).ok);
+  assert.ok(viewFor(g, 0).canUndo);
+  assert.ok(applyAction(g, 0, { type: 'undo' }).ok);
+  assert.equal(g.phase, 'draw');
+  assert.equal(g.hands[0].length, 3);
+  assert.equal(g.discard[g.discard.length - 1].id, top.id);
+  // back to the choice: no deck draw until others get the chance to buy
+  assert.ok(viewFor(g, 0).mustDecide);
+  assert.ok(!applyAction(g, 0, { type: 'drawDeck' }).ok);
+  deckDraw(g, 0);
+  assert.equal(g.phase, 'play');
+  assert.equal(g.hands[0].length, 4);
 });

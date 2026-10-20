@@ -48,7 +48,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 - **`draw` with a live discard:** if anyone could buy it, the current player must choose `drawDiscard` ("No, take card") or `allowBuy`. `drawDeck` is refused until they choose (`mustDecideOnDiscard`).
   - `allowBuy` opens `buyWindow`, which asks eligible players one at a time in turn order, each with `BUY_WINDOW_MS`.
   - A buy gives the card plus `buyPenalty` extra cards. The exposed card underneath is offered again: `buyOffered` resets.
-- **`play`:** lay down the contract, `addToMeld`, `swapWild` (runs only, after laying down; the taken wild goes into `mustPlay` and must be played before discarding), `undo` (reverses this turn's plays via `history`), then `discard`.
+- **`play`:** lay down the contract, `addToMeld`, `swapWild` (runs only, after laying down; the taken wild goes into `mustPlay` and must be played before discarding), `undo` (reverses this turn's plays via `history`; undoing past everything puts a picked-up discard back and returns to `draw`), then `discard`.
 
 ### House rules that differ from standard Shanghai (all enforced in engine/melds; keep them)
 

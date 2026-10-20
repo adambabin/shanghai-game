@@ -240,7 +240,8 @@ export function applyAction(state, seat, action) {
       const card = state.discard.pop();
       state.hands[seat].push(card);
       state.phase = 'play';
-      state.history = [];
+      // undoing everything back past this puts the card back so they can choose again
+      state.history = [{ kind: 'take', card, buyOffered: state.buyOffered }];
       state.mustPlay = [];
       resetDraw(state);
       log(state, `${name} picked up the ${cardLabel(card)}.`, 'draw', { seat });
@@ -386,6 +387,14 @@ export function applyAction(state, seat, action) {
       if (!myTurn || state.phase !== 'play') return err('Nothing to undo.');
       const h = state.history.pop();
       if (!h) return err('Nothing to undo this turn.');
+      if (h.kind === 'take') {
+        removeFromHand(state, seat, [h.card.id]);
+        state.discard.push(h.card);
+        state.phase = 'draw';
+        state.buyOffered = h.buyOffered;
+        log(state, `${name} put the ${cardLabel(h.card)} back.`, 'undo', { seat });
+        return { ok: true };
+      }
       if (h.kind === 'layDown') {
         state.melds = state.melds.filter((m) => !h.meldIds.includes(m.id));
         state.laid[seat] = false;
