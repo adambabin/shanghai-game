@@ -328,10 +328,12 @@ function playerChips(v) {
       if (p.buying) tags.push('<span class="tag gold">buying</span>');
       const seat = ui.snap.lobby.seats[i];
       if (seat && !seat.connected) tags.push('<span class="tag red">offline</span>');
-      const left = v.options.buyLimit - p.buysUsed;
+      // one dot per buy left; none once they've laid down, since they can't buy then
+      const left = p.laid ? 0 : Math.max(0, v.options.buyLimit - p.buysUsed);
+      const dots = left ? `<span class="buy-dots" title="${left} buy${left === 1 ? '' : 's'} left">${'<i></i>'.repeat(left)}</span>` : '';
       return `<div class="chip ${i === v.turn ? 'turn' : ''} ${i === v.you ? 'me' : ''}">
         <span class="pname">${esc(p.name)}</span>
-        <span class="pstats"><span>${p.cards} card${p.cards === 1 ? '' : 's'}</span><span>${left} buy${left === 1 ? '' : 's'}</span></span>
+        <span class="pstats"><span>${p.cards} card${p.cards === 1 ? '' : 's'}</span>${dots}</span>
         <span class="ptags">${tags.join('')}</span></div>`;
     })
     .join('');
@@ -352,7 +354,8 @@ function tableHTML(v, isWild) {
   const playable = canPlayOn(v);
   const rows = [];
   v.players.forEach((p, i) => {
-    const melds = v.melds.filter((m) => m.owner === i);
+    // sets before runs, so everyone's piles line up the same way
+    const melds = v.melds.filter((m) => m.owner === i).sort((a, b) => (a.type === b.type ? a.id - b.id : a.type === 'set' ? -1 : 1));
     if (!melds.length) return;
     const html = melds
       .map((m) => {
@@ -718,7 +721,7 @@ function rulesModal(o) {
     <li>You have to play the joker you took before you can discard. Only runs, never sets.</li></ul>
     <h3>Going out</h3>
     <ul><li>You can't go out on a discard. Your last cards (at least 2 on that final turn) have to be played onto piles.</li>
-    <li>Made a mistake? Undo takes back plays you made this turn, until you discard.</li></ul>
+    <li>Made a mistake? Undo takes back plays you made this turn, until you discard. It can even put back a discard you picked up, so you can choose again.</li></ul>
     <h3>Scoring</h3>
     <ul><li>2–9: face value · 10, J, Q, K: 10 · Ace: 20 · Joker${o.twoClubsWild ? ' / 2♣' : ''}: 50</li></ul>
     </div>`

@@ -26,7 +26,7 @@ export const DEFAULT_OPTIONS = {
   buyLimit: 2, // buys per player per round
   buyPenalty: 2, // extra cards from the deck on top of the card you buy
   twoClubsWild: false, // jokers are always wild; optionally the 2 of clubs too
-  shanghaiPenalty: 3, // cards the discarder picks up when Shanghai is called on them
+  shanghaiPenalty: 2, // cards the discarder picks up when Shanghai is called on them
   falseCallPenalty: 2, // cards picked up for calling Shanghai when there isn't one
   botSpeed: 1, // 0.5 = fast, 1 = normal, 2 = slow
 };
