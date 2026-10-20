@@ -63,6 +63,43 @@ function applyCardBack() {
 }
 applyCardBack();
 
+// ---------- add to home screen ----------
+// Opened from a home screen icon, the game gets its own storage that phones don't clear after a week away.
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/.test(navigator.userAgent);
+let installPrompt = null; // Chrome on Android hands us its own install prompt
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  render();
+});
+const canAddToHome = () => !isStandalone() && (isIOS || isAndroid || !!installPrompt);
+
+async function addToHome() {
+  if (!installPrompt) {
+    ui.modal = 'install';
+    return render();
+  }
+  installPrompt.prompt();
+  await installPrompt.userChoice.catch(() => null);
+  installPrompt = null;
+  render();
+}
+
+function installModal() {
+  const steps = isIOS
+    ? `<ol><li>Tap the <b>Share</b> button (the square with an arrow). In Safari it's at the bottom of the screen.</li>
+        <li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>.</li></ol>`
+    : `<ol><li>Tap the browser menu (<b>⋮</b> at the top right in Chrome).</li>
+        <li>Tap <b>Add to Home screen</b> or <b>Install app</b>.</li><li>Tap <b>Add</b> or <b>Install</b>.</li></ol>`;
+  return wrapModal(
+    'Add to your home screen',
+    `<div class="rules"><p>Then Shanghai opens like an app, full screen, and your phone keeps your settings and your saved game.</p>${steps}
+    <p class="muted">From then on, open the game from the new icon.${isIOS ? " The first time, you'll type your name again." : ''}</p></div>`
+  );
+}
+
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 // ---------- sound ----------
@@ -255,7 +292,8 @@ function homeHTML() {
     <div class="divider">— or join someone else's game —</div>
     <div class="row"><input data-field="joinCode" placeholder="ROOM CODE" maxlength="5" style="text-transform:uppercase;letter-spacing:3px" value="${esc(ui.joinCode)}"><button data-act="join" style="flex:none">Join</button></div>
     <div class="row"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="modal" data-m="settings">Settings</button></div>
-  </div></div>${ui.modal === 'rules' ? rulesModal(DEFAULT_OPTIONS) : ui.modal === 'settings' ? settingsModal() : ''}`;
+    ${canAddToHome() ? '<button class="ghost small" data-act="addToHome">Add Shanghai to your home screen</button>' : ''}
+  </div></div>${ui.modal === 'rules' ? rulesModal(DEFAULT_OPTIONS) : ui.modal === 'settings' ? settingsModal() : ui.modal === 'install' ? installModal() : ''}`;
 }
 
 function messageHTML(text) {
@@ -598,7 +636,7 @@ function gameHTML(snap) {
 function modalHTML(snap) {
   const v = snap.view;
   if (v.phase === 'roundOver' || v.phase === 'gameOver') {
-    if (!['scores', 'menu', 'rules', 'log', 'settings'].includes(ui.modal)) return resultModal(snap);
+    if (!['scores', 'menu', 'rules', 'log', 'settings', 'install'].includes(ui.modal)) return resultModal(snap);
   }
   switch (ui.modal) {
     case 'scores':
@@ -617,6 +655,8 @@ function modalHTML(snap) {
       return menuModal(snap);
     case 'settings':
       return settingsModal();
+    case 'install':
+      return installModal();
     case 'swap':
       return wrapModal(
         'Swap or add?',
@@ -722,7 +762,8 @@ function settingsModal() {
       <h3>Card color</h3><div class="swatches">${backs}</div>
       <h3>Sort cards</h3><div class="seg">${choice('setSortDesc', 0, !ui.sortDesc, 'Low to high')}${choice('setSortDesc', 1, ui.sortDesc, 'High to low')}</div>
       <h3>Sound</h3><div class="seg">${choice('setSound', 1, ui.sound, 'On')}${choice('setSound', 0, !ui.sound, 'Off')}</div>
-      <p class="muted">Saved on this device.</p>
+      <p class="muted">Saved on this device.${canAddToHome() ? ' Phones can clear them if you don\'t play for a while, unless you add the game to your home screen.' : ''}</p>
+      ${canAddToHome() ? '<button class="ghost small" data-act="addToHome">Add to your home screen</button>' : ''}
     </div>`
   );
 }
@@ -975,6 +1016,8 @@ function onClick(e) {
     case 'toggleDock':
       ui.dockCollapsed = !ui.dockCollapsed;
       return render();
+    case 'addToHome':
+      return addToHome();
     case 'setSound':
       ui.sound = t.dataset.val === '1';
       store.set('sound', ui.sound);

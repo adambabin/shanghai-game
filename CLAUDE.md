@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A browser Shanghai rummy game with one family's house rules. It's a static site with no build step and no backend: plain ES modules plus a vendored PeerJS (`vendor/peerjs.min.js`). Deployed to GitHub Pages by `.github/workflows/pages.yml` on every push to `main`. That workflow runs `npm test` first, then publishes `index.html`, `css/`, `js/` and `vendor/`.
+A browser Shanghai rummy game with one family's house rules. It's a static site with no build step and no backend: plain ES modules plus a vendored PeerJS (`vendor/peerjs.min.js`). Deployed to GitHub Pages by `.github/workflows/pages.yml` on every push to `main`. That workflow runs `npm test` first, then publishes `index.html`, `manifest.webmanifest`, `icons/`, `css/`, `js/` and `vendor/`. New top-level files must be added to its copy step.
 
 ## Commands
 
@@ -35,6 +35,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 - `js/main.js` is the whole UI. It re-renders by setting `innerHTML` on every snapshot and uses one delegated click handler keyed on `data-act`.
   - Purely local UI state lives in the `ui` object and never reaches the engine: hand order and sort mode, selection, staged lay-down groups, the armed Shanghai declaration, dock collapse.
   - Per-player settings (card back color, low-to-high or high-to-low sorting, sound) live in `ui` too and are saved to `localStorage` via `store` (keys prefixed `shanghai.`). No accounts: they stay on that browser/device. Card back colors are `[data-back=…]` CSS blocks in `style.css`.
+  - The home screen and Settings offer "Add to your home screen" on phones (hidden once opened from the icon). It matters on iPhone: Safari clears a site's storage after about a week unused, but a home screen app keeps its own (separate) storage. On Android it uses Chrome's install prompt when available.
   - All in-game messaging goes through the activity box under the deck row (`activityHTML`). It shows, in priority order: a prompt you must answer, then your-turn status, then a brief `toast()` flash, then the turn status. Tapping the box (when it isn't a prompt) opens the game log. `toast()` only floats a pop-up outside a game.
   - `layoutHand()` positions cards absolutely after render, wrapping into rows and shrinking for big hands.
   - Card drag reorders `ui.order` only.
