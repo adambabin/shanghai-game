@@ -659,6 +659,9 @@ label.field {
   color: var(--ink-dim);
   white-space: nowrap;
 }
+.staging .label b {
+  color: var(--gold);
+}
 .staged {
   display: flex;
   align-items: center;
@@ -666,8 +669,14 @@ label.field {
   padding: 4px 6px;
   border-radius: 9px;
   background: var(--panel);
+  border: 2px solid transparent;
   cursor: pointer;
   flex: none;
+}
+/* cards are selected: tap a group to add them */
+.staged.target {
+  border-color: var(--gold);
+  animation: glow 1.4s infinite;
 }
 .staged .kind {
   font-size: 11px;
