@@ -613,6 +613,8 @@ function stagingHTML(v, isWild) {
   const runs = ui.staged.filter((g) => g.type === 'run').length;
   if (!ui.staged.length) return '';
   let allComplete = true;
+  // with cards selected, every staged group lights up: tap one to add them (it says so if they don't fit)
+  const adding = ui.selected.size > 0;
   const groups = ui.staged
     .map((g, i) => {
       const cards = g.ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
@@ -622,7 +624,7 @@ function stagingHTML(v, isWild) {
       // complete, still short of cards, or enough cards that don't work yet (e.g. too many jokers)
       const status = built ? '✓' : cards.length < min ? `${cards.length}/${min}` : '!';
       const shown = built ? built.cards : cards;
-      return `<div class="staged ${built ? 'done' : ''}" data-act="addToStaged" data-i="${i}" title="Select cards and tap to add them">
+      return `<div class="staged ${built ? 'done' : ''} ${adding ? 'target' : ''}" data-act="addToStaged" data-i="${i}" title="Select cards and tap to add them">
         <div class="staged-head"><span class="kind">${g.type.toUpperCase()} ${status}</span>
         <button class="unstage" data-act="unstage" data-i="${i}" title="Put these cards back">✕</button></div>
         <div class="staged-cards">${shown.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div></div>`;
@@ -632,7 +634,7 @@ function stagingHTML(v, isWild) {
   const canLay = ready && v.turn === me && v.phase === 'play';
   // only count what this round actually asks for
   const need = [cfg.sets && `${sets}/${cfg.sets} set${cfg.sets > 1 ? 's' : ''}`, cfg.runs && `${runs}/${cfg.runs} run${cfg.runs > 1 ? 's' : ''}`].filter(Boolean);
-  return `<div class="staging"><span class="label">Your lay down: ${need.join(' · ')}</span>${groups}
+  return `<div class="staging"><span class="label">Your lay down: ${need.join(' · ')}${adding ? ' · <b>tap a group to add</b>' : ''}</span>${groups}
     <button class="primary small" data-act="layDown" ${canLay ? '' : 'disabled'}>${ready ? 'Lay down!' : 'Lay down'}</button></div>`;
 }
 
@@ -1172,6 +1174,7 @@ function onClick(e) {
         return toast(`${added.map(cardLabel).join(' ')} can't go in that ${g.type}.`, true);
       g.ids = all.map((c) => c.id);
       ui.selected.clear();
+      if (ui.flash && ui.flash.bad) ui.flash = null; // an earlier "can't go there" no longer applies
       return render();
     }
     case 'unstage':
