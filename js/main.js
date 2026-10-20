@@ -418,7 +418,7 @@ function lobbyHTML(snap) {
       ${optionRow('Extra cards per buy', 'buyPenalty', [[0, 'None'], [1, '1'], [2, '2'], [3, '3']], o, isHost)}
       ${optionRow('2♣ wild', 'twoClubsWild', [[false, 'No (jokers only)'], [true, 'Yes']], o, isHost)}
       ${optionRow('Shanghai penalty', 'shanghaiPenalty', [[2, '2 cards'], [3, '3 cards'], [4, '4 cards']], o, isHost)}
-      ${optionRow('Wrong Shanghai call', 'falseCallPenalty', [[1, '1 card'], [2, '2 cards'], [3, '3 cards']], o, isHost)}
+      ${optionRow('Wrong Shanghai call', 'falseCallPenalty', [[0, 'No penalty'], [1, '1 card'], [2, '2 cards'], [3, '3 cards']], o, isHost)}
       ${optionRow('Computer speed', 'botSpeed', [[0.5, 'Fast'], [1, 'Normal'], [2, 'Slow']], o, isHost)}
     </div>
     ${
@@ -866,7 +866,7 @@ function rulesModal(o) {
     <h3>Shanghai!</h3>
     <ul><li>If anyone discards a card that could have gone on a pile, anyone else can hit <b>SHANGHAI!</b> before the next player draws. The discarder picks up ${o.shanghaiPenalty} cards and that card is dead.</li>
     <li>A card counts as playable if it fits on the end of a pile or could swap out a joker in a run (e.g. a 9 when there's 7, 8, joker, 10).</li>
-    <li>Calling Shanghai when there isn't one costs you ${o.falseCallPenalty} cards.</li>
+    <li>Calling Shanghai when there isn't one ${o.falseCallPenalty ? `costs you ${o.falseCallPenalty} card${o.falseCallPenalty === 1 ? '' : 's'}` : 'costs nothing'}.</li>
     <li>Want to get rid of a playable card on purpose? Before discarding, tap SHANGHAI! yourself. Your discard is declared dead: no penalty, but nobody can pick it up or buy it until another card covers it. (If the card couldn't actually go anywhere, it isn't a Shanghai: you'll get a heads-up and the card stays live.)</li></ul>
     <h3>Swapping wild cards</h3>
     <ul><li>Once you've laid down, if a run on the table has a joker standing in for a card you hold, select that card and tap the run to swap it in. You take the joker.</li>

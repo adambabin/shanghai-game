@@ -27,7 +27,7 @@ export const DEFAULT_OPTIONS = {
   buyPenalty: 2, // extra cards from the deck on top of the card you buy
   twoClubsWild: false, // jokers are always wild; optionally the 2 of clubs too
   shanghaiPenalty: 2, // cards the discarder picks up when Shanghai is called on them
-  falseCallPenalty: 2, // cards picked up for calling Shanghai when there isn't one
+  falseCallPenalty: 0, // cards picked up for calling Shanghai when there isn't one (0 = no penalty)
   botSpeed: 1, // 0.5 = fast, 1 = normal, 2 = slow
   decks: 3, // standard decks shuffled together, each with its 2 jokers; 3 to 6
 };

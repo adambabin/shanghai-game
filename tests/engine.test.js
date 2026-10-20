@@ -95,6 +95,7 @@ test('round 1 lay down, play on piles, and Shanghai call penalties', () => {
   const p1 = Array.from({ length: 11 }, (_, i) => c((i % 6) + 2, 'H'));
   const p2 = Array.from({ length: 11 }, (_, i) => c((i % 6) + 2, 'D'));
   const g = rigged([p0, p1, p2]);
+  g.options.falseCallPenalty = 2; // the host chose a penalty for wrong calls
   assert.ok(deckDraw(g, 0).ok);
   const lay = applyAction(g, 0, {
     type: 'layDown',
@@ -339,4 +340,19 @@ test('the host can pick how many decks: 3 by default, 3 to 6, two jokers each', 
   assert.equal(total(g9), 6 * 54);
   const ids = [...g9.deck, ...g9.discard, ...g9.hands.flat()].map((c) => c.id);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+test('a wrong Shanghai call costs nothing by default, or what the host chose', () => {
+  const players = [{ name: 'A' }, { name: 'B' }];
+  const g = createGame(players, {}, () => 0.5);
+  g.phase = 'draw';
+  const before = g.hands[1].length;
+  assert.equal(applyAction(g, 1, { type: 'shanghai' }).result, 'miss');
+  assert.equal(g.hands[1].length, before);
+  assert.equal(g.log[g.log.length - 1].text, "B called Shanghai, but there wasn't one.");
+  const h = createGame(players, { falseCallPenalty: 1 }, () => 0.5);
+  h.phase = 'draw';
+  assert.equal(applyAction(h, 1, { type: 'shanghai' }).result, 'miss');
+  assert.equal(h.hands[1].length, before + 1);
+  assert.equal(h.log[h.log.length - 1].text, "B called Shanghai, but there wasn't one. B picks up 1 card.");
 });
