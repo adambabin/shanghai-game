@@ -465,7 +465,8 @@ function centerHTML(v, isWild) {
   // with one card selected on your turn, the discard pile is where you tap to discard it
   const canDiscard = myTurn && v.phase === 'play' && ui.selected.size === 1;
   const pileAct = discardClickable ? 'drawDiscard' : canDiscard ? 'discard' : null;
-  const pileLabel = canDiscard ? (ui.armed ? 'Tap to discard (dead)' : 'Tap to discard') : v.topDead ? 'Dead card' : 'Discard';
+  // kept to one short line so the discard card doesn't shift; the red glow shows a declared-dead discard
+  const pileLabel = canDiscard ? 'Tap to discard' : v.topDead ? 'Dead card' : 'Discard';
   const discard = `<div class="pile ${pileAct ? 'clickable' : ''} ${canDiscard ? 'discard-target' : ''} ${canDiscard && ui.armed ? 'armed' : ''}"><div class="stack" ${
     pileAct ? `data-act="${pileAct}"` : ''
   }>${top ? cardHTML(top, { isWild }) : '<div class="empty-pile"></div>'}${
@@ -476,7 +477,7 @@ function centerHTML(v, isWild) {
   if (p) {
     if (myTurn && v.phase === 'play')
       actions.push(
-        `<button class="shanghai-btn ${ui.armed ? 'armed' : ''}" data-act="arm">${ui.armed ? 'Shanghai said: next discard is dead' : 'SHANGHAI!'}</button>`
+        `<button class="shanghai-btn ${ui.armed ? 'armed' : ''}" data-act="arm">${ui.armed ? 'SHANGHAI! ✓' : 'SHANGHAI!'}</button>`
       );
     else actions.push('<button class="shanghai-btn" data-act="callShanghai">SHANGHAI!</button>');
   }
