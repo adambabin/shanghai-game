@@ -702,20 +702,42 @@ function rulesModal(o) {
 }
 
 // ---------- hand layout & dragging ----------
+// Lays the hand out as overlapping fans. When there are too many cards for one row to keep each card's
+// corner readable, it wraps into more rows (each tucked half under the one above) and, for really big
+// hands, shrinks the cards a little.
 function layoutHand() {
   const hand = document.getElementById('hand');
   if (!hand) return;
   const cards = [...hand.querySelectorAll('.card')];
-  const cw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cw')) || 62;
+  const root = getComputedStyle(document.documentElement);
+  const baseW = parseFloat(root.getPropertyValue('--cw')) || 62;
+  const baseH = parseFloat(root.getPropertyValue('--ch')) || 88;
   const avail = Math.min(window.innerWidth - 20, 1200);
   const n = cards.length;
-  const step = n > 1 ? Math.min(cw * 0.7, (avail - cw) / (n - 1)) : 0;
-  hand.style.width = `${cw + step * Math.max(0, n - 1)}px`;
+  const fit = (scale) => {
+    const cw = baseW * scale;
+    const minStep = Math.max(22, cw * 0.36); // enough to read the rank and suit in the corner
+    const perRowMax = Math.max(1, Math.floor((avail - cw) / minStep) + 1);
+    const rows = Math.max(1, Math.ceil(n / perRowMax));
+    return { scale, cw, ch: baseH * scale, rows, perRow: Math.ceil(n / rows) };
+  };
+  // shrink only when even two rows aren't enough
+  let L = fit(1);
+  if (L.rows > 2) L = fit(0.85);
+  if (L.rows > 2) L = fit(0.75);
+  const step = L.perRow > 1 ? Math.min(L.cw * 0.7, (avail - L.cw) / (L.perRow - 1)) : 0;
+  const rowGap = L.ch * 0.5;
+  hand.style.setProperty('--cw', `${L.cw}px`);
+  hand.style.setProperty('--ch', `${L.ch}px`);
+  hand.style.width = `${L.cw + step * Math.max(0, L.perRow - 1)}px`;
+  hand.style.height = `${L.ch + 22 + rowGap * (L.rows - 1)}px`;
   cards.forEach((el, i) => {
-    el.style.left = `${i * step}px`;
+    const row = Math.floor(i / L.perRow);
+    el.style.left = `${(i % L.perRow) * step}px`;
+    el.style.top = `${18 + row * rowGap}px`;
     el.style.zIndex = i + 1;
   });
-  hand.dataset.step = step;
+  Object.assign(hand.dataset, { step, perRow: L.perRow, rowGap, rows: L.rows });
 }
 
 function onPointerDown(e) {
@@ -728,7 +750,11 @@ function onPointerDown(e) {
     x0: e.clientX,
     y0: e.clientY,
     left0: parseFloat(el.style.left),
+    top0: parseFloat(el.style.top),
     step: parseFloat(hand.dataset.step) || 1,
+    perRow: Number(hand.dataset.perRow) || 1,
+    rowGap: parseFloat(hand.dataset.rowGap) || 1,
+    rows: Number(hand.dataset.rows) || 1,
     moved: false,
     pointerId: e.pointerId,
   };
@@ -740,17 +766,11 @@ function onPointerMove(e) {
   if (!d || e.pointerId !== d.pointerId) return;
   const dx = e.clientX - d.x0;
   const dy = e.clientY - d.y0;
-  if (!d.moved && Math.abs(dx) < 8) {
-    if (Math.abs(dy) > 12) {
-      // vertical gesture: let the page scroll
-      d.el.releasePointerCapture(d.pointerId);
-      ui.drag = null;
-    }
-    return;
-  }
+  if (!d.moved && Math.hypot(dx, dy) < 8) return;
   d.moved = true;
   d.el.classList.add('dragging');
-  d.el.style.transform = `translate(${dx}px, ${Math.min(0, dy)}px)`;
+  // with one row the card only lifts; with several it can move between rows
+  d.el.style.transform = `translate(${dx}px, ${d.rows > 1 ? dy : Math.min(0, dy)}px)`;
 }
 
 function onPointerUp(e) {
@@ -759,10 +779,13 @@ function onPointerUp(e) {
   ui.drag = null;
   if (d.moved) {
     const dx = e.clientX - d.x0;
+    const dy = e.clientY - d.y0;
+    const col = Math.max(0, Math.min(d.perRow - 1, Math.round((d.left0 + dx) / d.step)));
+    const row = Math.max(0, Math.min(d.rows - 1, Math.round((d.top0 - 18 + dy) / d.rowGap)));
     const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
     const visible = ui.order.filter((id) => !stagedIds.has(id));
     const from = visible.indexOf(d.id);
-    const to = Math.max(0, Math.min(visible.length - 1, Math.round((d.left0 + dx) / d.step)));
+    const to = Math.max(0, Math.min(visible.length - 1, row * d.perRow + col));
     visible.splice(from, 1);
     visible.splice(to, 0, d.id);
     ui.order = [...visible, ...ui.order.filter((id) => stagedIds.has(id))];
