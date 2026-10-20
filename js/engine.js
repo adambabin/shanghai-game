@@ -58,7 +58,9 @@ export function startRound(state) {
   state.turnPlays = 0;
   state.history = [];
   state.mustPlay = [];
-  state.phase = 'draw';
+  // everyone gets to look over their cards first; computers are always ready
+  state.phase = 'ready';
+  state.ready = state.players.map((p) => p.bot);
   state.roundResult = null;
   log(state, `Round ${state.round + 1}: ${contractText(state.round)}. ${state.players[state.dealer].name} deals.`, 'round');
 }
@@ -105,7 +107,6 @@ function closeShanghaiWindow(state) {
 function resetDraw(state) {
   state.buyWindow = null;
   state.buyOffered = false; // the current player already let others buy this turn
-  state.deckOnly = false; // someone bought the discard, so the current player draws from the deck
 }
 
 function topCard(state) {
@@ -120,7 +121,7 @@ export function mustDecideOnDiscard(state) {
 // Who could buy the top discard right now.
 export function buyEligible(state) {
   const top = topCard(state);
-  if (state.phase !== 'draw' || !top || state.topDead || state.deckOnly) return [];
+  if (state.phase !== 'draw' || !top || state.topDead) return [];
   const ld = state.lastDiscard;
   return state.players
     .map((_, i) => i)
@@ -138,34 +139,43 @@ function turnOrder(state, seat) {
   return (seat - state.turn + n) % n;
 }
 
-// Settles the buy window once the answer that matters is in. With timedOut, anyone silent counts as "no thanks".
-export function resolveBuyWindow(state, timedOut = false) {
+// Buying goes around the table one player at a time, starting after the current player.
+// Each player in turn gets BUY_WINDOW_MS to say Buy or No thanks; the first to buy gets the card.
+export function buyAsking(state) {
   const w = state.buyWindow;
-  if (!w) return err('Nobody is buying right now.');
-  const ordered = [...w.eligible].sort((a, b) => turnOrder(state, a) - turnOrder(state, b));
-  let buyer = null;
-  for (const s of ordered) {
-    const a = w.answers[s];
-    if (a === 'buy') {
-      buyer = s;
-      break;
-    }
-    if (a !== 'pass' && !timedOut) return { ok: true, pending: true };
-  }
-  state.buyWindow = null;
-  if (buyer == null) {
+  return w ? w.order[w.idx] : null;
+}
+
+function askNext(state) {
+  const w = state.buyWindow;
+  w.idx++;
+  if (w.idx >= w.order.length) {
+    state.buyWindow = null;
     log(state, `Nobody bought the ${cardLabel(topCard(state))}.`, 'nobuy');
-    return { ok: true };
+    return;
   }
+  w.deadline = Date.now() + BUY_WINDOW_MS;
+}
+
+// The player being asked ran out of time: that counts as No thanks.
+export function buyTimeout(state) {
+  if (!state.buyWindow) return err('Nobody is buying right now.');
+  log(state, `${state.players[buyAsking(state)].name} didn't answer in time.`, 'nobuy');
+  askNext(state);
+  return { ok: true };
+}
+
+function completeBuy(state, buyer) {
+  state.buyWindow = null;
   const card = state.discard.pop();
   state.hands[buyer].push(card);
   state.buysUsed[buyer]++;
   const extra = drawCards(state, buyer, state.options.buyPenalty);
+  // the card underneath is live again (even if it had been Shanghai'd), and the current player decides afresh
   state.topDead = false;
-  state.deckOnly = true;
+  state.buyOffered = false;
   closeShanghaiWindow(state);
   log(state, `${state.players[buyer].name} bought the ${cardLabel(card)} (+${extra.length} from the deck).`, 'buy', { seat: buyer });
-  return { ok: true };
 }
 
 function finishRound(state, winner) {
@@ -226,7 +236,6 @@ export function applyAction(state, seat, action) {
       if (!state.discard.length) return err('The discard pile is empty.');
       if (state.topDead) return err("That card is dead (Shanghai'd). It can't be picked up until another card covers it.");
       if (state.buyWindow) return err('Hang on, other players are deciding whether to buy.');
-      if (state.deckOnly) return err('Someone bought the discard, so draw from the deck.');
       closeShanghaiWindow(state);
       const card = state.discard.pop();
       state.hands[seat].push(card);
@@ -249,18 +258,19 @@ export function applyAction(state, seat, action) {
         log(state, `Nobody can buy the ${cardLabel(top)}.`, 'nobuy');
         return { ok: true };
       }
-      state.buyWindow = { cardId: top.id, eligible, answers: {}, deadline: Date.now() + BUY_WINDOW_MS };
+      const order = eligible.sort((a, b) => turnOrder(state, a) - turnOrder(state, b));
+      state.buyWindow = { cardId: top.id, order, idx: 0, deadline: Date.now() + BUY_WINDOW_MS };
       log(state, `${name} is letting others buy the ${cardLabel(top)}.`, 'buywindow', { seat });
       return { ok: true };
     }
 
     case 'buyAnswer': {
-      const w = state.buyWindow;
-      if (!w || !w.eligible.includes(seat)) return err("You can't buy right now.");
-      if (w.answers[seat]) return { ok: true };
-      w.answers[seat] = action.buy ? 'buy' : 'pass';
-      if (action.buy) log(state, `${name} wants to buy.`, 'buyreq', { seat });
-      resolveBuyWindow(state);
+      if (buyAsking(state) !== seat) return err("It's not your turn to decide on buying.");
+      if (action.buy) completeBuy(state, seat);
+      else {
+        log(state, `${name} passed on buying.`, 'nobuy', { seat });
+        askNext(state);
+      }
       return { ok: true };
     }
 
@@ -313,6 +323,13 @@ export function applyAction(state, seat, action) {
       state.turnPlays += cards.length;
       log(state, `${name} played ${cards.map(cardLabel).join(' ')} on ${state.players[meld.owner].name}'s ${meld.type}.`, 'play', { seat });
       afterPlay(state, seat);
+      return { ok: true };
+    }
+
+    case 'ready': {
+      if (state.phase !== 'ready') return { ok: true };
+      state.ready[seat] = true;
+      if (state.ready.every(Boolean)) beginPlay(state);
       return { ok: true };
     }
 
@@ -417,9 +434,17 @@ export function applyAction(state, seat, action) {
   }
 }
 
+// Ends the look-at-your-cards pause and starts the first turn (the host can force this).
+export function beginPlay(state) {
+  if (state.phase !== 'ready') return err('The round has already started.');
+  state.phase = 'draw';
+  log(state, `Everyone's ready. ${state.players[state.turn].name} goes first.`, 'round');
+  return { ok: true };
+}
+
 // Host escape hatch for a round nobody can finish: everyone scores what they hold.
 export function endRoundNoWinner(state) {
-  if (state.phase !== 'draw' && state.phase !== 'play') return err('No round in progress.');
+  if (!['ready', 'draw', 'play'].includes(state.phase)) return err('No round in progress.');
   log(state, 'The host ended the round.', 'info');
   finishRound(state, null);
   return { ok: true };
@@ -443,7 +468,7 @@ export function viewFor(state, seat) {
       laid: state.laid[i],
       buysUsed: state.buysUsed[i],
       blocked: state.blocked[i],
-      buying: !!(state.buyWindow && state.buyWindow.answers[i] === 'buy'),
+      ready: state.phase === 'ready' ? state.ready[i] : true,
     })),
     scores: state.scores,
     round: state.round,
@@ -462,16 +487,10 @@ export function viewFor(state, seat) {
     canUndo: seat === state.turn && state.phase === 'play' && state.history.length > 0,
     mustPlay: seat === state.turn ? state.mustPlay : [],
     buyOffered: state.buyOffered,
-    deckOnly: state.deckOnly,
     buyEligible: buyEligible(state),
     mustDecide: mustDecideOnDiscard(state),
     buyWindow: state.buyWindow
-      ? {
-          eligible: state.buyWindow.eligible,
-          answered: Object.keys(state.buyWindow.answers).map(Number),
-          myAnswer: state.buyWindow.answers[seat] || null,
-          msLeft: Math.max(0, state.buyWindow.deadline - Date.now()),
-        }
+      ? { asking: buyAsking(state), order: state.buyWindow.order, msLeft: Math.max(0, state.buyWindow.deadline - Date.now()) }
       : null,
     roundResult: state.roundResult
       ? { ...state.roundResult, hands: state.phase === 'roundOver' || state.phase === 'gameOver' ? state.hands : null }

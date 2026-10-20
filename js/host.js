@@ -1,7 +1,7 @@
 // Runs in the host's browser: owns the lobby and the game, drives the bots, and sends each
 // player their own view of the game.
 
-import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, resolveBuyWindow } from './engine.js';
+import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, buyTimeout, buyAsking, beginPlay } from './engine.js';
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai } from './bot.js';
 import { DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
 import { openRoom, randomCode } from './net.js';
@@ -24,7 +24,7 @@ export class HostSession {
       this.lobby = restore.lobby;
       this.game = restore.game;
       // games saved by an older version are missing newer fields
-      Object.assign(this.game, { mustPlay: [], buyWindow: null, buyOffered: false, deckOnly: false, ...this.game });
+      Object.assign(this.game, { mustPlay: [], buyOffered: false, ...this.game, buyWindow: null });
       this.lobby.seats.forEach((s) => {
         if (!s.bot && !s.isHost) s.connected = false;
       });
@@ -209,7 +209,7 @@ export class HostSession {
 
   act(seat, a) {
     if (!a || typeof a !== 'object') return { ok: false, error: 'Bad request.' };
-    const hostOnly = ['addBot', 'removeSeat', 'setOption', 'start', 'nextRound', 'endRound', 'playAgain', 'toggleBot'];
+    const hostOnly = ['addBot', 'removeSeat', 'setOption', 'start', 'nextRound', 'endRound', 'playAgain', 'toggleBot', 'startNow'];
     if (hostOnly.includes(a.type) && seat !== 0) return { ok: false, error: 'Only the host can do that.' };
     let res;
     switch (a.type) {
@@ -244,13 +244,19 @@ export class HostSession {
       case 'endRound':
         res = endRoundNoWinner(this.game);
         break;
+      case 'startNow':
+        res = beginPlay(this.game);
+        break;
       case 'toggleBot': {
         // let the computer play for someone who dropped off (or hand the seat back)
         const s = this.lobby.seats[a.seat];
         if (!s || s.isHost) return { ok: false, error: "Can't do that." };
         s.bot = !s.bot;
         s.botStandIn = s.bot && !!s.clientId;
-        if (this.game) this.game.players[a.seat].bot = s.bot;
+        if (this.game) {
+          this.game.players[a.seat].bot = s.bot;
+          if (s.bot && this.game.phase === 'ready') applyAction(this.game, a.seat, { type: 'ready' });
+        }
         res = { ok: true };
         break;
       }
@@ -308,20 +314,22 @@ export class HostSession {
     if (!g || (g.phase !== 'draw' && g.phase !== 'play')) return;
     const bots = g.players.map((p, i) => (p.bot ? i : -1)).filter((i) => i >= 0);
 
-    // buy window: computers answer, players who dropped off pass, and the clock runs out after 10 seconds
+    // buying goes around one player at a time: computers answer, players who dropped off pass,
+    // and anyone who doesn't answer within 10 seconds is skipped
     const w = g.buyWindow;
-    if (w && this.windowArmed !== w) {
-      this.windowArmed = w;
-      const answer = (seat, buy) => g.buyWindow === w && !w.answers[seat] && this.act(seat, { type: 'buyAnswer', buy });
-      for (const seat of w.eligible) {
-        const s = this.lobby.seats[seat];
-        if (g.players[seat].bot) this.later(700 + Math.random() * 1500, () => answer(seat, wantsToBuy(viewFor(g, seat))));
-        else if (s && !s.isHost && !s.connected) this.later(300, () => answer(seat, false));
-      }
+    const askKey = w && `${w.cardId}:${w.idx}:${w.deadline}`;
+    if (w && this.askArmed !== askKey) {
+      this.askArmed = askKey;
+      const seat = buyAsking(g);
+      const idx = w.idx;
+      const stillAsking = () => this.game === g && g.buyWindow === w && w.idx === idx;
+      const s = this.lobby.seats[seat];
+      if (g.players[seat].bot) this.later(900 + Math.random() * 1200, () => stillAsking() && this.act(seat, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, seat)) }));
+      else if (s && !s.isHost && !s.connected) this.later(300, () => stillAsking() && this.act(seat, { type: 'buyAnswer', buy: false }));
       const t = setTimeout(() => {
         this.timers.delete(t);
-        if (this.game === g && g.buyWindow === w) {
-          resolveBuyWindow(g, true);
+        if (stillAsking() && w.deadline <= Date.now() + 50) {
+          buyTimeout(g);
           this.changed();
         }
       }, Math.max(0, w.deadline - Date.now()) + 250);
