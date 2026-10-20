@@ -1,8 +1,8 @@
 import { HostSession, ClientSession } from './host.js';
 import { joinRoom } from './net.js';
 import { SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
-import { buildSet, buildRun, addCards, wildSlotFor } from './melds.js';
-import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
+import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
+import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN } from './rules.js';
 
 const $app = document.getElementById('app');
 const $toasts = document.getElementById('toasts');
@@ -439,19 +439,25 @@ function stagingHTML(v, isWild) {
   const sets = ui.staged.filter((g) => g.type === 'set').length;
   const runs = ui.staged.filter((g) => g.type === 'run').length;
   if (!ui.staged.length) return '';
-  const ready = sets === cfg.sets && runs === cfg.runs;
-  const canLay = ready && v.turn === me && v.phase === 'play';
+  let allComplete = true;
   const groups = ui.staged
     .map((g, i) => {
       const cards = g.ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
       const built = g.type === 'set' ? buildSet(cards, isWild) : buildRun(cards, isWild);
+      if (!built) allComplete = false;
+      const min = g.type === 'set' ? SET_MIN : RUN_MIN;
+      // complete, still short of cards, or enough cards that don't work yet (e.g. too many jokers)
+      const status = built ? '✓' : cards.length < min ? `${cards.length}/${min}` : '!';
       const shown = built ? built.cards : cards;
-      return `<div class="staged" data-act="unstage" data-i="${i}" title="Tap to put back"><span class="kind">${g.type.toUpperCase()}</span>${shown
-        .map((c) => cardHTML(c, { sm: true, isWild }))
-        .join('')}</div>`;
+      return `<div class="staged ${built ? 'done' : ''}" data-act="addToStaged" data-i="${i}" title="Select cards and tap to add them">
+        <div class="staged-head"><span class="kind">${g.type.toUpperCase()} ${status}</span>
+        <button class="unstage" data-act="unstage" data-i="${i}" title="Put these cards back">✕</button></div>
+        <div class="staged-cards">${shown.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div></div>`;
     })
     .join('');
-  return `<div class="staging"><span class="label">Your lay down<br>${sets}/${cfg.sets} sets · ${runs}/${cfg.runs} runs</span>${groups}
+  const ready = sets === cfg.sets && runs === cfg.runs && allComplete;
+  const canLay = ready && v.turn === me && v.phase === 'play';
+  return `<div class="staging"><span class="label">Your lay down: ${sets}/${cfg.sets} sets · ${runs}/${cfg.runs} runs</span>${groups}
     <button class="primary small" data-act="layDown" ${canLay ? '' : 'disabled'}>${ready ? 'Lay down!' : 'Lay down'}</button></div>`;
 }
 
@@ -463,11 +469,11 @@ function handHTML(v, isWild) {
   const myPlay = v.turn === me && v.phase === 'play';
   const n = ui.selected.size;
   const btns = [];
-  if (!p.laid && v.phase !== 'roundOver' && n >= 3) {
-    // only offer the group the selected cards actually make
+  if (!p.laid && v.phase !== 'roundOver' && n >= 2) {
+    // offer whichever group the selected cards could grow into (a joker plus one card could be either)
     const sel = selectedCards(v);
-    if (buildSet(sel, isWild)) btns.push('<button class="primary" data-act="stage" data-type="set">Make set</button>');
-    else if (buildRun(sel, isWild)) btns.push('<button class="primary" data-act="stage" data-type="run">Make run</button>');
+    if (couldBeSet(sel, isWild)) btns.push('<button class="primary" data-act="stage" data-type="set">Make set</button>');
+    if (couldBeRun(sel, isWild)) btns.push('<button class="primary" data-act="stage" data-type="run">Make run</button>');
   }
   btns.push(
     `<button class="${ui.armed ? 'danger' : 'primary'}" data-act="discard" ${myPlay && n === 1 ? '' : 'disabled'}>${ui.armed ? 'Discard (dead)' : 'Discard'}</button>`
@@ -901,17 +907,22 @@ function onClick(e) {
     case 'stage': {
       const cards = selectedCards(v);
       const type = t.dataset.type;
-      const ok = type === 'set' ? buildSet(cards, isWild) : buildRun(cards, isWild);
-      if (!ok) {
-        toast(
-          type === 'set'
-            ? 'A set needs 3+ cards of the same rank (at least 2 real cards).'
-            : 'A run needs 4+ cards in a row of one suit (at least 2 real cards).',
-          true
-        );
-        return;
-      }
+      const ok = type === 'set' ? couldBeSet(cards, isWild) : couldBeRun(cards, isWild);
+      if (!ok) return toast(type === 'set' ? "Those cards can't make a set." : "Those cards can't make a run.", true);
       ui.staged.push({ type, ids: cards.map((c) => c.id) });
+      ui.selected.clear();
+      return render();
+    }
+    case 'addToStaged': {
+      const g = ui.staged[Number(t.dataset.i)];
+      const added = selectedCards(v);
+      if (!g) return;
+      if (!added.length) return toast('Select cards to add to this group, or tap ✕ to put it back.');
+      const existing = g.ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
+      const all = g.type === 'set' ? [...existing, ...added] : arrangeRun(existing, added, isWild);
+      if (!(g.type === 'set' ? couldBeSet(all, isWild) : couldBeRun(all, isWild)))
+        return toast(`${added.map(cardLabel).join(' ')} can't go in that ${g.type}.`, true);
+      g.ids = all.map((c) => c.id);
       ui.selected.clear();
       return render();
     }

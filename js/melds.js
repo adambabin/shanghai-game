@@ -150,6 +150,48 @@ export function fitsAnyMeld(card, melds, isWild) {
   return melds.some((m) => placements(m, card, isWild).length > 0 || wildSlotFor(m, card, isWild) >= 0);
 }
 
+// ---------- Staging a lay down: groups that are still being built ----------
+
+// Could these cards grow into a set? (all real cards one rank; at least one real card)
+export function couldBeSet(cards, isWild) {
+  const naturals = cards.filter((c) => !isWild(c));
+  return cards.length >= 2 && naturals.length > 0 && naturals.every((c) => c.r === naturals[0].r);
+}
+
+// Could these cards grow into a run? (real cards one suit, no repeats, close enough to fit in 2..A)
+export function couldBeRun(cards, isWild) {
+  const naturals = cards.filter((c) => !isWild(c));
+  if (cards.length < 2 || !naturals.length || naturals.some((c) => c.s !== naturals[0].s)) return false;
+  const vals = naturals.map(runValue);
+  if (new Set(vals).size !== vals.length) return false;
+  return Math.max(...vals) - Math.min(...vals) + 1 <= HIGH - LOW + 1;
+}
+
+// Orders a partly built run low to high. Wild cards keep the spot they were given; new ones go on the end.
+export function arrangeRun(existing, added, isWild) {
+  const value = new Map();
+  const asc = existing.findIndex((c) => !isWild(c));
+  let pos = null;
+  if (asc >= 0) {
+    for (const dir of [1, -1]) {
+      const lo = runValue(existing[asc]) - dir * asc;
+      if (existing.every((c, i) => isWild(c) || runValue(c) === lo + dir * i)) {
+        pos = (i) => lo + dir * i;
+        break;
+      }
+    }
+  }
+  let last = -Infinity;
+  existing.forEach((c, i) => {
+    const v = isWild(c) ? (pos ? pos(i) : last + 0.5) : runValue(c);
+    value.set(c, v);
+    last = v;
+  });
+  let tail = 100;
+  for (const c of added) value.set(c, isWild(c) ? tail++ : runValue(c));
+  return [...existing, ...added].sort((a, b) => value.get(a) - value.get(b));
+}
+
 export function meldLabel(meld) {
   return meld.type === 'set' ? 'Set' : 'Run';
 }

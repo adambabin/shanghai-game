@@ -861,3 +861,50 @@ table.scores td.zero {
   color: #3a2a00;
   font-weight: 800;
 }
+
+.staged.done {
+  box-shadow: inset 0 0 0 2px rgba(155, 226, 155, 0.6);
+}
+.staged .unstage {
+  padding: 2px 7px;
+  margin-left: 4px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--ink);
+  align-self: flex-start;
+}
+
+/* staging wraps instead of scrolling sideways */
+.staging {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  justify-content: center;
+}
+.staging .label {
+  flex-basis: 100%;
+  text-align: center;
+}
+.staged {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+.staged-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.staged .staged-head .kind {
+  writing-mode: horizontal-tb;
+  transform: none;
+}
+.staged .staged-head .unstage {
+  margin: 0;
+}
+.staged-cards {
+  display: flex;
+}
+.staged-cards .card + .card {
+  margin-left: calc(var(--sw) * -0.45);
+}

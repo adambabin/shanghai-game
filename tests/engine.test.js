@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSet, buildRun, addCards, fitsAnyMeld, runHi, placements } from '../js/melds.js';
+import { buildSet, buildRun, addCards, fitsAnyMeld, runHi, placements, couldBeSet, couldBeRun, arrangeRun } from '../js/melds.js';
 import { wildTest } from '../js/cards.js';
 import { createGame, applyAction, viewFor, totals, nextRound, resolveBuyWindow, mustDecideOnDiscard } from '../js/engine.js';
 
@@ -250,6 +250,22 @@ test('swapping a natural card for a wild in a run, which then must be played', (
   const joker = g.hands[0].find((x) => x.r === 0);
   assert.ok(applyAction(g, 0, { type: 'addToMeld', meldId: run.id, ids: [joker.id] }).ok);
   assert.ok(applyAction(g, 0, { type: 'discard', id: p0[9].id }).ok);
+});
+
+test('staging partial groups', () => {
+  assert.ok(couldBeSet([c(7, 'S'), c(7, 'H')], isWild));
+  assert.ok(!couldBeSet([c(7, 'S'), c(8, 'S')], isWild));
+  assert.ok(couldBeRun([c(7, 'S'), c(9, 'S')], isWild));
+  assert.ok(!couldBeRun([c(7, 'S'), c(9, 'H')], isWild));
+  assert.ok(!couldBeRun([c(7, 'S'), c(7, 'S')], isWild));
+  assert.ok(couldBeSet([c(7, 'S'), J()], isWild) && couldBeRun([c(7, 'S'), J()], isWild), 'a joker and one card could be either');
+  // J in front of 8, 9; then add a 10: joker stays in front
+  const joker = J();
+  const order = arrangeRun([joker, c(8, 'H'), c(9, 'H')], [c(10, 'H')], isWild);
+  assert.deepEqual(order.map((x) => x.r), [0, 8, 9, 10]);
+  assert.equal(buildRun(order, isWild).lo, 7);
+  // adding a lower card slots it in before
+  assert.deepEqual(arrangeRun([c(8, 'H'), c(9, 'H')], [c(6, 'H'), J()], isWild).map((x) => x.r), [6, 8, 9, 0]);
 });
 
 test('view hides other hands', () => {
