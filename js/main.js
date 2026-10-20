@@ -196,8 +196,7 @@ function onSnapshot(snap) {
   render();
 }
 
-// Piles that just changed (laid down, added to, joker swapped) get a short highlight, and the table
-// scrolls to them after the next render if they're out of view.
+// Piles that just changed (laid down, added to, joker swapped) get a short highlight.
 const JUST_PLAYED_MS = 2500;
 function trackMeldChanges(v) {
   const sig = new Map(v.melds.map((m) => [m.id, m.cards.map((c) => c.id).join()]));
@@ -211,7 +210,6 @@ function trackMeldChanges(v) {
   const changed = v.melds.filter((m) => prev.get(m.id) !== sig.get(m.id)).map((m) => m.id);
   if (!changed.length) return;
   ui.justPlayed = { ids: new Set(changed), until: Date.now() + JUST_PLAYED_MS };
-  ui.revealPlayed = true;
   setTimeout(render, JUST_PLAYED_MS + 50);
 }
 
@@ -318,12 +316,6 @@ function render() {
   const table = $app.querySelector('.table');
   if (!table) return;
   if (tableTop != null) table.scrollTop = tableTop;
-  // a smooth scroll still under way when we re-render would stop halfway; pick it back up
-  if (ui.tableScroll && Date.now() < ui.tableScroll.until) table.scrollTo({ top: ui.tableScroll.top, behavior: 'smooth' });
-  if (ui.revealPlayed) {
-    ui.revealPlayed = false;
-    revealPlayed(table);
-  }
 }
 
 // The row of player tiles scrolls sideways when it doesn't fit; bring whoever's turn it is into view.
@@ -342,24 +334,6 @@ function markPlayersFade(players) {
   const max = players.scrollWidth - players.clientWidth;
   players.classList.toggle('more-left', players.scrollLeft > 1);
   players.classList.toggle('more-right', players.scrollLeft < max - 1);
-}
-
-// Scroll the table just enough to show the piles that were played on, if any of them are out of view.
-function revealPlayed(table) {
-  const els = [...table.querySelectorAll('.meld.just-played')];
-  if (!els.length) return;
-  const base = table.getBoundingClientRect().top - table.scrollTop;
-  // include the player's name above their piles
-  const top = Math.min(...els.map((e) => (e.closest('.owner-row') || e).getBoundingClientRect().top)) - base;
-  const bottom = Math.max(...els.map((e) => e.getBoundingClientRect().bottom)) - base;
-  const view = table.clientHeight;
-  const pad = 8;
-  if (top >= table.scrollTop && bottom <= table.scrollTop + view) return;
-  const target = top < table.scrollTop || bottom - top > view ? top - pad : bottom - view + pad;
-  const max = table.scrollHeight - view;
-  const to = Math.max(0, Math.min(max, target));
-  ui.tableScroll = { top: to, until: Date.now() + 700 };
-  table.scrollTo({ top: to, behavior: 'smooth' });
 }
 
 // when the piles on the table don't all fit, shade the top edge of the deck row so it's clear there's more above it
@@ -1291,11 +1265,6 @@ function onKey(e) {
 $app.addEventListener('scroll', (e) => {
   if (e.target.classList && e.target.classList.contains('players')) markPlayersFade(e.target);
 }, true);
-// any scrolling by hand wins over an auto-scroll still in progress
-for (const type of ['touchstart', 'wheel', 'pointerdown'])
-  $app.addEventListener(type, (e) => {
-    if (e.target.closest && e.target.closest('.table')) ui.tableScroll = null;
-  }, { passive: true });
 $app.addEventListener('click', onClick);
 $app.addEventListener('input', onInput);
 $app.addEventListener('change', onChange);
