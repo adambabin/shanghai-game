@@ -511,14 +511,14 @@ function handHTML(v, isWild) {
 }
 
 // The bottom area (status, staged groups, hand) can be tucked away to see more of the table, like putting
-// your cards face down. Drag the handle down or tap it; it opens again on your turn.
+// your cards face down. It opens again on your turn.
 function dockHTML(v, isWild, warn) {
   const me = v.you;
   const body = `<div class="status ${warn ? 'warn' : ''}">${statusText(v)}</div>${me != null ? stagingHTML(v, isWild) + handHTML(v, isWild) : ''}`;
   if (me == null) return body;
   if (ui.dockCollapsed)
-    return `<div class="dock collapsed"><div class="dock-handle" title="Drag up or tap to show your cards"><span class="grip"></span><span class="dock-label">Show my cards (${v.hand.length})</span></div></div>`;
-  return `<div class="dock"><div class="dock-handle" title="Drag down or tap to put your cards down"><span class="grip"></span></div><div class="dock-body">${body}</div></div>`;
+    return `<div class="dock collapsed"><button class="dock-toggle" data-act="toggleDock">Show my cards (${v.hand.length}) ▴</button></div>`;
+  return `<div class="dock"><button class="dock-toggle" data-act="toggleDock">Hide my cards ▾</button><div class="dock-body">${body}</div></div>`;
 }
 
 function gameHTML(snap) {
@@ -719,13 +719,6 @@ function layoutHand() {
 }
 
 function onPointerDown(e) {
-  const handle = e.target.closest('.dock-handle');
-  if (handle) {
-    ui.dockDrag = { y0: e.clientY, pointerId: e.pointerId, body: document.querySelector('.dock-body') };
-    if (ui.dockDrag.body) ui.dockDrag.body.style.transition = 'none';
-    handle.setPointerCapture(e.pointerId);
-    return;
-  }
   const el = e.target.closest('.hand .card');
   if (!el) return;
   const hand = el.parentElement;
@@ -743,12 +736,6 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
-  const dd = ui.dockDrag;
-  if (dd && e.pointerId === dd.pointerId) {
-    // follow the finger downward while dragging the cards away
-    if (dd.body) dd.body.style.transform = `translateY(${Math.max(0, e.clientY - dd.y0)}px)`;
-    return;
-  }
   const d = ui.drag;
   if (!d || e.pointerId !== d.pointerId) return;
   const dx = e.clientX - d.x0;
@@ -767,17 +754,6 @@ function onPointerMove(e) {
 }
 
 function onPointerUp(e) {
-  const dd = ui.dockDrag;
-  if (dd && e.pointerId === dd.pointerId) {
-    ui.dockDrag = null;
-    const dy = e.clientY - dd.y0;
-    if (Math.abs(dy) < 8) ui.dockCollapsed = !ui.dockCollapsed; // a tap toggles
-    else if (dy > 40) ui.dockCollapsed = true;
-    else if (dy < -20) ui.dockCollapsed = false;
-    if (dd.body) dd.body.style.transform = '';
-    render();
-    return;
-  }
   const d = ui.drag;
   if (!d || e.pointerId !== d.pointerId) return;
   ui.drag = null;
@@ -907,6 +883,9 @@ function onClick(e) {
     case 'closeModal':
       ui.modal = null;
       ui.wildPrompt = null;
+      return render();
+    case 'toggleDock':
+      ui.dockCollapsed = !ui.dockCollapsed;
       return render();
     case 'toggleSound':
       ui.sound = !ui.sound;
@@ -1077,12 +1056,6 @@ $app.addEventListener('keydown', onKey);
 $app.addEventListener('pointerdown', onPointerDown);
 window.addEventListener('pointermove', onPointerMove);
 window.addEventListener('pointerup', onPointerUp);
-window.addEventListener('pointercancel', (e) => {
-  if (ui.dockDrag && e.pointerId === ui.dockDrag.pointerId) {
-    if (ui.dockDrag.body) ui.dockDrag.body.style.transform = '';
-    ui.dockDrag = null;
-  }
-});
 window.addEventListener('pointercancel', (e) => {
   if (ui.drag && e.pointerId === ui.drag.pointerId) {
     ui.drag = null;

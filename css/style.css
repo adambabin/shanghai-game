@@ -930,34 +930,19 @@ table.scores td.zero {
   display: flex;
   flex-direction: column;
 }
-.dock-body {
-  transition: transform 0.15s ease;
-}
-.dock-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 6px 0 4px;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-.dock-handle .grip {
-  width: 44px;
-  height: 5px;
+.dock-toggle {
+  align-self: center;
+  margin: 2px 0 4px;
+  padding: 5px 14px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
   border-radius: 99px;
-  background: rgba(255, 255, 255, 0.35);
 }
-.dock.collapsed .dock-handle {
-  padding: 12px 0 calc(14px + env(safe-area-inset-bottom));
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.35));
-  flex-direction: column;
-  gap: 6px;
-}
-.dock-label {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--gold);
+.dock.collapsed .dock-toggle {
+  margin: 8px 0 calc(12px + env(safe-area-inset-bottom));
+  padding: 10px 20px;
+  font-size: 15px;
+  background: var(--gold);
+  color: #3a2a00;
 }
