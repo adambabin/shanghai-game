@@ -37,6 +37,11 @@ html,
 body {
   margin: 0;
   height: 100%;
+  /* a card game: no double-tap zoom, no sideways scrolling */
+  touch-action: manipulation;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   background: radial-gradient(ellipse at 50% 30%, var(--felt-light), var(--felt) 55%, var(--felt-dark));
   background-attachment: fixed;
   overscroll-behavior: none;
@@ -78,6 +83,7 @@ button.small {
 input,
 select {
   font: inherit;
+  font-size: max(16px, 1em); /* iPhones zoom in on fields smaller than 16px */
   padding: 10px 12px;
   border-radius: 10px;
   border: 2px solid transparent;
