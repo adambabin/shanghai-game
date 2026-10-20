@@ -424,7 +424,7 @@ label.field {
   border-radius: 10px;
   background: var(--panel);
   flex: none;
-  min-width: 118px; /* grows to fit the name */
+  min-width: 88px; /* room for about 7 letters and "…"; grows to fit the name */
   border: 2px solid transparent;
   font-size: 12px;
 }
