@@ -60,7 +60,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 
 - **Shanghai calls:** a discard is a "Shanghai" if it fits any pile, either on an end or by replacing a joker in a run, regardless of whether the discarder has laid down.
   - Anyone else may call it until the next player draws. The discarder picks up `shanghaiPenalty` cards and the card goes dead.
-  - A wrong call costs `falseCallPenalty` cards. There is no blocking.
+  - A wrong call costs `falseCallPenalty` cards (0 by default; the host can set 1 to 3). There is no blocking.
 - **Self-declared Shanghai:** declaring your own discard kills it only if it really was playable. Otherwise it stays live and only the discarder gets a note (log kind `notshanghai`).
 - **Dead cards:** a dead card becomes live again once covered, and stays live if later exposed.
 - **Going out:** you can't go out on a discard. The last cards must be played onto piles.

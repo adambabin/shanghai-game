@@ -434,7 +434,8 @@ export function applyAction(state, seat, action) {
         return { ok: true, result: 'hit' };
       }
       const got = drawCards(state, seat, state.options.falseCallPenalty);
-      log(state, `${name} called Shanghai, but there wasn't one. ${name} picks up ${got.length} cards.`, 'falsecall', { seat });
+      const cost = got.length ? ` ${name} picks up ${got.length} card${got.length === 1 ? '' : 's'}.` : '';
+      log(state, `${name} called Shanghai, but there wasn't one.${cost}`, 'falsecall', { seat });
       return { ok: true, result: 'miss' };
     }
 
