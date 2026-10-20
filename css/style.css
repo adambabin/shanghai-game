@@ -513,6 +513,11 @@ label.field {
 .meld .card + .card {
   margin-left: calc(var(--sw) * -0.45);
 }
+/* a pile someone just played on, for a couple of seconds */
+.meld.just-played {
+  border-color: rgba(255, 253, 247, 0.85);
+  background-color: rgba(255, 255, 255, 0.14);
+}
 .meld.target {
   border-color: var(--gold);
   cursor: pointer;

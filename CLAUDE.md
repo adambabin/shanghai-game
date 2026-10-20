@@ -40,6 +40,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - `layoutHand()` positions cards absolutely after render, wrapping into rows and shrinking for big hands.
   - The deck row, activity box and hand sit in `.bottom`. `markTableOverflow()` gives it an upward shadow (`.raised`) when the piles on the table don't all fit above it.
   - Pop-ups built with `wrapModal()` keep the title and the Close button fixed; only `.modal-body` scrolls.
+  - `render()` replaces everything, so it carries the scroll position of `.table` and `.modal-body` over. `trackMeldChanges()` marks piles that changed since the last snapshot (`.just-played` for a few seconds), and `revealPlayed()` smooth-scrolls the table to them only if they're out of view. Scrolling by hand cancels an auto-scroll in progress.
   - Card drag reorders `ui.order` only.
 - `js/melds.js` validates sets and runs. A run is stored as `{ suit, lo, cards }`, where `cards[i]` sits at value `lo + i`. Wild cards occupy real slots, which is what makes joker swaps and order-preserving runs possible.
 - `js/rules.js` holds the round contracts and deal sizes (`ROUNDS`), plus the lobby-adjustable `DEFAULT_OPTIONS`. Every game uses 3 decks with 6 jokers.

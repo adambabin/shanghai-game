@@ -181,6 +181,7 @@ function onSnapshot(snap) {
   if (v) {
     syncHand(v);
     processLog(v);
+    trackMeldChanges(v);
     ui.windowDeadline = v.buyWindow ? Date.now() + v.buyWindow.msLeft : null;
     const turnKey = `${v.round}:${v.turn}:${v.phase}`;
     if (turnKey !== ui.lastTurnKey) {
@@ -192,6 +193,25 @@ function onSnapshot(snap) {
     }
   }
   render();
+}
+
+// Piles that just changed (laid down, added to, joker swapped) get a short highlight, and the table
+// scrolls to them after the next render if they're out of view.
+const JUST_PLAYED_MS = 2500;
+function trackMeldChanges(v) {
+  const sig = new Map(v.melds.map((m) => [m.id, m.cards.map((c) => c.id).join()]));
+  const prev = ui.meldSig;
+  ui.meldSig = sig;
+  if (!prev || prev.round !== v.round) {
+    sig.round = v.round;
+    return;
+  }
+  sig.round = v.round;
+  const changed = v.melds.filter((m) => prev.get(m.id) !== sig.get(m.id)).map((m) => m.id);
+  if (!changed.length) return;
+  ui.justPlayed = { ids: new Set(changed), until: Date.now() + JUST_PLAYED_MS };
+  ui.revealPlayed = true;
+  setTimeout(render, JUST_PLAYED_MS + 50);
 }
 
 function processLog(v) {
@@ -269,6 +289,12 @@ function render() {
     ui.pendingRender = true;
     return;
   }
+  // re-rendering replaces the table and pop-ups, so carry their scroll positions over
+  const oldTable = $app.querySelector('.table');
+  const tableTop = oldTable ? oldTable.scrollTop : null;
+  const oldModalBody = $app.querySelector('.modal-body');
+  const modalTop = oldModalBody && ui.renderedModal === ui.modal ? oldModalBody.scrollTop : null;
+  ui.renderedModal = ui.modal;
   const snap = ui.snap;
   if (!ui.session || !snap) $app.innerHTML = homeHTML();
   else if (snap.status === 'kicked') $app.innerHTML = messageHTML('The host removed you from the game.');
@@ -277,6 +303,35 @@ function render() {
   else $app.innerHTML = gameHTML(snap);
   layoutHand();
   markTableOverflow();
+  const modalBody = $app.querySelector('.modal-body');
+  if (modalBody && modalTop != null) modalBody.scrollTop = modalTop;
+  const table = $app.querySelector('.table');
+  if (!table) return;
+  if (tableTop != null) table.scrollTop = tableTop;
+  // a smooth scroll still under way when we re-render would stop halfway; pick it back up
+  if (ui.tableScroll && Date.now() < ui.tableScroll.until) table.scrollTo({ top: ui.tableScroll.top, behavior: 'smooth' });
+  if (ui.revealPlayed) {
+    ui.revealPlayed = false;
+    revealPlayed(table);
+  }
+}
+
+// Scroll the table just enough to show the piles that were played on, if any of them are out of view.
+function revealPlayed(table) {
+  const els = [...table.querySelectorAll('.meld.just-played')];
+  if (!els.length) return;
+  const base = table.getBoundingClientRect().top - table.scrollTop;
+  // include the player's name above their piles
+  const top = Math.min(...els.map((e) => (e.closest('.owner-row') || e).getBoundingClientRect().top)) - base;
+  const bottom = Math.max(...els.map((e) => e.getBoundingClientRect().bottom)) - base;
+  const view = table.clientHeight;
+  const pad = 8;
+  if (top >= table.scrollTop && bottom <= table.scrollTop + view) return;
+  const target = top < table.scrollTop || bottom - top > view ? top - pad : bottom - view + pad;
+  const max = table.scrollHeight - view;
+  const to = Math.max(0, Math.min(max, target));
+  ui.tableScroll = { top: to, until: Date.now() + 700 };
+  table.scrollTo({ top: to, behavior: 'smooth' });
 }
 
 // when the piles on the table don't all fit, shade the top edge of the deck row so it's clear there's more above it
@@ -423,7 +478,8 @@ function tableHTML(v, isWild) {
       .map((m) => {
         // every pile lights up: picking the right one is part of the game
         const ok = playable;
-        return `<div class="meld ${ok ? 'target' : ''}" ${ok ? `data-act="playOn" data-meld="${m.id}"` : ''} title="${m.type}">
+        const fresh = ui.justPlayed && Date.now() < ui.justPlayed.until && ui.justPlayed.ids.has(m.id);
+        return `<div class="meld ${ok ? 'target' : ''} ${fresh ? 'just-played' : ''}" ${ok ? `data-act="playOn" data-meld="${m.id}"` : ''} title="${m.type}">
           ${m.cards.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>`;
       })
       .join('');
@@ -1201,6 +1257,11 @@ function onKey(e) {
   }
 }
 
+// any scrolling by hand wins over an auto-scroll still in progress
+for (const type of ['touchstart', 'wheel', 'pointerdown'])
+  $app.addEventListener(type, (e) => {
+    if (e.target.closest && e.target.closest('.table')) ui.tableScroll = null;
+  }, { passive: true });
 $app.addEventListener('click', onClick);
 $app.addEventListener('input', onInput);
 $app.addEventListener('change', onChange);
