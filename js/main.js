@@ -276,6 +276,14 @@ function render() {
   else if (!snap.lobby.started || !snap.view) $app.innerHTML = lobbyHTML(snap);
   else $app.innerHTML = gameHTML(snap);
   layoutHand();
+  markTableOverflow();
+}
+
+// when the piles on the table don't all fit, shade the top edge of the deck row so it's clear there's more above it
+function markTableOverflow() {
+  const table = $app.querySelector('.table');
+  const bottom = $app.querySelector('.bottom');
+  if (table && bottom) bottom.classList.toggle('raised', table.scrollHeight > table.clientHeight + 1);
 }
 
 function homeHTML() {
@@ -625,8 +633,7 @@ function gameHTML(snap) {
     </div>
     <div class="players">${playerChips(v)}</div>
     <div class="table">${tableHTML(v, isWild)}</div>
-    ${centerHTML(v, isWild)}
-    ${dockHTML(v, isWild)}
+    <div class="bottom">${centerHTML(v, isWild)}${dockHTML(v, isWild)}</div>
     ${modalHTML(snap)}
   </div>`;
 }
@@ -673,9 +680,10 @@ function modalHTML(snap) {
   }
 }
 
+// the title and the Close button stay put; only the middle scrolls
 function wrapModal(title, body, actions = '') {
-  return `<div class="overlay" data-act="closeModal"><div class="modal" data-stop>
-    <h2>${title}</h2>${body}
+  return `<div class="overlay" data-act="closeModal"><div class="modal framed" data-stop>
+    <h2>${title}</h2><div class="modal-body">${body}</div>
     <div class="actions">${actions}<button class="ghost" data-act="closeModal">Close</button></div></div></div>`;
 }
 
@@ -1205,7 +1213,10 @@ window.addEventListener('pointercancel', (e) => {
     render();
   }
 });
-window.addEventListener('resize', layoutHand);
+window.addEventListener('resize', () => {
+  layoutHand();
+  markTableOverflow();
+});
 // Keep the page at 100%: Safari ignores user-scalable=no, so block pinch gestures directly
 for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
 document.addEventListener('touchmove', (e) => e.touches.length > 1 && e.preventDefault(), { passive: false });

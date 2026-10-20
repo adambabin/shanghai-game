@@ -719,6 +719,26 @@ label.field {
   gap: 12px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
+.modal.framed {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.modal.framed h2 {
+  margin: 0;
+  padding: 20px 20px 12px;
+}
+.modal.framed .modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 20px 16px;
+}
+.modal.framed .actions {
+  padding: 12px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgba(0, 0, 0, 0.15);
+}
 .modal h2 {
   color: var(--gold);
 }
@@ -1020,6 +1040,20 @@ table.scores td.zero {
   font-size: 16px;
   line-height: 22px;
   margin: 0 0 2px;
+}
+
+/* the deck row, activity box and your hand, below the table */
+.bottom {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+  transition: box-shadow 0.2s;
+}
+.bottom.raised {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 -10px 16px -6px rgba(0, 0, 0, 0.45);
 }
 
 /* ---------- the activity box under the deck row ---------- */
