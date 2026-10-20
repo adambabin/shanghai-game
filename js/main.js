@@ -541,7 +541,9 @@ function centerHTML(v, isWild) {
       );
     else actions.push('<button class="shanghai-btn" data-act="callShanghai">SHANGHAI!</button>');
   }
-  return `<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div></div>${activityHTML(v)}`;
+  // the activity box sits above the deck row: when a prompt makes it taller it grows upward over the table,
+  // so the piles and your hand stay put
+  return `${activityHTML(v)}<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div></div>`;
 }
 
 // One place for everything going on: what you need to do (a prompt), else your turn, else something that just
@@ -593,12 +595,12 @@ function buyBarHTML(v) {
       return `<div class="buy-bar"><span><b>${esc(v.players[w.asking].name)}</b> is deciding whether to buy the ${esc(cardLabel(top))}…${next}</span> ${timer}</div>`;
     }
     const left = v.options.buyLimit - v.players[me].buysUsed;
-    return `<div class="buy-bar ask"><span>Buy the <b>${esc(cardLabel(top))}</b>? You also take ${v.options.buyPenalty} from the deck. (${left} buy${left === 1 ? '' : 's'} left)</span> ${timer}
-      <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No thanks</button></span></div>`;
+    return `<div class="buy-bar ask"><span>Buy the <b>${esc(cardLabel(top))}</b>? +${v.options.buyPenalty} from the deck. ${left} buy${left === 1 ? '' : 's'} left.</span>
+      <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span> ${timer}</div>`;
   }
   if (v.turn === me && v.mustDecide) {
-    return `<div class="buy-bar ask"><span>Take the <b>${esc(cardLabel(top))}</b>, or let others buy it?</span>
-      <span class="buy-actions"><button class="primary" data-act="allowBuy">Allow buy</button><button class="ghost" data-act="drawDiscard">No, take card</button></span></div>`;
+    return `<div class="buy-bar ask"><span>Take the <b>${esc(cardLabel(top))}</b> or let others buy it?</span>
+      <span class="buy-actions"><button class="primary" data-act="allowBuy">Allow buy</button><button class="ghost" data-act="drawDiscard">Take it</button></span></div>`;
   }
   return '';
 }
@@ -852,8 +854,8 @@ function rulesModal(o) {
     <ul><li>Draw from the deck or take the top discard.</li><li>Lay down your contract (exactly the sets and runs listed). Once you're down you can add cards to anyone's piles, on this turn or later.</li>
     <li>End your turn by discarding one card.</li></ul>
     <h3>Buying</h3>
-    <ul><li>At the start of your turn you choose: <b>No, take card</b> (you take the discard) or <b>Allow buy</b>. You can only draw from the deck after allowing others to buy.</li>
-    <li>If you allow it, the offer goes around the table in order, starting with the player after you. Each player gets 10 seconds to say Buy or No thanks; the first to buy gets the card plus ${o.buyPenalty} from the deck.</li>
+    <ul><li>At the start of your turn you choose: <b>Take it</b> (you take the discard) or <b>Allow buy</b>. You can only draw from the deck after allowing others to buy.</li>
+    <li>If you allow it, the offer goes around the table in order, starting with the player after you. Each player gets 10 seconds to say Buy or No; the first to buy gets the card plus ${o.buyPenalty} from the deck.</li>
     <li>When a card is bought, the card underneath is live again (even if it had been Shanghai'd), and you choose again: take it, or allow buying.</li>
     <li>If nobody buys it, you can still take it, or draw from the deck.</li>
     <li>${o.buyLimit} buys per round. Once you've laid down you can't buy.</li></ul>
