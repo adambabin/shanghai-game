@@ -34,6 +34,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - Reaction timers (Shanghai calls, buy answers) re-check validity when they fire.
 - `js/main.js` is the whole UI. It re-renders by setting `innerHTML` on every snapshot and uses one delegated click handler keyed on `data-act`.
   - Purely local UI state lives in the `ui` object and never reaches the engine: hand order and sort mode, selection, staged lay-down groups, the armed Shanghai declaration, dock collapse.
+  - All in-game messaging goes through the activity box under the deck row (`activityHTML`). It shows, in priority order: a prompt you must answer, then your-turn status, then a brief `toast()` flash, then the turn status. Beneath it, a line keeps the latest log event (tap it for the log). `toast()` only floats a pop-up outside a game.
   - `layoutHand()` positions cards absolutely after render, wrapping into rows and shrinking for big hands.
   - Card drag reorders `ui.order` only.
 - `js/melds.js` validates sets and runs. A run is stored as `{ suit, lo, cards }`, where `cards[i]` sits at value `lo + i`. Wild cards occupy real slots, which is what makes joker swaps and order-preserving runs possible.
