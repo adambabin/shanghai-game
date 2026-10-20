@@ -946,3 +946,9 @@ table.scores td.zero {
   background: var(--gold);
   color: #3a2a00;
 }
+.dock-toggle.icon {
+  padding: 0 14px;
+  font-size: 16px;
+  line-height: 22px;
+  margin: 0 0 2px;
+}
