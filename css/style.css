@@ -408,6 +408,28 @@ label.field {
   border: 2px solid transparent;
   font-size: 12px;
 }
+/* the dealer's tile gets a "D" button pinned to its top-right corner */
+.chip.dealer {
+  position: relative;
+}
+.chip.dealer .pname {
+  padding-right: 8px;
+}
+.dealer-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--card-black);
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), inset 0 0 0 2px var(--card-red);
+}
 .chip.turn {
   border-color: var(--gold);
   background: rgba(242, 193, 78, 0.16);
