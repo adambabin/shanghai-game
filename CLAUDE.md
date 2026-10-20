@@ -34,6 +34,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - Reaction timers (Shanghai calls, buy answers) re-check validity when they fire.
 - `js/main.js` is the whole UI. It re-renders by setting `innerHTML` on every snapshot and uses one delegated click handler keyed on `data-act`.
   - Purely local UI state lives in the `ui` object and never reaches the engine: hand order and sort mode, selection, staged lay-down groups, the armed Shanghai declaration, dock collapse.
+  - Per-player settings (card back color, low-to-high or high-to-low sorting, sound) live in `ui` too and are saved to `localStorage` via `store` (keys prefixed `shanghai.`). No accounts: they stay on that browser/device. Card back colors are `[data-back=…]` CSS blocks in `style.css`.
   - All in-game messaging goes through the activity box under the deck row (`activityHTML`). It shows, in priority order: a prompt you must answer, then your-turn status, then a brief `toast()` flash, then the turn status. Tapping the box (when it isn't a prompt) opens the game log. `toast()` only floats a pop-up outside a game.
   - `layoutHand()` positions cards absolutely after render, wrapping into rows and shrinking for big hands.
   - Card drag reorders `ui.order` only.

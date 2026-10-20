@@ -44,9 +44,24 @@ const ui = {
   lastErrSeq: null,
   homeError: null,
   sound: store.get('sound', true),
+  cardBack: store.get('cardBack', 'purple'),
+  sortDesc: store.get('sortDesc', false),
   drag: null,
   pendingRender: false,
 };
+
+// card back colors you can pick in Settings (the CSS for each lives in style.css)
+const CARD_BACKS = [
+  ['purple', 'Purple'],
+  ['red', 'Red'],
+  ['blue', 'Blue'],
+  ['green', 'Green'],
+  ['black', 'Black'],
+];
+function applyCardBack() {
+  document.documentElement.dataset.back = ui.cardBack;
+}
+applyCardBack();
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -196,10 +211,12 @@ function syncHand(v) {
 
 function sortIds(hand, how) {
   const suitOrder = { S: 0, H: 1, C: 2, D: 3, J: 4 };
-  const rankKey = (c) => (c.r === 0 ? 99 : c.r === 1 ? 14 : c.r);
+  // jokers stay at the right end either way
+  const dir = ui.sortDesc ? -1 : 1;
+  const byRank = (a, b) => (a.r === 0) - (b.r === 0) || dir * ((a.r === 1 ? 14 : a.r) - (b.r === 1 ? 14 : b.r));
   const cards = [...hand];
-  if (how === 'rank') cards.sort((a, b) => rankKey(a) - rankKey(b) || suitOrder[a.s] - suitOrder[b.s]);
-  else cards.sort((a, b) => suitOrder[a.s] - suitOrder[b.s] || rankKey(a) - rankKey(b));
+  if (how === 'rank') cards.sort((a, b) => byRank(a, b) || suitOrder[a.s] - suitOrder[b.s]);
+  else cards.sort((a, b) => suitOrder[a.s] - suitOrder[b.s] || byRank(a, b));
   return cards.map((c) => c.id);
 }
 
@@ -237,8 +254,8 @@ function homeHTML() {
     ${saved ? `<button class="ghost" data-act="resume">Resume your last game (round ${saved.game.round + 1} of ${ROUNDS.length})</button>` : ''}
     <div class="divider">— or join someone else's game —</div>
     <div class="row"><input data-field="joinCode" placeholder="ROOM CODE" maxlength="5" style="text-transform:uppercase;letter-spacing:3px" value="${esc(ui.joinCode)}"><button data-act="join" style="flex:none">Join</button></div>
-    <button class="ghost small" data-act="rules">How to play</button>
-  </div></div>${ui.modal === 'rules' ? rulesModal(DEFAULT_OPTIONS) : ''}`;
+    <div class="row"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="modal" data-m="settings">Settings</button></div>
+  </div></div>${ui.modal === 'rules' ? rulesModal(DEFAULT_OPTIONS) : ui.modal === 'settings' ? settingsModal() : ''}`;
 }
 
 function messageHTML(text) {
@@ -581,7 +598,7 @@ function gameHTML(snap) {
 function modalHTML(snap) {
   const v = snap.view;
   if (v.phase === 'roundOver' || v.phase === 'gameOver') {
-    if (ui.modal !== 'scores' && ui.modal !== 'menu' && ui.modal !== 'rules' && ui.modal !== 'log') return resultModal(snap);
+    if (!['scores', 'menu', 'rules', 'log', 'settings'].includes(ui.modal)) return resultModal(snap);
   }
   switch (ui.modal) {
     case 'scores':
@@ -598,6 +615,8 @@ function modalHTML(snap) {
       );
     case 'menu':
       return menuModal(snap);
+    case 'settings':
+      return settingsModal();
     case 'swap':
       return wrapModal(
         'Swap or add?',
@@ -674,7 +693,7 @@ function menuModal(snap) {
     '<button class="ghost" data-act="modal" data-m="scores">Score sheet</button>',
     '<button class="ghost" data-act="modal" data-m="log">Game log</button>',
     '<button class="ghost" data-act="modal" data-m="rules">Rules</button>',
-    `<button class="ghost" data-act="toggleSound">Sound: ${ui.sound ? 'on' : 'off'}</button>`,
+    '<button class="ghost" data-act="modal" data-m="settings">Settings</button>',
   ];
   if (snap.isHost) {
     if (snap.lobby.code) items.push(`<button class="ghost" data-act="share">Share invite link (${snap.lobby.code})</button>`);
@@ -688,6 +707,24 @@ function menuModal(snap) {
   }
   items.push(`<button class="danger" data-act="leave">${snap.isHost && !snap.solo ? 'End game for everyone' : 'Leave game'}</button>`);
   return wrapModal('Menu', `<div class="menu-list">${items.join('')}</div>`);
+}
+
+// Your own preferences. They're saved in this browser, so they come back next time on this device.
+function settingsModal() {
+  const choice = (act, val, on, label) => `<button class="${on ? 'primary' : 'ghost'}" data-act="${act}" data-val="${val}">${label}</button>`;
+  const backs = CARD_BACKS.map(
+    ([key, label]) =>
+      `<button class="back-swatch ${ui.cardBack === key ? 'on' : ''}" data-act="setCardBack" data-val="${key}" title="${label}"><span class="card-back" data-back="${key}"></span>${label}</button>`
+  ).join('');
+  return wrapModal(
+    'Settings',
+    `<div class="settings">
+      <h3>Card color</h3><div class="swatches">${backs}</div>
+      <h3>Sort cards</h3><div class="seg">${choice('setSortDesc', 0, !ui.sortDesc, 'Low to high')}${choice('setSortDesc', 1, ui.sortDesc, 'High to low')}</div>
+      <h3>Sound</h3><div class="seg">${choice('setSound', 1, ui.sound, 'On')}${choice('setSound', 0, !ui.sound, 'Off')}</div>
+      <p class="muted">Saved on this device.</p>
+    </div>`
+  );
 }
 
 function rulesModal(o) {
@@ -938,9 +975,22 @@ function onClick(e) {
     case 'toggleDock':
       ui.dockCollapsed = !ui.dockCollapsed;
       return render();
-    case 'toggleSound':
-      ui.sound = !ui.sound;
+    case 'setSound':
+      ui.sound = t.dataset.val === '1';
       store.set('sound', ui.sound);
+      return render();
+    case 'setCardBack':
+      ui.cardBack = t.dataset.val;
+      store.set('cardBack', ui.cardBack);
+      applyCardBack();
+      return render();
+    case 'setSortDesc':
+      ui.sortDesc = t.dataset.val === '1';
+      store.set('sortDesc', ui.sortDesc);
+      if (v && ui.sortMode && ui.sortMode !== 'manual') {
+        const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
+        ui.order = sortIds(v.hand, ui.sortMode).sort((a, b) => Number(stagedIds.has(a)) - Number(stagedIds.has(b)));
+      }
       return render();
     case 'addBot':
     case 'start':

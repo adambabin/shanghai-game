@@ -21,6 +21,32 @@
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--ink);
 }
+/* card back colors, picked in Settings; data-back sits on <html> and on the Settings swatches */
+[data-back='purple'] {
+  --back: #6b3fa0;
+  --back-a: #7444ad;
+  --back-b: #5f3790;
+}
+[data-back='red'] {
+  --back: #a8353a;
+  --back-a: #b33a3a;
+  --back-b: #9a2f2f;
+}
+[data-back='blue'] {
+  --back: #2f5ea8;
+  --back-a: #3466b5;
+  --back-b: #29539a;
+}
+[data-back='green'] {
+  --back: #2e7d4f;
+  --back-a: #338a57;
+  --back-b: #276d44;
+}
+[data-back='black'] {
+  --back: #2a2a2e;
+  --back-a: #333338;
+  --back-b: #222226;
+}
 @media (min-width: 760px) {
   :root {
     --cw: 78px;
@@ -318,8 +344,8 @@ label.field {
   height: var(--ch);
   border-radius: 8px;
   border: 3px solid var(--card);
-  background-color: #a8353a;
-  background-image: repeating-linear-gradient(45deg, #b33a3a 0 6px, #9a2f2f 6px 12px);
+  background-color: var(--back);
+  background-image: repeating-linear-gradient(45deg, var(--back-a) 0 6px, var(--back-b) 6px 12px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 .empty-pile {
@@ -1003,4 +1029,46 @@ table.scores td.zero {
 }
 .activity .buy-bar.tappable {
   cursor: pointer;
+}
+
+.settings h3 {
+  margin: 14px 0 8px;
+  color: var(--gold);
+  font-size: 15px;
+}
+.settings h3:first-child {
+  margin-top: 0;
+}
+.settings .seg {
+  display: flex;
+  gap: 8px;
+}
+.settings .seg button {
+  flex: 1;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.back-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  font-size: 13px;
+  background-color: var(--panel);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  color: var(--ink);
+}
+.back-swatch.on {
+  border-color: var(--gold);
+}
+.back-swatch .card-back {
+  width: 36px;
+  height: 50px;
+  border-width: 2px;
+  border-radius: 6px;
 }
