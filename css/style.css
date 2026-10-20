@@ -1075,7 +1075,7 @@ table.scores td.zero {
   flex-direction: column;
   position: relative;
   z-index: 1;
-  transition: box-shadow 0.2s;
+  /* no transition: this element is rebuilt on every update, so one would replay the fade-in each time */
 }
 .bottom.raised {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
