@@ -157,7 +157,7 @@ export function chooseDraw(view) {
   const isWild = wildTest(view.options);
   if (view.buyWindow) return null;
   const top = view.discardTop;
-  if (!top || view.topDead || view.deckOnly) return { type: 'drawDeck' };
+  if (!top || view.topDead) return { type: 'drawDeck' };
   if (wantsDiscard(view, isWild)) return { type: 'drawDiscard' };
   // not interested: give everyone else a chance to buy it first
   if (!view.buyOffered && view.buyEligible.length) return { type: 'allowBuy' };

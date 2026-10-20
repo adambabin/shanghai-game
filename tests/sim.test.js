@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, applyAction, viewFor, nextRound, totals, endRoundNoWinner, resolveBuyWindow } from '../js/engine.js';
+import { createGame, applyAction, viewFor, nextRound, totals, endRoundNoWinner, buyAsking, beginPlay } from '../js/engine.js';
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai } from '../js/bot.js';
 
 function seeded(seed) {
@@ -13,6 +13,7 @@ function playGame(players, seed) {
   const stats = { stalled: 0, buys: 0, shanghais: 0, rounds: 0, steps: 0 };
   while (g.phase !== 'gameOver') {
     let steps = 0;
+    if (g.phase === 'ready') beginPlay(g);
     while (g.phase === 'draw' || g.phase === 'play') {
       // a round can genuinely deadlock when nobody can go out without discarding; the host can end it
       if (++steps >= 3000) {
@@ -31,8 +32,8 @@ function playGame(players, seed) {
           }
         }
         if (g.buyWindow) {
-          for (const s of [...g.buyWindow.eligible]) if (g.buyWindow) applyAction(g, s, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, s)) });
-          if (g.buyWindow) resolveBuyWindow(g, true);
+          const s = buyAsking(g);
+          assert.ok(applyAction(g, s, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, s)) }).ok);
           continue;
         }
         const before = g.buysUsed.reduce((a, b) => a + b, 0);

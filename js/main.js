@@ -313,6 +313,7 @@ function playerChips(v) {
     .map((p, i) => {
       const tags = [];
       if (i === v.dealer) tags.push('<span class="tag">dealer</span>');
+      if (v.phase === 'ready') tags.push(p.ready ? '<span class="tag gold">ready</span>' : '<span class="tag">looking…</span>');
       if (p.buying) tags.push('<span class="tag gold">buying</span>');
       const seat = ui.snap.lobby.seats[i];
       if (seat && !seat.connected) tags.push('<span class="tag red">offline</span>');
@@ -361,12 +362,12 @@ function statusText(v) {
   if (me == null) return `You're watching. It's <b>${turnName}</b>'s turn.`;
   const myTurn = v.turn === me;
   const p = v.players[me];
+  if (v.phase === 'ready') return `Sort and plan your hand. <b>${turnName}</b> goes first once everyone is ready.`;
   if (!myTurn) {
     return v.phase === 'draw' ? `Waiting for <b>${turnName}</b> to draw…` : `<b>${turnName}</b> is playing…`;
   }
   if (v.phase === 'draw') {
     if (v.buyWindow) return 'Waiting while others decide whether to buy…';
-    if (v.deckOnly) return '<b>Your turn!</b> The discard was bought, so draw from the deck.';
     if (v.topDead) return '<b>Your turn!</b> Draw from the deck (the discard is dead).';
     if (v.mustDecide) return '<b>Your turn!</b> Take the discard, or allow buying and then draw.';
     return '<b>Your turn!</b> Tap the deck or the discard pile to draw.';
@@ -385,7 +386,7 @@ function centerHTML(v, isWild) {
   const p = me != null ? v.players[me] : null;
   const canDraw = myTurn && v.phase === 'draw' && !v.buyWindow;
   const top = v.discardTop;
-  const discardClickable = canDraw && top && !v.topDead && !v.deckOnly;
+  const discardClickable = canDraw && top && !v.topDead;
   const deckClickable = canDraw && !v.mustDecide;
   const deck = `<div class="pile ${deckClickable ? 'clickable' : ''}"><div class="stack" ${deckClickable ? 'data-act="drawDeck"' : ''}>${
     v.deckCount ? '<div class="card-back"></div>' : '<div class="empty-pile"></div>'
@@ -409,18 +410,31 @@ function secondsLeft() {
   return ui.windowDeadline ? Math.max(0, Math.ceil((ui.windowDeadline - Date.now()) / 1000)) : 0;
 }
 
-// The buying conversation: the current player decides whether to let others buy, then eligible players get 10 seconds.
+// The buying conversation: the current player decides whether to let others buy, then it goes around the table one at a time.
+function readyBarHTML(v, isHost) {
+  const me = v.you;
+  const waiting = v.players.filter((p) => !p.ready).map((p) => esc(p.name));
+  const startNow = isHost ? '<button class="ghost" data-act="startNow">Start now</button>' : '';
+  if (me != null && !v.players[me].ready)
+    return `<div class="buy-bar ask"><span>Look over your cards. Round ${v.round + 1}: <b>${contractText(v.round)}</b></span>
+      <span class="buy-actions"><button class="primary" data-act="ready">I'm ready</button>${startNow}</span></div>`;
+  return `<div class="buy-bar"><span>Waiting for ${waiting.join(', ')} to be ready…</span>${startNow ? `<span class="buy-actions">${startNow}</span>` : ''}</div>`;
+}
+
 function buyBarHTML(v) {
   const me = v.you;
+  if (v.phase === 'ready') return readyBarHTML(v, ui.snap.isHost);
   if (me == null || v.phase !== 'draw') return '';
   const top = v.discardTop;
   const w = v.buyWindow;
   const timer = `<span class="countdown" data-countdown>${secondsLeft()}</span>`;
   if (w) {
-    if (v.turn === me) return `<div class="buy-bar"><span>Others are deciding whether to buy the ${esc(cardLabel(top))}…</span> ${timer}</div>`;
-    if (!w.eligible.includes(me)) return `<div class="buy-bar muted-bar"><span>Buying is open for the ${esc(cardLabel(top))}…</span> ${timer}</div>`;
-    if (w.myAnswer === 'buy') return `<div class="buy-bar"><span>You asked to buy the ${esc(cardLabel(top))}. Waiting…</span> ${timer}</div>`;
-    if (w.myAnswer === 'pass') return `<div class="buy-bar muted-bar"><span>You passed on the ${esc(cardLabel(top))}.</span> ${timer}</div>`;
+    // one player at a time, in turn order: only the person being asked gets the buttons
+    if (w.asking !== me) {
+      const ahead = w.order.indexOf(me) - w.order.indexOf(w.asking);
+      const next = ahead === 1 ? " You're next." : ahead > 1 ? ` You're up after ${esc(v.players[w.order[ahead - 1 + w.order.indexOf(w.asking)]].name)}.` : '';
+      return `<div class="buy-bar"><span><b>${esc(v.players[w.asking].name)}</b> is deciding whether to buy the ${esc(cardLabel(top))}…${next}</span> ${timer}</div>`;
+    }
     const left = v.options.buyLimit - v.players[me].buysUsed;
     return `<div class="buy-bar ask"><span>Buy the <b>${esc(cardLabel(top))}</b>? You also take ${v.options.buyPenalty} from the deck. (${left} buy${left === 1 ? '' : 's'} left)</span> ${timer}
       <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No thanks</button></span></div>`;
@@ -652,8 +666,9 @@ function rulesModal(o) {
     <li>End your turn by discarding one card.</li></ul>
     <h3>Buying</h3>
     <ul><li>At the start of your turn you choose: <b>No, take card</b> (you take the discard) or <b>Allow buy</b>. You can only draw from the deck after allowing others to buy.</li>
-    <li>If you allow it, everyone who can buy gets 10 seconds to say Buy or No thanks. If several people buy, the one next in turn order gets it. The buyer takes the card plus ${o.buyPenalty} from the deck.</li>
-    <li>If someone bought it, you draw from the deck. If nobody did, you can still take it.</li>
+    <li>If you allow it, the offer goes around the table in order, starting with the player after you. Each player gets 10 seconds to say Buy or No thanks; the first to buy gets the card plus ${o.buyPenalty} from the deck.</li>
+    <li>When a card is bought, the card underneath is live again (even if it had been Shanghai'd), and you choose again: take it, or allow buying.</li>
+    <li>If nobody buys it, you can still take it, or draw from the deck.</li>
     <li>${o.buyLimit} buys per round. Once you've laid down you can't buy.</li></ul>
     <h3>Shanghai!</h3>
     <ul><li>If anyone discards a card that could have gone on a pile, anyone else can hit <b>SHANGHAI!</b> before the next player draws. The discarder picks up ${o.shanghaiPenalty} cards and that card is dead.</li>
@@ -866,6 +881,8 @@ function onClick(e) {
     case 'drawDeck':
     case 'drawDiscard':
     case 'allowBuy':
+    case 'ready':
+    case 'startNow':
     case 'undo':
       ui.modal = null;
       send({ type: act });

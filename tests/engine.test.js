@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSet, buildRun, addCards, fitsAnyMeld, runHi, placements, couldBeSet, couldBeRun, arrangeRun } from '../js/melds.js';
 import { wildTest } from '../js/cards.js';
-import { createGame, applyAction, viewFor, totals, nextRound, resolveBuyWindow, mustDecideOnDiscard } from '../js/engine.js';
+import { createGame, applyAction, viewFor, totals, nextRound, buyTimeout, buyAsking, mustDecideOnDiscard } from '../js/engine.js';
 
 const isWild = wildTest({ twoClubsWild: false });
 let nid = 1000;
@@ -75,7 +75,7 @@ test('adding cards to melds', () => {
 // Draws from the deck, first letting others buy the discard (nobody does) as the rules require.
 function deckDraw(g, seat) {
   if (mustDecideOnDiscard(g)) applyAction(g, seat, { type: 'allowBuy' });
-  if (g.buyWindow) resolveBuyWindow(g, true);
+  while (g.buyWindow) buyTimeout(g);
   return applyAction(g, seat, { type: 'drawDeck' });
 }
 
@@ -172,32 +172,59 @@ test('cannot discard your last card; undo takes plays back; going out on two pil
   assert.deepEqual(totals(g), [0, 85]);
 });
 
-test('buying: only after the current player allows it; closest buyer wins; card + 2 extra; limit of 2', () => {
+test('buying goes around in turn order, one player at a time; card + 2 extra; exposed card is offered again', () => {
   const hands = [0, 1, 2, 3].map(() => Array.from({ length: 11 }, (_, i) => c((i % 13) + 1, 'D')));
-  const g = rigged(hands, { discard: [c(7, 'S')] });
+  const under = c(4, 'C');
+  const g = rigged(hands, { discard: [under, c(7, 'S')] });
   g.turn = 1;
   assert.ok(!applyAction(g, 3, { type: 'buyAnswer', buy: true }).ok, 'no buying until allowed');
   assert.ok(applyAction(g, 1, { type: 'allowBuy' }).ok);
-  assert.deepEqual(g.buyWindow.eligible, [0, 2, 3]);
+  assert.deepEqual(g.buyWindow.order, [2, 3, 0], 'clockwise from the player after the current one');
   assert.ok(!applyAction(g, 1, { type: 'drawDeck' }).ok, 'current player waits for buyers');
-  applyAction(g, 3, { type: 'buyAnswer', buy: true });
-  assert.ok(g.buyWindow, 'still waiting on seat 2, who is ahead of seat 3');
-  applyAction(g, 2, { type: 'buyAnswer', buy: true });
-  assert.equal(g.buyWindow, null, 'seat 2 is closest, so it resolves at once');
-  assert.equal(g.hands[2].length, 14);
-  assert.equal(g.hands[3].length, 11);
-  assert.equal(g.buysUsed[2], 1);
-  assert.ok(!applyAction(g, 1, { type: 'drawDiscard' }).ok, 'after a buy the current player draws from the deck');
-  assert.ok(deckDraw(g, 1).ok);
+  assert.ok(!applyAction(g, 3, { type: 'buyAnswer', buy: true }).ok, "seat 3 can't jump ahead of seat 2");
+  assert.ok(applyAction(g, 2, { type: 'buyAnswer', buy: false }).ok);
+  assert.equal(buyAsking(g), 3);
+  buyTimeout(g); // seat 3 doesn't answer
+  assert.equal(buyAsking(g), 0);
+  assert.ok(applyAction(g, 0, { type: 'buyAnswer', buy: true }).ok);
+  assert.equal(g.buyWindow, null);
+  assert.equal(g.hands[0].length, 14, 'card + 2 extra');
+  assert.equal(g.buysUsed[0], 1);
+  // the 4C underneath is exposed and offered again: take it, or allow buying again
+  assert.equal(g.discard[g.discard.length - 1].id, under.id);
+  assert.ok(mustDecideOnDiscard(g));
+  assert.ok(!applyAction(g, 1, { type: 'drawDeck' }).ok);
+  assert.ok(applyAction(g, 1, { type: 'drawDiscard' }).ok, 'current player can take the exposed card');
 
-  // nobody buys before the timeout: current player can still take the discard
+  // nobody buys: current player can still take the discard
   applyAction(g, 1, { type: 'discard', id: g.hands[1][0].id });
   g.buysUsed[3] = 2;
   applyAction(g, 2, { type: 'allowBuy' });
-  assert.deepEqual(g.buyWindow.eligible, [0], 'seat 3 is out of buys and seat 1 discarded it');
-  resolveBuyWindow(g, true);
+  assert.deepEqual(g.buyWindow.order, [0], 'seat 3 is out of buys and seat 1 discarded it');
+  applyAction(g, 0, { type: 'buyAnswer', buy: false });
   assert.equal(g.buyWindow, null);
   assert.ok(applyAction(g, 2, { type: 'drawDiscard' }).ok);
+});
+
+test('a bought-out dead card underneath comes back to life', () => {
+  const hands = [0, 1, 2].map(() => Array.from({ length: 5 }, (_, i) => c(i + 2, 'H')));
+  const g = rigged(hands, { discard: [c(9, 'C'), c(10, 'C')] });
+  g.turn = 1;
+  g.topDead = false;
+  applyAction(g, 1, { type: 'allowBuy' });
+  applyAction(g, 2, { type: 'buyAnswer', buy: true });
+  assert.ok(!g.topDead);
+  assert.ok(applyAction(g, 1, { type: 'drawDiscard' }).ok);
+});
+
+test('rounds start with everyone looking at their cards until all are ready', () => {
+  const g = createGame([{ name: 'a' }, { name: 'b' }, { name: 'bot', bot: true }]);
+  assert.equal(g.phase, 'ready');
+  assert.ok(!applyAction(g, g.turn, { type: 'drawDeck' }).ok);
+  applyAction(g, 0, { type: 'ready' });
+  assert.equal(g.phase, 'ready');
+  applyAction(g, 1, { type: 'ready' });
+  assert.equal(g.phase, 'draw', 'computers are always ready');
 });
 
 test('Shanghai counts on anyone, laid down or not; a self-Shanghai that is not one stays live', () => {
