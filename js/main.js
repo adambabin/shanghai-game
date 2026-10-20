@@ -518,7 +518,7 @@ function dockHTML(v, isWild, warn) {
   if (me == null) return body;
   if (ui.dockCollapsed)
     return `<div class="dock collapsed"><button class="dock-toggle" data-act="toggleDock">Show my cards (${v.hand.length}) ▴</button></div>`;
-  return `<div class="dock"><button class="dock-toggle" data-act="toggleDock">Hide my cards ▾</button><div class="dock-body">${body}</div></div>`;
+  return `<div class="dock"><button class="dock-toggle icon" data-act="toggleDock" title="Hide my cards" aria-label="Hide my cards">▾</button><div class="dock-body">${body}</div></div>`;
 }
 
 function gameHTML(snap) {
