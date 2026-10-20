@@ -313,10 +313,7 @@ function playerChips(v) {
     .map((p, i) => {
       const tags = [];
       if (i === v.dealer) tags.push('<span class="tag">dealer</span>');
-      if (p.laid) tags.push('<span class="tag gold">down</span>');
       if (p.buying) tags.push('<span class="tag gold">buying</span>');
-      if (p.blocked) tags.push('<span class="tag red">blocked</span>');
-      if (p.bot) tags.push('<span class="tag">cpu</span>');
       const seat = ui.snap.lobby.seats[i];
       if (seat && !seat.connected) tags.push('<span class="tag red">offline</span>');
       const left = v.options.buyLimit - p.buysUsed;
@@ -347,7 +344,8 @@ function tableHTML(v, isWild) {
     if (!melds.length) return;
     const html = melds
       .map((m) => {
-        const ok = playable && (addCards(m, sel, isWild) || (sel.length === 1 && wildSlotFor(m, sel[0], isWild) >= 0));
+        // every pile lights up: picking the right one is part of the game
+        const ok = playable;
         return `<div class="meld ${ok ? 'target' : ''}" ${ok ? `data-act="playOn" data-meld="${m.id}"` : ''} title="${m.type}">
           ${m.cards.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>`;
       })
@@ -370,6 +368,7 @@ function statusText(v) {
     if (v.buyWindow) return 'Waiting while others decide whether to buy…';
     if (v.deckOnly) return '<b>Your turn!</b> The discard was bought, so draw from the deck.';
     if (v.topDead) return '<b>Your turn!</b> Draw from the deck (the discard is dead).';
+    if (v.mustDecide) return '<b>Your turn!</b> Take the discard, or allow buying and then draw.';
     return '<b>Your turn!</b> Tap the deck or the discard pile to draw.';
   }
   if (v.mustPlay.some((id) => v.hand.some((c) => c.id === id)))
@@ -387,17 +386,17 @@ function centerHTML(v, isWild) {
   const canDraw = myTurn && v.phase === 'draw' && !v.buyWindow;
   const top = v.discardTop;
   const discardClickable = canDraw && top && !v.topDead && !v.deckOnly;
-  const deck = `<div class="pile ${canDraw ? 'clickable' : ''}"><div class="stack" ${canDraw ? 'data-act="drawDeck"' : ''}>${
+  const deckClickable = canDraw && !v.mustDecide;
+  const deck = `<div class="pile ${deckClickable ? 'clickable' : ''}"><div class="stack" ${deckClickable ? 'data-act="drawDeck"' : ''}>${
     v.deckCount ? '<div class="card-back"></div>' : '<div class="empty-pile"></div>'
-  }</div><span>Deck · ${v.deckCount}</span></div>`;
+  }</div><span>Deck</span></div>`;
   const discard = `<div class="pile ${discardClickable ? 'clickable' : ''}"><div class="stack" ${discardClickable ? 'data-act="drawDiscard"' : ''}>${
     top ? cardHTML(top, { isWild }) : '<div class="empty-pile"></div>'
   }${v.topDead ? '<div class="dead-stamp"><span>DEAD</span></div>' : ''}</div><span>${v.topDead ? 'Dead card' : 'Discard'}</span></div>`;
 
   const actions = [];
   if (p) {
-    if (p.blocked) actions.push('<button class="shanghai-btn" disabled>Shanghai (blocked)</button>');
-    else if (myTurn && v.phase === 'play')
+    if (myTurn && v.phase === 'play')
       actions.push(
         `<button class="shanghai-btn ${ui.armed ? 'armed' : ''}" data-act="arm">${ui.armed ? 'Shanghai said: next discard is dead' : 'SHANGHAI!'}</button>`
       );
@@ -426,15 +425,11 @@ function buyBarHTML(v) {
     return `<div class="buy-bar ask"><span>Buy the <b>${esc(cardLabel(top))}</b>? You also take ${v.options.buyPenalty} from the deck. (${left} buy${left === 1 ? '' : 's'} left)</span> ${timer}
       <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No thanks</button></span></div>`;
   }
-  if (v.turn === me && top && !v.topDead && !v.deckOnly && !v.buyOffered && v.buyEligible.length && ui.declinedTurn !== turnId(v)) {
-    return `<div class="buy-bar ask"><span>Let others buy the <b>${esc(cardLabel(top))}</b>?</span>
-      <span class="buy-actions"><button class="primary" data-act="allowBuy">Allow buy</button><button class="ghost" data-act="declineBuy">No thanks</button></span></div>`;
+  if (v.turn === me && v.mustDecide) {
+    return `<div class="buy-bar ask"><span>Take the <b>${esc(cardLabel(top))}</b>, or let others buy it?</span>
+      <span class="buy-actions"><button class="primary" data-act="allowBuy">Allow buy</button><button class="ghost" data-act="drawDiscard">No, take card</button></span></div>`;
   }
   return '';
-}
-
-function turnId(v) {
-  return `${v.round}:${v.turn}:${v.discardCount}:${v.lastDiscard ? v.lastDiscard.cardId : ''}`;
 }
 
 function stagingHTML(v, isWild) {
@@ -468,9 +463,11 @@ function handHTML(v, isWild) {
   const myPlay = v.turn === me && v.phase === 'play';
   const n = ui.selected.size;
   const btns = [];
-  if (!p.laid && v.phase !== 'roundOver') {
-    btns.push(`<button class="ghost" data-act="stage" data-type="set" ${n >= 3 ? '' : 'disabled'}>Make set</button>`);
-    btns.push(`<button class="ghost" data-act="stage" data-type="run" ${n >= 4 ? '' : 'disabled'}>Make run</button>`);
+  if (!p.laid && v.phase !== 'roundOver' && n >= 3) {
+    // only offer the group the selected cards actually make
+    const sel = selectedCards(v);
+    if (buildSet(sel, isWild)) btns.push('<button class="primary" data-act="stage" data-type="set">Make set</button>');
+    else if (buildRun(sel, isWild)) btns.push('<button class="primary" data-act="stage" data-type="run">Make run</button>');
   }
   btns.push(
     `<button class="${ui.armed ? 'danger' : 'primary'}" data-act="discard" ${myPlay && n === 1 ? '' : 'disabled'}>${ui.armed ? 'Discard (dead)' : 'Discard'}</button>`
@@ -641,18 +638,21 @@ function rulesModal(o) {
     <ul>${rounds}</ul>
     <h3>Sets &amp; runs</h3>
     <ul><li>Set: 3 or more of the same rank.</li><li>Run: 4 or more in a row, same suit. Aces are high only (J-Q-K-A, never A-2-3-4).</li>
-    <li>Jokers are wild${o.twoClubsWild ? ', and so is the 2♣' : '. The 2♣ is NOT wild'}. Every set or run needs at least 2 real cards.</li></ul>
+    <li>Jokers are wild${o.twoClubsWild ? ', and so is the 2♣' : '. The 2♣ is NOT wild'}. Every set or run needs more real cards than wild cards (a 4-card run needs 3 real cards), and a run can't have two wild cards next to each other.</li>
+    <li>When you make a run with a joker, the joker goes where you put it: select the cards in order (e.g. joker, 8, 9, 10).</li>
+    <li>3 decks with 6 jokers. When the deck runs out, the discard pile is shuffled into a new deck.</li></ul>
     <h3>Your turn</h3>
     <ul><li>Draw from the deck or take the top discard.</li><li>Lay down your contract (exactly the sets and runs listed). Once you're down you can add cards to anyone's piles, on this turn or later.</li>
     <li>End your turn by discarding one card.</li></ul>
     <h3>Buying</h3>
-    <ul><li>At the start of your turn you choose: <b>No thanks</b> (take the discard or draw from the deck, nobody buys) or <b>Allow buy</b>.</li>
+    <ul><li>At the start of your turn you choose: <b>No, take card</b> (you take the discard) or <b>Allow buy</b>. You can only draw from the deck after allowing others to buy.</li>
     <li>If you allow it, everyone who can buy gets 10 seconds to say Buy or No thanks. If several people buy, the one next in turn order gets it. The buyer takes the card plus ${o.buyPenalty} from the deck.</li>
     <li>If someone bought it, you draw from the deck. If nobody did, you can still take it.</li>
     <li>${o.buyLimit} buys per round. Once you've laid down you can't buy.</li></ul>
     <h3>Shanghai!</h3>
     <ul><li>If anyone discards a card that could have gone on a pile, anyone else can hit <b>SHANGHAI!</b> before the next player draws. The discarder picks up ${o.shanghaiPenalty} cards and that card is dead.</li>
-    <li>Calling Shanghai when there isn't one costs you ${o.falseCallPenalty} cards, and you can't call again until your next turn.</li>
+    <li>A card counts as playable if it fits on the end of a pile or could swap out a joker in a run (e.g. a 9 when there's 7, 8, joker, 10).</li>
+    <li>Calling Shanghai when there isn't one costs you ${o.falseCallPenalty} cards.</li>
     <li>Want to get rid of a playable card on purpose? Before discarding, tap SHANGHAI! yourself. Your discard is declared dead: no penalty, but nobody can pick it up or buy it until another card covers it. (If the card couldn't actually go anywhere, it isn't a Shanghai: you'll get a heads-up and the card stays live.)</li></ul>
     <h3>Swapping wild cards</h3>
     <ul><li>Once you've laid down, if a run on the table has a joker standing in for a card you hold, select that card and tap the run to swap it in. You take the joker.</li>
@@ -878,9 +878,6 @@ function onClick(e) {
     case 'buyAnswer':
       send({ type: 'buyAnswer', buy: t.dataset.buy === '1' });
       return render();
-    case 'declineBuy':
-      ui.declinedTurn = turnId(v);
-      return render();
     case 'swapOrAdd': {
       const wp = ui.wildPrompt;
       ui.modal = null;
@@ -946,6 +943,10 @@ function onClick(e) {
       const meld = v.melds.find((m) => m.id === Number(t.dataset.meld));
       const cards = selectedCards(v);
       const canSwap = cards.length === 1 && wildSlotFor(meld, cards[0], isWild) >= 0;
+      if (!canSwap && !addCards(meld, cards, isWild)) {
+        toast(`${cards.map(cardLabel).join(' ')} can't go on that ${meld.type}.`, true);
+        return;
+      }
       if (canSwap) {
         if (addCards(meld, cards, isWild)) {
           ui.wildPrompt = { meldId: meld.id, ids: [cards[0].id] };

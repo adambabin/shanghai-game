@@ -17,7 +17,7 @@ export const ROUNDS = [
 
 export const SET_MIN = 3; // cards of the same rank
 export const RUN_MIN = 4; // cards in a row, same suit
-export const MIN_NATURALS = 2; // non-wild cards required in every set or run
+// Every set and run needs more real cards than wild cards (see melds.js).
 
 export const MAX_PLAYERS = 8;
 
@@ -31,8 +31,9 @@ export const DEFAULT_OPTIONS = {
   botSpeed: 1, // 0.5 = fast, 1 = normal, 2 = slow
 };
 
-export function decksFor(playerCount) {
-  return playerCount <= 6 ? 2 : 3;
+// Always 3 standard decks with their 2 jokers each: 162 cards.
+export function decksFor() {
+  return 3;
 }
 
 export function contractText(round) {

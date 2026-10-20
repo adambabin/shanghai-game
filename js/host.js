@@ -23,6 +23,8 @@ export class HostSession {
     if (restore) {
       this.lobby = restore.lobby;
       this.game = restore.game;
+      // games saved by an older version are missing newer fields
+      Object.assign(this.game, { mustPlay: [], buyWindow: null, buyOffered: false, deckOnly: false, ...this.game });
       this.lobby.seats.forEach((s) => {
         if (!s.bot && !s.isHost) s.connected = false;
       });
@@ -344,8 +346,8 @@ export class HostSession {
     const seat = g.turn;
     if (g.phase === 'draw') {
       if (g.buyWindow) return; // wait for buyers; resolving the window reschedules us
-      // give people a moment to call Shanghai before the bot draws
-      const wait = g.lastDiscard && g.lastDiscard.open && !g.buyOffered ? 3200 : 1200;
+      // give people time to spot and call Shanghai before the bot draws (the window closes on the draw)
+      const wait = g.lastDiscard && g.lastDiscard.open && !g.buyOffered ? 6000 : 1500;
       this.turnTimer = this.later(wait, () => {
         const a = chooseDraw(viewFor(g, seat));
         if (a) this.act(seat, a);

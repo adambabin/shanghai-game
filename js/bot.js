@@ -2,7 +2,7 @@
 
 import { wildTest, cardPoints } from './cards.js';
 import { addCards, fitsAnyMeld, placements, buildSet, buildRun, runValue, wildSlotFor } from './melds.js';
-import { ROUNDS, SET_MIN, RUN_MIN, MIN_NATURALS } from './rules.js';
+import { ROUNDS, SET_MIN, RUN_MIN } from './rules.js';
 
 // ---------- Finding a lay down ----------
 
@@ -17,7 +17,7 @@ function setCandidates(cards, isWild) {
   const out = [];
   for (const [rank, nat] of byRank) {
     if (nat.length >= SET_MIN) out.push({ key: rank, cards: nat.slice(0, SET_MIN), wilds: 0 });
-    else if (nat.length >= MIN_NATURALS && wilds.length >= SET_MIN - nat.length)
+    else if (nat.length > SET_MIN - nat.length && wilds.length >= SET_MIN - nat.length)
       out.push({ key: rank, cards: [...nat, ...wilds.slice(0, SET_MIN - nat.length)], wilds: SET_MIN - nat.length });
   }
   return out.sort((a, b) => a.wilds - b.wilds);
@@ -40,7 +40,8 @@ function runCandidates(cards, isWild) {
         if (c && !picked.includes(c)) picked.push(c);
         else missing++;
       }
-      if (picked.length < MIN_NATURALS || missing > wilds.length) continue;
+      // more real cards than wilds, and with a 4-card window that also means no two wilds together
+      if (picked.length <= missing || missing > wilds.length) continue;
       out.push({ key: suit.charCodeAt(0) * 20 + start, cards: [...picked, ...wilds.slice(0, missing)], wilds: missing });
     }
   }

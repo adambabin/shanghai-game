@@ -112,6 +112,11 @@ function topCard(state) {
   return state.discard[state.discard.length - 1] || null;
 }
 
+// The current player has to either take the live discard or let others buy it before drawing from the deck.
+export function mustDecideOnDiscard(state) {
+  return state.phase === 'draw' && !state.buyOffered && !state.buyWindow && buyEligible(state).length > 0;
+}
+
 // Who could buy the top discard right now.
 export function buyEligible(state) {
   const top = topCard(state);
@@ -201,6 +206,7 @@ export function applyAction(state, seat, action) {
     case 'drawDeck': {
       if (!myTurn || state.phase !== 'draw') return err("It's not your turn to draw.");
       if (state.buyWindow) return err('Hang on, other players are deciding whether to buy.');
+      if (mustDecideOnDiscard(state)) return err('Take the discard, or allow others to buy it before you draw from the deck.');
       closeShanghaiWindow(state);
       const got = drawCards(state, seat, 1);
       if (!got.length) {
@@ -385,7 +391,6 @@ export function applyAction(state, seat, action) {
 
     case 'shanghai': {
       if (!inRound) return err('There is no round in progress.');
-      if (state.blocked[seat]) return err("You're blocked from calling Shanghai until your next turn.");
       if (topIsShanghai(state) && state.lastDiscard.by !== seat) {
         const ld = state.lastDiscard;
         ld.called = true;
@@ -403,8 +408,7 @@ export function applyAction(state, seat, action) {
         return { ok: true, result: 'hit' };
       }
       const got = drawCards(state, seat, state.options.falseCallPenalty);
-      state.blocked[seat] = true;
-      log(state, `${name} called Shanghai, but there wasn't one. ${name} picks up ${got.length} cards and can't call again until their next turn.`, 'falsecall', { seat });
+      log(state, `${name} called Shanghai, but there wasn't one. ${name} picks up ${got.length} cards.`, 'falsecall', { seat });
       return { ok: true, result: 'miss' };
     }
 
@@ -460,6 +464,7 @@ export function viewFor(state, seat) {
     buyOffered: state.buyOffered,
     deckOnly: state.deckOnly,
     buyEligible: buyEligible(state),
+    mustDecide: mustDecideOnDiscard(state),
     buyWindow: state.buyWindow
       ? {
           eligible: state.buyWindow.eligible,
