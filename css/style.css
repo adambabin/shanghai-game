@@ -528,7 +528,7 @@ label.field {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 12px;
   padding: 6px 12px;
   flex: none;
 }
@@ -537,6 +537,9 @@ label.field {
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* fixed widths so changing labels never nudge the row sideways */
+  width: 86px;
+  white-space: nowrap;
   gap: 3px;
   font-size: 12px;
   color: var(--ink-dim);
@@ -574,7 +577,7 @@ label.field {
   flex-direction: column;
   gap: 8px;
   align-items: stretch;
-  min-width: 120px;
+  width: 140px;
 }
 .shanghai-btn {
   background: var(--red);
@@ -582,7 +585,7 @@ label.field {
   font-weight: 900;
   letter-spacing: 1px;
   font-size: 17px;
-  padding: 12px 14px;
+  padding: 12px 8px;
   box-shadow: 0 4px 0 var(--red-dark);
 }
 .shanghai-btn:active:not(:disabled) {
@@ -593,7 +596,7 @@ label.field {
   background: #fff;
   color: var(--red);
   animation: pulse 0.9s infinite;
-  font-size: 14px;
+  font-size: 15px; /* the ✓ has to fit in the same width */
 }
 @keyframes pulse {
   50% {
