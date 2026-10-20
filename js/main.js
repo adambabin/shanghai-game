@@ -378,16 +378,15 @@ function playerChips(v) {
   return v.players
     .map((p, i) => {
       const tags = [];
-      if (i === v.dealer) tags.push('<span class="tag">dealer</span>');
-      if (v.phase === 'ready') tags.push(p.ready ? '<span class="tag gold">ready</span>' : '<span class="tag">looking…</span>');
-      if (p.buying) tags.push('<span class="tag gold">buying</span>');
+      if (v.phase === 'ready' && p.ready) tags.push('<span class="tag gold">ready</span>');
       const seat = ui.snap.lobby.seats[i];
       if (seat && !seat.connected) tags.push('<span class="tag red">offline</span>');
       // one dot per buy left; none once they've laid down, since they can't buy then
       const left = p.laid ? 0 : Math.max(0, v.options.buyLimit - p.buysUsed);
       const dots = left ? `<span class="buy-dots" title="${left} buy${left === 1 ? '' : 's'} left">${'<i></i>'.repeat(left)}</span>` : '';
-      return `<div class="chip ${i === v.turn ? 'turn' : ''} ${i === v.you ? 'me' : ''}">
-        <span class="pname">${esc(p.name)}</span>
+      const dealer = i === v.dealer;
+      return `<div class="chip ${i === v.turn ? 'turn' : ''} ${i === v.you ? 'me' : ''} ${dealer ? 'dealer' : ''}">
+        ${dealer ? '<span class="dealer-badge" title="Dealer">D</span>' : ''}<span class="pname">${esc(p.name)}</span>
         <span class="pstats"><span>${p.cards} card${p.cards === 1 ? '' : 's'}</span>${dots}</span>
         <span class="ptags">${tags.join('')}</span></div>`;
     })
