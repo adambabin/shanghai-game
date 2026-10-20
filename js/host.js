@@ -22,6 +22,7 @@ export class HostSession {
 
     if (restore) {
       this.lobby = restore.lobby;
+      this.lobby.options = { ...DEFAULT_OPTIONS, ...this.lobby.options };
       this.game = restore.game;
       // games saved by an older version are missing newer fields
       Object.assign(this.game, { mustPlay: [], buyOffered: false, ...this.game, buyWindow: null });

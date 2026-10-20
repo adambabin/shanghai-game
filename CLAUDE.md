@@ -44,7 +44,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - `render()` replaces everything, so it carries the scroll position of `.players`, `.table` and `.modal-body` over. `trackMeldChanges()` marks piles that changed since the last snapshot (`.just-played` for a few seconds). The table never scrolls by itself.
   - Card drag reorders `ui.order` only.
 - `js/melds.js` validates sets and runs. A run is stored as `{ suit, lo, cards }`, where `cards[i]` sits at value `lo + i`. Wild cards occupy real slots, which is what makes joker swaps and order-preserving runs possible.
-- `js/rules.js` holds the round contracts and deal sizes (`ROUNDS`), plus the lobby-adjustable `DEFAULT_OPTIONS`. Every game uses 3 decks with 6 jokers.
+- `js/rules.js` holds the round contracts and deal sizes (`ROUNDS`), plus the lobby-adjustable `DEFAULT_OPTIONS`. The host picks 3 to 6 decks (`decks`, default 3), each adding 2 jokers; `decksFor()` clamps it and fills the default for older saves.
 
 ### Turn flow (engine phases)
 

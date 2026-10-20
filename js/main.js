@@ -2,7 +2,7 @@ import { HostSession, ClientSession } from './host.js';
 import { joinRoom } from './net.js';
 import { SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
 import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
-import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN } from './rules.js';
+import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor } from './rules.js';
 
 const $app = document.getElementById('app');
 const $toasts = document.getElementById('toasts');
@@ -413,6 +413,7 @@ function lobbyHTML(snap) {
     ${isHost ? `<button class="ghost" data-act="addBot" ${lobby.seats.length >= MAX_PLAYERS ? 'disabled' : ''}>+ Add a computer player</button>` : ''}
     <h3 style="margin-top:6px">House rules</h3>
     <div class="options">
+      ${optionRow('Decks', 'decks', Array.from({ length: MAX_DECKS - MIN_DECKS + 1 }, (_, i) => [MIN_DECKS + i, `${MIN_DECKS + i} (${(MIN_DECKS + i) * 2} jokers)`]), o, isHost)}
       ${optionRow('Buys per round', 'buyLimit', [[0, 'None'], [1, '1'], [2, '2'], [3, '3'], [4, '4']], o, isHost)}
       ${optionRow('Extra cards per buy', 'buyPenalty', [[0, 'None'], [1, '1'], [2, '2'], [3, '3']], o, isHost)}
       ${optionRow('2♣ wild', 'twoClubsWild', [[false, 'No (jokers only)'], [true, 'Yes']], o, isHost)}
@@ -852,7 +853,7 @@ function rulesModal(o) {
     <ul><li>Set: 3 or more of the same rank.</li><li>Run: 4 or more in a row, same suit. Aces are high only (J-Q-K-A, never A-2-3-4).</li>
     <li>Jokers are wild${o.twoClubsWild ? ', and so is the 2♣' : '. The 2♣ is NOT wild'}. Every set or run needs more real cards than wild cards (a 4-card run needs 3 real cards), and a run can't have two wild cards next to each other.</li>
     <li>When you make a run with a joker, the joker goes where you put it: select the cards in order (e.g. joker, 8, 9, 10).</li>
-    <li>3 decks with 6 jokers. When the deck runs out, the discard pile is shuffled into a new deck.</li></ul>
+    <li>${decksFor(o)} decks with ${decksFor(o) * 2} jokers. When the deck runs out, the discard pile is shuffled into a new deck.</li></ul>
     <h3>Your turn</h3>
     <ul><li>Draw from the deck or take the top discard.</li><li>Lay down your contract (exactly the sets and runs listed). Once you're down you can add cards to anyone's piles, on this turn or later.</li>
     <li>End your turn by discarding one card.</li></ul>
