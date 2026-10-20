@@ -38,6 +38,8 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - The home screen and Settings offer "Add to your home screen" on phones (hidden once opened from the icon). It matters on iPhone: Safari clears a site's storage after about a week unused, but a home screen app keeps its own (separate) storage. On Android it uses Chrome's install prompt when available.
   - All in-game messaging goes through the activity box under the deck row (`activityHTML`). It shows, in priority order: a prompt you must answer, then your-turn status, then a brief `toast()` flash, then the turn status. Tapping the box (when it isn't a prompt) opens the game log. `toast()` only floats a pop-up outside a game.
   - `layoutHand()` positions cards absolutely after render, wrapping into rows and shrinking for big hands.
+  - The deck row, activity box and hand sit in `.bottom`. `markTableOverflow()` gives it an upward shadow (`.raised`) when the piles on the table don't all fit above it.
+  - Pop-ups built with `wrapModal()` keep the title and the Close button fixed; only `.modal-body` scrolls.
   - Card drag reorders `ui.order` only.
 - `js/melds.js` validates sets and runs. A run is stored as `{ suit, lo, cards }`, where `cards[i]` sits at value `lo + i`. Wild cards occupy real slots, which is what makes joker swaps and order-preserving runs possible.
 - `js/rules.js` holds the round contracts and deal sizes (`ROUNDS`), plus the lobby-adjustable `DEFAULT_OPTIONS`. Every game uses 3 decks with 6 jokers.
