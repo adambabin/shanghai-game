@@ -42,6 +42,11 @@
   --back-a: #338a57;
   --back-b: #276d44;
 }
+[data-back='yellow'] {
+  --back: #f9d342;
+  --back-a: #fbd94f;
+  --back-b: #f0c62c;
+}
 [data-back='black'] {
   --back: #2a2a2e;
   --back-a: #333338;
@@ -576,6 +581,10 @@ label.field {
 }
 .pile.clickable .stack > :first-child {
   box-shadow: 0 0 0 3px var(--gold), 0 0 18px rgba(242, 193, 78, 0.6);
+}
+/* a gold glow disappears against a yellow deck, so yellow gets a darker amber one */
+[data-back='yellow'] .pile.clickable .stack > .card-back {
+  box-shadow: 0 0 0 3px #a8670f, 0 0 18px rgba(168, 103, 15, 0.75);
 }
 .dead-stamp {
   position: absolute;
@@ -1140,18 +1149,19 @@ table.scores td.zero {
 .settings .seg button {
   flex: 1;
 }
+/* all the colors on one row, even on a small phone */
 .swatches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+  gap: 6px;
 }
 .back-swatch {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 6px;
-  font-size: 13px;
+  padding: 6px 0;
+  font-size: 12px;
   background-color: var(--panel);
   border: 2px solid transparent;
   border-radius: 10px;
