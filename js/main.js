@@ -73,7 +73,15 @@ function beep(freqs, dur = 0.12) {
 }
 
 // ---------- toasts ----------
+// During a game, messages show briefly in the activity box under the deck; elsewhere they float.
 function toast(text, bad = false, ms = 3000) {
+  if (ui.snap && ui.snap.view) {
+    ui.flash = { text, bad, until: Date.now() + ms };
+    clearTimeout(ui.flashTimer);
+    ui.flashTimer = setTimeout(render, ms + 30);
+    render();
+    return;
+  }
   const el = document.createElement('div');
   el.className = 'toast' + (bad ? ' bad' : '');
   el.textContent = text;
@@ -106,6 +114,8 @@ function startSession(session) {
   ui.lastSeq = null;
   ui.handRound = null;
   ui.modal = null;
+  ui.lastEvent = null;
+  ui.flash = null;
   session.subscribe(onSnapshot);
 }
 
@@ -140,6 +150,8 @@ function processLog(v) {
   }
   for (const e of v.log) {
     if (e.seq <= ui.lastSeq) continue;
+    // the activity box keeps the latest thing that happened on a second line
+    if (e.kind !== 'undo') ui.lastEvent = e.kind === 'notshanghai' && e.seat === v.you ? e.note : e.text;
     if (e.kind === 'shanghai') {
       shout('SHANGHAI!');
       toast(e.text, true, 5000);
@@ -411,7 +423,27 @@ function centerHTML(v, isWild) {
       );
     else actions.push('<button class="shanghai-btn" data-act="callShanghai">SHANGHAI!</button>');
   }
-  return `<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div></div>${buyBarHTML(v)}`;
+  return `<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div></div>${activityHTML(v)}`;
+}
+
+// One place for everything going on: what you need to do (a prompt), else something that just happened
+// (shown for a few seconds), else whose turn it is. Underneath, the latest event stays until a newer one.
+function activityHTML(v) {
+  const me = v.you;
+  const mine = me != null && v.turn === me && (v.phase === 'draw' || v.phase === 'play');
+  const f = ui.flash && ui.flash.until > Date.now() ? ui.flash : null;
+  // your own turn beats other people's news (it stays on the line below), but not your own mistakes
+  const showFlash = f && (!mine || f.bad);
+  let main = buyBarHTML(v);
+  if (!main && showFlash) main = `<div class="buy-bar flash ${f.bad ? 'bad' : ''}"><span>${esc(f.text)}</span></div>`;
+  if (!main) {
+    const warn = mine && v.phase === 'play' && v.hand.length === 1;
+    main = `<div class="buy-bar ${mine ? 'ask' : ''} ${warn ? 'warn' : ''}"><span>${statusText(v)}</span></div>`;
+  }
+  const dupe = showFlash && f.text === ui.lastEvent && main.includes('flash');
+  const last =
+    ui.lastEvent && !dupe ? `<button class="activity-last" data-act="modal" data-m="log" title="Game log">${esc(ui.lastEvent)}</button>` : '';
+  return `<div class="activity">${main}${last}</div>`;
 }
 
 function secondsLeft() {
@@ -512,10 +544,10 @@ function handHTML(v, isWild) {
 
 // The bottom area (status, staged groups, hand) can be tucked away to see more of the table, like putting
 // your cards face down. It opens again on your turn.
-function dockHTML(v, isWild, warn) {
+function dockHTML(v, isWild) {
   const me = v.you;
-  const body = `<div class="status ${warn ? 'warn' : ''}">${statusText(v)}</div>${me != null ? stagingHTML(v, isWild) + handHTML(v, isWild) : ''}`;
-  if (me == null) return body;
+  if (me == null) return '';
+  const body = stagingHTML(v, isWild) + handHTML(v, isWild);
   if (ui.dockCollapsed)
     return `<div class="dock collapsed"><button class="dock-toggle" data-act="toggleDock">Show my cards (${v.hand.length}) ▴</button></div>`;
   return `<div class="dock"><button class="dock-toggle icon" data-act="toggleDock" title="Hide my cards" aria-label="Hide my cards">▾</button><div class="dock-body">${body}</div></div>`;
@@ -531,7 +563,6 @@ function gameHTML(snap) {
         ? `<div class="conn-banner">${esc(snap.error)}</div>`
         : '';
   const me = v.you;
-  const warn = me != null && v.turn === me && v.phase === 'play' && v.hand.length === 1;
   return `<div class="game">
     ${banner}
     <div class="topbar">
@@ -545,7 +576,7 @@ function gameHTML(snap) {
     <div class="players">${playerChips(v)}</div>
     <div class="table">${tableHTML(v, isWild)}</div>
     ${centerHTML(v, isWild)}
-    ${dockHTML(v, isWild, warn)}
+    ${dockHTML(v, isWild)}
     ${modalHTML(snap)}
   </div>`;
 }
