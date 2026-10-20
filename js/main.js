@@ -712,7 +712,8 @@ function layoutHand() {
   const root = getComputedStyle(document.documentElement);
   const baseW = parseFloat(root.getPropertyValue('--cw')) || 62;
   const baseH = parseFloat(root.getPropertyValue('--ch')) || 88;
-  const avail = Math.min(window.innerWidth - 20, 1200);
+  // the page's real width (window.innerWidth can include zoom on phones)
+  const avail = Math.min(document.documentElement.clientWidth - 20, 1200);
   const n = cards.length;
   const fit = (scale) => {
     const cw = baseW * scale;
@@ -1086,6 +1087,9 @@ window.addEventListener('pointercancel', (e) => {
   }
 });
 window.addEventListener('resize', layoutHand);
+// Keep the page at 100%: Safari ignores user-scalable=no, so block pinch gestures directly
+for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', (e) => e.touches.length > 1 && e.preventDefault(), { passive: false });
 setInterval(() => {
   if (!ui.windowDeadline) return;
   document.querySelectorAll('[data-countdown]').forEach((el) => (el.textContent = secondsLeft()));
