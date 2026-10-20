@@ -114,7 +114,6 @@ function startSession(session) {
   ui.lastSeq = null;
   ui.handRound = null;
   ui.modal = null;
-  ui.lastEvent = null;
   ui.flash = null;
   session.subscribe(onSnapshot);
 }
@@ -150,8 +149,6 @@ function processLog(v) {
   }
   for (const e of v.log) {
     if (e.seq <= ui.lastSeq) continue;
-    // the activity box keeps the latest thing that happened on a second line
-    if (e.kind !== 'undo') ui.lastEvent = e.kind === 'notshanghai' && e.seat === v.you ? e.note : e.text;
     if (e.kind === 'shanghai') {
       shout('SHANGHAI!');
       toast(e.text, true, 5000);
@@ -375,23 +372,18 @@ function statusText(v) {
   const turnName = esc(v.players[v.turn].name);
   if (me == null) return `You're watching. It's <b>${turnName}</b>'s turn.`;
   const myTurn = v.turn === me;
-  const p = v.players[me];
   if (v.phase === 'ready') return `Sort and plan your hand. <b>${turnName}</b> goes first once everyone is ready.`;
   if (!myTurn) {
     return v.phase === 'draw' ? `Waiting for <b>${turnName}</b> to draw…` : `<b>${turnName}</b> is playing…`;
   }
   if (v.phase === 'draw') {
     if (v.buyWindow) return 'Waiting while others decide whether to buy…';
-    if (v.topDead) return '<b>Your turn!</b> Draw from the deck (the discard is dead).';
-    if (v.mustDecide) return '<b>Your turn!</b> Take the discard, or allow buying and then draw.';
-    return '<b>Your turn!</b> Tap the deck or the discard pile to draw.';
+    return '<b>Your turn</b>';
   }
   if (v.mustPlay.some((id) => v.hand.some((c) => c.id === id)))
     return '<span class="warn">Play the wild card you swapped out before you discard.</span>';
   if (v.hand.length === 1) return `<span class="warn">You can't discard your last card. Play it on a pile, or Undo.</span>`;
-  if (!p.laid) return `Lay down <b>${contractText(v.round)}</b>, or select a card and tap the discard pile.`;
-  if (ui.selected.size) return 'Tap a pile to play the selected cards (or swap out a joker), or tap the discard pile.';
-  return 'Select cards to play on any pile, then select a card and tap the discard pile.';
+  return '<b>Your turn</b>';
 }
 
 function centerHTML(v, isWild) {
@@ -426,24 +418,23 @@ function centerHTML(v, isWild) {
   return `<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div></div>${activityHTML(v)}`;
 }
 
-// One place for everything going on: what you need to do (a prompt), else something that just happened
-// (shown for a few seconds), else whose turn it is. Underneath, the latest event stays until a newer one.
+// One place for everything going on: what you need to do (a prompt), else your turn, else something that just
+// happened (shown for a few seconds), else whose turn it is.
 function activityHTML(v) {
   const me = v.you;
   const mine = me != null && v.turn === me && (v.phase === 'draw' || v.phase === 'play');
   const f = ui.flash && ui.flash.until > Date.now() ? ui.flash : null;
   // your own turn beats other people's news (it stays on the line below), but not your own mistakes
   const showFlash = f && (!mine || f.bad);
+  // prompts keep their own buttons; any other message opens the game log when tapped
   let main = buyBarHTML(v);
-  if (!main && showFlash) main = `<div class="buy-bar flash ${f.bad ? 'bad' : ''}"><span>${esc(f.text)}</span></div>`;
+  const log = 'data-act="modal" data-m="log" title="Tap for the game log"';
+  if (!main && showFlash) main = `<div class="buy-bar flash tappable ${f.bad ? 'bad' : ''}" ${log}><span>${esc(f.text)}</span></div>`;
   if (!main) {
-    const warn = mine && v.phase === 'play' && v.hand.length === 1;
-    main = `<div class="buy-bar ${mine ? 'ask' : ''} ${warn ? 'warn' : ''}"><span>${statusText(v)}</span></div>`;
+    const warn = mine && v.phase === 'play' && (v.hand.length === 1 || v.mustPlay.some((id) => v.hand.some((c) => c.id === id)));
+    main = `<div class="buy-bar tappable ${mine ? 'ask' : ''} ${warn ? 'warn' : ''}" ${log}><span>${statusText(v)}</span></div>`;
   }
-  const dupe = showFlash && f.text === ui.lastEvent && main.includes('flash');
-  const last =
-    ui.lastEvent && !dupe ? `<button class="activity-last" data-act="modal" data-m="log" title="Game log">${esc(ui.lastEvent)}</button>` : '';
-  return `<div class="activity">${main}${last}</div>`;
+  return `<div class="activity">${main}</div>`;
 }
 
 function secondsLeft() {
@@ -511,7 +502,9 @@ function stagingHTML(v, isWild) {
     .join('');
   const ready = sets === cfg.sets && runs === cfg.runs && allComplete;
   const canLay = ready && v.turn === me && v.phase === 'play';
-  return `<div class="staging"><span class="label">Your lay down: ${sets}/${cfg.sets} sets · ${runs}/${cfg.runs} runs</span>${groups}
+  // only count what this round actually asks for
+  const need = [cfg.sets && `${sets}/${cfg.sets} set${cfg.sets > 1 ? 's' : ''}`, cfg.runs && `${runs}/${cfg.runs} run${cfg.runs > 1 ? 's' : ''}`].filter(Boolean);
+  return `<div class="staging"><span class="label">Your lay down: ${need.join(' · ')}</span>${groups}
     <button class="primary small" data-act="layDown" ${canLay ? '' : 'disabled'}>${ready ? 'Lay down!' : 'Lay down'}</button></div>`;
 }
 

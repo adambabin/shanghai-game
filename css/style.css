@@ -991,14 +991,6 @@ table.scores td.zero {
 .activity .buy-bar.warn {
   border: 2px solid var(--red);
 }
-.activity-last {
-  background: none;
-  color: var(--ink-dim);
-  font-size: 12px;
-  font-weight: 500;
-  padding: 0 8px;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.activity .buy-bar.tappable {
+  cursor: pointer;
 }
