@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSet, buildRun, addCards, fitsAnyMeld, runHi, placements } from '../js/melds.js';
 import { wildTest } from '../js/cards.js';
-import { createGame, applyAction, viewFor, totals, nextRound, resolveBuyWindow } from '../js/engine.js';
+import { createGame, applyAction, viewFor, totals, nextRound, resolveBuyWindow, mustDecideOnDiscard } from '../js/engine.js';
 
 const isWild = wildTest({ twoClubsWild: false });
 let nid = 1000;
@@ -40,14 +40,23 @@ test('runs: 4+ same suit, wilds fill gaps, aces only high', () => {
   assert.equal(low.lo, 2);
   assert.equal(runHi(low), 5);
   assert.deepEqual(placements(low, c(1, 'C'), isWild), []);
-  assert.deepEqual(placements(low, J(), isWild), ['high']);
+  assert.deepEqual(placements(low, J(), isWild), [], 'no joker next to a joker');
 });
 
-test('spare wilds in a run go to the chosen end', () => {
-  const hi = buildRun([c(5, 'H'), c(6, 'H'), c(7, 'H'), J()], isWild, 'high');
-  assert.equal(hi.lo, 5);
-  const lo = buildRun([c(5, 'H'), c(6, 'H'), c(7, 'H'), J()], isWild, 'low');
-  assert.equal(lo.lo, 4);
+test('jokers stay where you put them; more real cards than jokers; no jokers side by side', () => {
+  const front = buildRun([J(), c(8, 'H'), c(9, 'H'), c(10, 'H')], isWild);
+  assert.equal(front.lo, 7, 'joker first means the joker is the 7');
+  const back = buildRun([c(8, 'H'), c(9, 'H'), c(10, 'H'), J()], isWild);
+  assert.equal(back.lo, 8);
+  const desc = buildRun([c(10, 'H'), c(9, 'H'), c(8, 'H'), J()], isWild);
+  assert.equal(desc.lo, 7, 'high-to-low order works too');
+  assert.equal(buildRun([c(5, 'H'), c(6, 'H'), J(), J()], isWild), null, 'needs 3 real cards');
+  const spread = buildRun([c(5, 'H'), c(6, 'H'), c(7, 'H'), J(), J()], isWild);
+  assert.deepEqual(spread.cards.map((x) => x.r), [0, 5, 6, 7, 0], 'two jokers together are split onto both ends');
+  assert.ok(buildRun([J(), c(5, 'H'), c(6, 'H'), c(7, 'H'), J()], isWild), 'jokers apart is fine');
+  assert.equal(buildSet([c(7, 'S'), c(7, 'H'), J(), J()], isWild), null, 'set needs more real cards too');
+  const set = buildSet([c(7, 'S'), c(7, 'H'), J()], isWild);
+  assert.deepEqual(placements(set, J(), isWild), [], "can't add a joker that ties the count");
 });
 
 test('adding cards to melds', () => {
@@ -62,6 +71,13 @@ test('adding cards to melds', () => {
   assert.ok(fitsAnyMeld(c(7, 'C'), [run, set], isWild));
   assert.ok(!fitsAnyMeld(c(2, 'C'), [run, set], isWild));
 });
+
+// Draws from the deck, first letting others buy the discard (nobody does) as the rules require.
+function deckDraw(g, seat) {
+  if (mustDecideOnDiscard(g)) applyAction(g, seat, { type: 'allowBuy' });
+  if (g.buyWindow) resolveBuyWindow(g, true);
+  return applyAction(g, seat, { type: 'drawDeck' });
+}
 
 // Builds a game, then overwrites hands and piles so a scenario is predictable.
 function rigged(hands, { discard = [c(13, 'C')], deck } = {}) {
@@ -79,7 +95,7 @@ test('round 1 lay down, play on piles, and Shanghai call penalties', () => {
   const p1 = Array.from({ length: 11 }, (_, i) => c((i % 6) + 2, 'H'));
   const p2 = Array.from({ length: 11 }, (_, i) => c((i % 6) + 2, 'D'));
   const g = rigged([p0, p1, p2]);
-  assert.ok(applyAction(g, 0, { type: 'drawDeck' }).ok);
+  assert.ok(deckDraw(g, 0).ok);
   const lay = applyAction(g, 0, {
     type: 'layDown',
     groups: [
@@ -94,8 +110,7 @@ test('round 1 lay down, play on piles, and Shanghai call penalties', () => {
   // p0 themselves calling doesn't count
   assert.equal(applyAction(g, 0, { type: 'shanghai' }).result, 'miss');
   assert.equal(g.hands[0].length, before + 2);
-  assert.ok(g.blocked[0]);
-  assert.ok(!applyAction(g, 0, { type: 'shanghai' }).ok, 'blocked caller cannot call again');
+  assert.ok(!g.blocked[0], 'no more blocking after a wrong call');
   assert.equal(applyAction(g, 2, { type: 'shanghai' }).result, 'hit');
   assert.equal(g.hands[0].length, before + 2 + 3);
   assert.ok(g.topDead);
@@ -109,13 +124,13 @@ test('declared Shanghai discard is dead, no penalty, live again once covered and
   const p0 = [c(4, 'S'), c(4, 'H'), c(4, 'D'), c(9, 'S'), c(9, 'H'), c(9, 'C'), c(4, 'C'), c(12, 'D'), c(3, 'H')];
   const p1 = [c(2, 'H'), c(3, 'D'), c(6, 'C'), c(7, 'C'), c(8, 'S')];
   const g = rigged([p0, p1]);
-  applyAction(g, 0, { type: 'drawDeck' });
+  deckDraw(g, 0);
   applyAction(g, 0, { type: 'layDown', groups: [{ type: 'set', ids: [p0[0].id, p0[1].id, p0[2].id] }, { type: 'set', ids: [p0[3].id, p0[4].id, p0[5].id] }] });
   assert.ok(applyAction(g, 0, { type: 'discard', id: p0[6].id, declare: true }).ok);
   assert.ok(g.topDead);
   assert.equal(applyAction(g, 1, { type: 'shanghai' }).result, 'miss');
   assert.ok(!applyAction(g, 1, { type: 'drawDiscard' }).ok);
-  applyAction(g, 1, { type: 'drawDeck' });
+  deckDraw(g, 1);
   applyAction(g, 1, { type: 'discard', id: p1[0].id });
   assert.ok(!g.topDead);
   // p0 takes the covering card; the formerly dead 4C is now on top and live
@@ -128,7 +143,7 @@ test('cannot discard your last card; undo takes plays back; going out on two pil
   const p0 = [c(4, 'S'), c(4, 'H'), c(4, 'D'), c(9, 'S'), c(9, 'H'), c(9, 'C'), c(4, 'C')];
   const p1 = [c(1, 'H'), c(13, 'D'), c(5, 'C'), c(0, 'J')];
   const g = rigged([p0, p1], { deck: [c(9, 'D')] });
-  applyAction(g, 0, { type: 'drawDeck' });
+  deckDraw(g, 0);
   assert.ok(applyAction(g, 0, { type: 'layDown', groups: [{ type: 'set', ids: [p0[0].id, p0[1].id, p0[2].id] }, { type: 'set', ids: [p0[3].id, p0[4].id, p0[5].id] }] }).ok);
   assert.equal(g.hands[0].length, 2);
   const four = g.hands[0].find((x) => x.r === 4);
@@ -173,7 +188,7 @@ test('buying: only after the current player allows it; closest buyer wins; card 
   assert.equal(g.hands[3].length, 11);
   assert.equal(g.buysUsed[2], 1);
   assert.ok(!applyAction(g, 1, { type: 'drawDiscard' }).ok, 'after a buy the current player draws from the deck');
-  assert.ok(applyAction(g, 1, { type: 'drawDeck' }).ok);
+  assert.ok(deckDraw(g, 1).ok);
 
   // nobody buys before the timeout: current player can still take the discard
   applyAction(g, 1, { type: 'discard', id: g.hands[1][0].id });
@@ -190,20 +205,26 @@ test('Shanghai counts on anyone, laid down or not; a self-Shanghai that is not o
   const p1 = [c(4, 'C'), c(3, 'D'), c(6, 'C'), c(7, 'C'), c(13, 'S')];
   const p2 = [c(2, 'H'), c(3, 'H'), c(6, 'S'), c(7, 'S'), c(10, 'S')];
   const g = rigged([p0, p1, p2]);
-  applyAction(g, 0, { type: 'drawDeck' });
+  deckDraw(g, 0);
   applyAction(g, 0, { type: 'layDown', groups: [{ type: 'set', ids: [p0[0].id, p0[1].id, p0[2].id] }, { type: 'set', ids: [p0[3].id, p0[4].id, p0[5].id] }] });
   applyAction(g, 0, { type: 'discard', id: p0[6].id });
   // p1 (not laid down) discards the 4C, which fits on p0's 4s
-  applyAction(g, 1, { type: 'drawDeck' });
+  deckDraw(g, 1);
   applyAction(g, 1, { type: 'discard', id: p1[0].id });
   assert.equal(applyAction(g, 2, { type: 'shanghai' }).result, 'hit');
   assert.equal(g.hands[1].length, 5 + 3);
   // p2 says Shanghai on the 2H, which fits nowhere: no penalty, card stays live
-  applyAction(g, 2, { type: 'drawDeck' });
+  deckDraw(g, 2);
   applyAction(g, 2, { type: 'discard', id: p2[0].id, declare: true });
   assert.ok(!g.topDead);
   assert.equal(g.log[g.log.length - 1].kind, 'notshanghai');
   assert.ok(applyAction(g, 0, { type: 'drawDiscard' }).ok);
+});
+
+test('a discard that could swap out a joker is a Shanghai', () => {
+  const run = { id: 1, owner: 0, type: 'run', suit: 'S', lo: 7, cards: [c(7, 'S'), c(8, 'S'), J(), c(10, 'S')] };
+  assert.ok(fitsAnyMeld(c(9, 'S'), [run], isWild));
+  assert.ok(!fitsAnyMeld(c(9, 'H'), [run], isWild));
 });
 
 test('swapping a natural card for a wild in a run, which then must be played', () => {
@@ -211,7 +232,7 @@ test('swapping a natural card for a wild in a run, which then must be played', (
   const p1 = [c(2, 'H'), c(3, 'C'), c(6, 'C'), c(7, 'C')];
   const g = rigged([p0, p1]);
   g.round = 1; // 1 set + 1 run
-  applyAction(g, 0, { type: 'drawDeck' });
+  deckDraw(g, 0);
   assert.ok(!applyAction(g, 0, { type: 'swapWild', meldId: 1, id: p0[7].id }).ok);
   assert.ok(applyAction(g, 0, { type: 'layDown', groups: [{ type: 'run', ids: [p0[0].id, p0[1].id, p0[2].id, p0[3].id] }, { type: 'set', ids: [p0[4].id, p0[5].id, p0[6].id] }] }).ok);
   const run = g.melds.find((m) => m.type === 'run');
