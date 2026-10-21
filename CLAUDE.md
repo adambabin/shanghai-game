@@ -8,7 +8,7 @@ A browser Shanghai rummy game with one family's house rules. It's a static site 
 
 Phones keep the site's files, and an iPhone home screen app is often just resumed from memory, so releases used to stay out of sight. Two things fix that:
 
-- **Stamping:** before publishing, `scripts/stamp.mjs` stamps the copy with the commit (`?v=<sha>` on every css/js/vendor reference and on every import between modules, an `app-version` meta tag, and `version.json`). The repo's files stay unstamped. Imports must all carry the same stamp or a module would load twice; `tests/stamp.test.js` checks that.
+- **Stamping:** before publishing, `scripts/stamp.mjs` stamps the copy with the commit (`?v=<sha>` on every css/js/vendor reference and on every import between modules, `app-version` and `app-released` meta tags, and `version.json`). Feedback adds both to the device line on the ticket (`versionText()`, e.g. "version e413dca (released Oct 21, 5:41 PM EDT)", or "version: local copy" when not deployed); players never see it. The repo's files stay unstamped. Imports must all carry the same stamp or a module would load twice; `tests/stamp.test.js` checks that.
 - **Update check:** `checkForUpdate()` in `main.js` runs on open and whenever the page comes back into view. It fetches `version.json` uncached. On a newer release it reloads, but only from the home screen and not while typing; in a game it waits until you leave. It reloads to `?v=<release>`, a new address with no saved copy, and only once per release (sessionStorage), so a stale page can't cause a reload loop. Saved games and settings are untouched because the site's address doesn't change.
 
 ## Commands

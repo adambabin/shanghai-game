@@ -11,6 +11,7 @@ const FEEDBACK_URL = 'https://script.google.com/macros/s/AKfycbyIxTgLEeY2Z56joKH
 const FEEDBACK_PHOTOS = 3;
 // The release this page is, stamped in by the deploy step (scripts/stamp.mjs); absent when served straight from the repo
 const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || null;
+const APP_RELEASED = document.querySelector('meta[name="app-released"]')?.content || null;
 // an update reload arrives with ?v=<release> on the address (see reloadIfIdle); tidy it away
 if (new URLSearchParams(location.search).has('v')) {
   const u = new URL(location.href);
@@ -1142,7 +1143,17 @@ function deviceText() {
     : /iPhone/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Macintosh/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'Other';
   const browser = /EdgiOS|Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox'
     : /Safari\//.test(ua) ? 'Safari' : 'other browser';
-  return [device, browser, isStandalone() ? 'home screen app' : '', `${screen.width}×${screen.height}`].filter(Boolean).join(' · ');
+  return [device, browser, isStandalone() ? 'home screen app' : '', `${screen.width}×${screen.height}`, versionText()].filter(Boolean).join(' · ');
+}
+
+// Which release a feedback message came from, for the ticket (players never see it): the commit the deploy
+// stamped and when it went out, in the sender's time zone. A copy that wasn't deployed says so.
+function versionText() {
+  if (!APP_VERSION) return 'version: local copy';
+  const when = APP_RELEASED && new Date(APP_RELEASED);
+  if (!when || isNaN(when)) return `version ${APP_VERSION}`;
+  const at = when.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  return `version ${APP_VERSION} (released ${at})`;
 }
 
 async function sendFeedback(button) {
