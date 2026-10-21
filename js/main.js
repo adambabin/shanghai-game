@@ -171,9 +171,40 @@ function startSession(session) {
   session.subscribe(onSnapshot);
 }
 
+// Games other people host that you've joined, so the home screen can take you back in. The host's browser has the
+// real game; this only remembers the room code and who was playing, as of the last time you were in it.
+function joinedGames() {
+  const list = store.get('joinedGames', []);
+  return Array.isArray(list) ? list : [];
+}
+
+function forgetJoined(code) {
+  store.set('joinedGames', joinedGames().filter((g) => g.code !== code));
+}
+
+function rememberJoined(snap) {
+  const code = snap.lobby && snap.lobby.code;
+  if (!code) return;
+  if (snap.view && snap.view.phase === 'gameOver') return forgetJoined(code);
+  const seats = snap.lobby.seats;
+  const host = seats.find((s) => s.isHost);
+  const entry = {
+    code,
+    host: host ? host.name : '',
+    others: seats.filter((s, i) => !s.isHost && i !== snap.seat).map((s) => s.name),
+    round: snap.view ? snap.view.round : null,
+    seenAt: Date.now(),
+  };
+  store.set('joinedGames', [entry, ...joinedGames().filter((g) => g.code !== code)]);
+}
+
 function onSnapshot(snap) {
   const prev = ui.snap;
   ui.snap = snap;
+  if (ui.session instanceof ClientSession) {
+    if (snap.status === 'connected') rememberJoined(snap);
+    else if (snap.status === 'kicked') forgetJoined(ui.session.code);
+  }
   if (snap.toastError && snap.errSeq !== ui.lastErrSeq) {
     ui.lastErrSeq = snap.errSeq;
     toast(snap.toastError, true);
@@ -354,8 +385,36 @@ function markTableOverflow() {
   if (table && bottom) bottom.classList.toggle('raised', table.scrollHeight > table.clientHeight + 1);
 }
 
+function namesText(names) {
+  return names.length ? 'with ' + names.map(esc).join(', ') : 'no one else yet';
+}
+
+function roundText(round) {
+  return round == null ? 'Not started yet' : `Round ${round + 1} of ${ROUNDS.length}`;
+}
+
+// every game you can go back to: the ones saved on this device (yours) and the ones you joined, newest first
+function yourGamesHTML() {
+  const hosted = HostSession.savedGames().map((s) => ({
+    at: s.savedAt || 0,
+    html: `<button class="ghost game-pick" data-act="resume" data-id="${esc(s.id)}">
+      <b>${s.solo ? 'Against the computer' : `Room ${esc(s.lobby.code)} · you're hosting`}</b>
+      <span>${roundText(s.game.round)} · ${namesText(s.lobby.seats.slice(1).map((p) => p.name))}</span></button>
+      <button class="ghost small game-forget" data-act="forgetGame" data-id="${esc(s.id)}" aria-label="Remove">✕</button>`,
+  }));
+  const joined = joinedGames().map((g) => ({
+    at: g.seenAt || 0,
+    html: `<button class="ghost game-pick" data-act="rejoin" data-code="${esc(g.code)}">
+      <b>Room ${esc(g.code)} · ${esc(g.host)}'s game</b>
+      <span>${roundText(g.round)} · ${namesText(g.others)}</span></button>
+      <button class="ghost small game-forget" data-act="forgetJoined" data-code="${esc(g.code)}" aria-label="Remove">✕</button>`,
+  }));
+  const all = [...hosted, ...joined].sort((a, b) => b.at - a.at);
+  if (!all.length) return '';
+  return `<div class="divider">— your games —</div><div class="your-games">${all.map((g) => `<div class="game-row">${g.html}</div>`).join('')}</div>`;
+}
+
 function homeHTML() {
-  const saved = HostSession.saved();
   return `<div class="center-screen"><div class="panel">
     <div class="title">Shanghai</div>
     <div class="title-suits">♠<span class="r">♥</span>♣<span class="r">♦</span></div>
@@ -364,7 +423,7 @@ function homeHTML() {
     ${ui.homeError ? `<div class="err">${esc(ui.homeError)}</div>` : ''}
     <button class="primary" data-act="host">Host a game for friends &amp; family</button>
     <button class="ghost" data-act="solo">Play against the computer</button>
-    ${saved ? `<button class="ghost" data-act="resume">Resume your last game (round ${saved.game.round + 1} of ${ROUNDS.length})</button>` : ''}
+    ${yourGamesHTML()}
     <div class="divider">— or join someone else's game —</div>
     <div class="row"><input data-field="joinCode" placeholder="ROOM CODE" maxlength="5" style="text-transform:uppercase;letter-spacing:3px" value="${esc(ui.joinCode)}"><button data-act="join" style="flex:none">Join</button></div>
     <div class="row"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="modal" data-m="settings">Settings</button></div>
@@ -385,7 +444,13 @@ function connectingHTML(snap) {
         : snap.status === 'slow'
           ? `Can't reach the host yet. If you're on mobile data, try Wi-Fi, or ask the host to check their connection. Still trying…`
           : 'Connecting to the game…';
-  return `<div class="center-screen"><div class="panel"><div class="title" style="font-size:30px">Joining…</div><p class="muted">${msg}</p><button class="ghost" data-act="leave">Cancel</button></div></div>`;
+  const code = snap.code || ui.joinCode;
+  const stuck = snap.status === 'no-host' || snap.status === 'slow';
+  const remove =
+    stuck && joinedGames().some((g) => g.code === code)
+      ? `<button class="ghost" data-act="forgetJoined" data-code="${esc(code)}">Remove from your games</button>`
+      : '';
+  return `<div class="center-screen"><div class="panel"><div class="title" style="font-size:30px">Joining…</div><p class="muted">${msg}</p>${remove}<button class="ghost" data-act="leave">Cancel</button></div></div>`;
 }
 
 function optionRow(label, key, choices, opts, isHost) {
@@ -834,7 +899,7 @@ function menuModal(snap) {
     });
     if (v.phase === 'draw' || v.phase === 'play') items.push('<button class="danger" data-act="endRound">End this round (nobody can go out)</button>');
   }
-  items.push(`<button class="danger" data-act="leave">${snap.isHost && !snap.solo ? 'End game for everyone' : 'Leave game'}</button>`);
+  items.push(`<button class="danger" data-act="leave">${snap.isHost && !snap.solo ? 'Leave (game pauses for everyone)' : 'Leave game'}</button>`);
   return wrapModal('Menu', `<div class="menu-list">${items.join('')}</div>`);
 }
 
@@ -1032,10 +1097,10 @@ function startJoin() {
 function leave() {
   const snap = ui.snap;
   if (snap && snap.isHost && snap.view && snap.view.phase !== 'gameOver' && !snap.solo) {
-    if (!confirm('Leaving ends the game for everyone. Leave anyway?')) return;
+    if (!confirm("Everyone's game will pause until you come back to it from Your games. Leave anyway?")) return;
   }
   if (ui.session) ui.session.close();
-  if (snap && snap.isHost && snap.view && snap.view.phase === 'gameOver') HostSession.clearSaved();
+  if (snap && snap.isHost && snap.view && snap.view.phase === 'gameOver') HostSession.clearSaved(ui.session.gameId);
   ui.session = null;
   ui.snap = null;
   ui.modal = null;
@@ -1081,11 +1146,25 @@ function onClick(e) {
     case 'solo':
       return startHost(true);
     case 'resume': {
-      const saved = HostSession.saved();
+      const saved = HostSession.saved(t.dataset.id);
       if (!saved) return render();
       startSession(new HostSession({ name: ui.name, clientId, solo: saved.solo, restore: saved }));
       return;
     }
+    case 'rejoin':
+      ui.joinCode = t.dataset.code;
+      return startJoin();
+    case 'forgetGame': {
+      const saved = HostSession.saved(t.dataset.id);
+      const what = saved && !saved.solo ? `the game in room ${saved.lobby.code}` : 'this game against the computer';
+      if (saved && !confirm(`Delete ${what}? You won't be able to finish it.`)) return;
+      HostSession.clearSaved(t.dataset.id);
+      return render();
+    }
+    case 'forgetJoined':
+      forgetJoined(t.dataset.code);
+      if (ui.session) return leave();
+      return render();
     case 'join':
       return startJoin();
     case 'leave':

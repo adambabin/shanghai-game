@@ -7,7 +7,10 @@ import { DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
 import { openRoom, randomCode } from './net.js';
 
 const BOT_NAMES = ['Lucky Lou', 'Card Shark', 'Rummy Rita', 'Jolly Joker', 'Shuffles', 'Ace', 'Sir Deals-a-Lot', 'Queenie'];
-const SAVE_KEY = 'shanghai.hostGame';
+// each game you host (or play against the computer) is saved under its own key so several can be resumed
+const SAVE_PREFIX = 'shanghai.hostGame.';
+const OLD_SAVE_KEY = 'shanghai.hostGame'; // the single save slot older versions used
+const newGameId = () => Math.random().toString(36).slice(2, 10);
 
 export class HostSession {
   // solo: no network room, just you against bots
@@ -21,6 +24,7 @@ export class HostSession {
     this.status = solo ? 'connected' : 'starting';
 
     if (restore) {
+      this.gameId = restore.id || newGameId();
       this.lobby = restore.lobby;
       this.lobby.options = { ...DEFAULT_OPTIONS, ...this.lobby.options };
       this.game = restore.game;
@@ -30,6 +34,7 @@ export class HostSession {
         if (!s.bot && !s.isHost) s.connected = false;
       });
     } else {
+      this.gameId = newGameId();
       this.lobby = {
         code: solo ? null : randomCode(),
         started: false,
@@ -111,21 +116,43 @@ export class HostSession {
   save() {
     if (!this.game) return;
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ lobby: this.lobby, game: this.game, solo: this.solo, savedAt: Date.now() }));
+      const data = { id: this.gameId, lobby: this.lobby, game: this.game, solo: this.solo, savedAt: Date.now() };
+      localStorage.setItem(SAVE_PREFIX + this.gameId, JSON.stringify(data));
     } catch {}
   }
 
-  static saved() {
+  // every unfinished saved game, most recently played first
+  static savedGames() {
+    const games = [];
     try {
-      const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-      if (s && s.game && s.game.phase !== 'gameOver') return s;
+      const old = localStorage.getItem(OLD_SAVE_KEY);
+      if (old) {
+        const s = JSON.parse(old);
+        if (s && s.game) {
+          s.id = newGameId();
+          localStorage.setItem(SAVE_PREFIX + s.id, JSON.stringify(s));
+        }
+        localStorage.removeItem(OLD_SAVE_KEY);
+      }
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key.startsWith(SAVE_PREFIX)) continue;
+        try {
+          const s = JSON.parse(localStorage.getItem(key));
+          if (s && s.game && s.game.phase !== 'gameOver') games.push({ ...s, id: key.slice(SAVE_PREFIX.length) });
+        } catch {}
+      }
     } catch {}
-    return null;
+    return games.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
   }
 
-  static clearSaved() {
+  static saved(id) {
+    return HostSession.savedGames().find((s) => s.id === id) || null;
+  }
+
+  static clearSaved(id) {
     try {
-      localStorage.removeItem(SAVE_KEY);
+      localStorage.removeItem(SAVE_PREFIX + id);
     } catch {}
   }
 
@@ -266,7 +293,7 @@ export class HostSession {
         this.lobby.started = false;
         this.lobby.seats = this.lobby.seats.filter((s) => s.isHost || s.bot || s.connected);
         this.lobby.seats.forEach((s) => s.botStandIn && ((s.bot = false), (s.botStandIn = false)));
-        HostSession.clearSaved();
+        HostSession.clearSaved(this.gameId);
         res = { ok: true };
         break;
       default:

@@ -25,7 +25,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - Any new state the UI needs must be exposed through `viewFor`.
 - `js/host.js`
   - `HostSession` owns the lobby (seats, options), the engine state, bot timers and the buy-window timeouts.
-  - It persists the game to `localStorage` so "Resume" works after a refresh. When restoring, it fills defaults for fields older saves lack, so add new state fields there too.
+  - It persists each game to `localStorage` under its own key (`shanghai.hostGame.<gameId>`), so several games (vs the computer or hosted) can be resumed from "Your games" on the home screen. Only one runs at a time: leaving a hosted game pauses it for everyone until the host resumes it, and the room code stays the same. `savedGames()` moves the single save older versions used into the list. When restoring, it fills defaults for fields older saves lack, so add new state fields there too.
   - It broadcasts a per-seat `snapshot()` to every connection after each change.
   - `ClientSession` has the same `subscribe`/`send` interface but forwards actions to the host. Host-only actions (`start`, `nextRound`, `endRound`, `startNow`, `toggleBot`, …) are handled in `HostSession.act`, not the engine.
 - `js/net.js` wraps PeerJS. The room code maps to a fixed peer id prefix. `ICE_SERVERS` lists the relays (a Metered free-plan account first, PeerJS's free relay as fallback); phones on mobile data need one to reach the host. A joining player who can't get through within 15 seconds sees a "Can't reach the host" message (status `slow`) while it keeps retrying. Both sides ping (3s) and drop stale links (10s), and clients auto-reconnect. Rejoining with the same `clientId`, or the same name on a disconnected seat, reclaims that seat.
@@ -34,6 +34,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - Reaction timers (Shanghai calls, buy answers) re-check validity when they fire.
 - `js/main.js` is the whole UI. It re-renders by setting `innerHTML` on every snapshot and uses one delegated click handler keyed on `data-act`.
   - Purely local UI state lives in the `ui` object and never reaches the engine: hand order and sort mode, selection, staged lay-down groups, the armed Shanghai declaration, dock collapse.
+  - Games other people host that you've joined are remembered in `store` (`joinedGames`: room code, host, other names, round as last seen) and listed in "Your games" too. One drops off when you see it finish, are removed from it, or tap ✕.
   - Per-player settings (card back color, low-to-high or high-to-low sorting, sound) live in `ui` too and are saved to `localStorage` via `store` (keys prefixed `shanghai.`). No accounts: they stay on that browser/device. Card back colors are `[data-back=…]` CSS blocks in `style.css`.
   - The home screen and Settings offer "Add to your home screen" on phones (hidden once opened from the icon). It matters on iPhone: Safari clears a site's storage after about a week unused, but a home screen app keeps its own (separate) storage. On Android it uses Chrome's install prompt when available.
   - All in-game messaging goes through the activity box above the deck row (`activityHTML`; it grows upward over the table, so the piles and hand never move). It shows, in priority order: a prompt you must answer, then your-turn status, then a brief `toast()` flash, then the turn status. Tapping the box (when it isn't a prompt) opens the game log. `toast()` only floats a pop-up outside a game.
@@ -72,6 +73,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 ## Testing notes
 
 - `tests/engine.test.js` builds `rigged()` games with hand-crafted hands. Its `deckDraw()` helper allows a buy and times out the window before drawing, because a plain `drawDeck` is refused while a live discard is undecided.
+- `tests/saves.test.js` checks the per-game save slots with an in-memory `localStorage`.
 - `tests/sim.test.js` plays many full bot-only games and asserts most rounds end with someone going out. Bot or rule changes that cause stalls show up here.
 - UI changes have been checked with ad-hoc Playwright scripts (Chromium is preinstalled; use the `?debug` hook), not with committed tests.
 
