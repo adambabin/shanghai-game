@@ -771,7 +771,7 @@ function stagingHTML(v, isWild) {
   // the button and your hand below stay on screen
   // with cards selected the hint takes the place of "Your lay down:", so the line still fits in later rounds
   return `<div class="staging"><div class="staging-head"><span class="label">${adding ? '' : 'Your lay down: '}${need.join(' · ')}${
-    adding ? ' · <b>Drag or Tap a Group</b>' : ''
+    adding ? ' · <b>Tap or Drag to a Group</b>' : ''
   }</span>
     <button class="primary small" data-act="layDown" ${canLay ? '' : 'disabled'}>${ready ? 'Lay down!' : 'Lay down'}</button></div>
     <div class="staged-row hscroll">${groups}</div></div>`;
