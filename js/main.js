@@ -987,8 +987,9 @@ function layoutHand() {
   const root = getComputedStyle(document.documentElement);
   const baseW = parseFloat(root.getPropertyValue('--cw')) || 62;
   const baseH = parseFloat(root.getPropertyValue('--ch')) || 88;
-  // the page's real width (window.innerWidth can include zoom on phones)
-  const avail = Math.min(document.documentElement.clientWidth - 20, 1200);
+  // the width the hand actually has (the whole page in portrait, less in a landscape layout)
+  const area = hand.closest('.dock') || document.documentElement;
+  const avail = Math.min(area.clientWidth - 20, 1200);
   const n = cards.length;
   const fit = (scale) => {
     const cw = baseW * scale;
