@@ -549,7 +549,8 @@ function canPlayOn(v) {
 }
 
 function tableHTML(v, isWild) {
-  if (!v.melds.length) return `<div class="table-empty">No one has laid down yet.<br>This round: <b>${contractText(v.round)}</b></div>`;
+  if (!v.melds.length)
+    return `<div class="table-empty"><span class="table-round">Round ${v.round + 1} of ${ROUNDS.length}</span><b class="table-contract">${contractText(v.round)}</b></div>`;
   const sel = selectedCards(v);
   const playable = canPlayOn(v);
   const rows = [];

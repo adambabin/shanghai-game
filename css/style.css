@@ -539,7 +539,22 @@ label.field {
   margin: auto;
   color: var(--ink-dim);
   text-align: center;
-  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.table-round {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.table-contract {
+  font-size: 40px;
+  line-height: 1.1;
+  font-weight: 800;
+  color: var(--gold);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
 }
 .owner-row {
   display: flex;
