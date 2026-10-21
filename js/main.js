@@ -6,6 +6,9 @@ import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, M
 
 const $app = document.getElementById('app');
 const $toasts = document.getElementById('toasts');
+// The feedback relay (a Google Apps Script web app; see relay/README.md). Changing it here points the form elsewhere.
+const FEEDBACK_URL = 'https://script.google.com/macros/s/AKfycbyIxTgLEeY2Z56joKHSOuLphUA7TJJlJ2DYlxmQAgKAFojiI6bwOuPIHpoEMhBYmPN8/exec';
+const FEEDBACK_PHOTOS = 3;
 
 // ---------- local storage helpers ----------
 const store = {
@@ -48,6 +51,7 @@ const ui = {
   sortDesc: store.get('sortDesc', false),
   drag: null,
   pendingRender: false,
+  fbPhotos: [], // feedback photos, shrunk to JPEG data URLs
   swallowClick: false, // set when a drag ends, so the click the browser sends after it isn't taken as a tap
   drawTo: null, // where in the hand a card being drawn by dragging should go
   afterDraw: null, // a discard dragged onto a group or pile, to play once it's in your hand
@@ -357,6 +361,7 @@ function render() {
   else if (!snap.lobby) $app.innerHTML = connectingHTML(snap);
   else if (!snap.lobby.started || !snap.view) $app.innerHTML = lobbyHTML(snap);
   else $app.innerHTML = gameHTML(snap);
+  syncFeedbackSheet();
   layoutHand();
   placeTapSpots();
   markTableOverflow();
@@ -900,7 +905,7 @@ function gameHTML(snap) {
 function modalHTML(snap) {
   const v = snap.view;
   if (v.phase === 'roundOver' || v.phase === 'gameOver') {
-    if (!['scores', 'menu', 'rules', 'log', 'settings', 'install'].includes(ui.modal)) return resultModal(snap);
+    if (!['scores', 'menu', 'rules', 'log', 'settings', 'install', 'feedback'].includes(ui.modal)) return resultModal(snap);
   }
   switch (ui.modal) {
     case 'scores':
@@ -1029,8 +1034,137 @@ function settingsModal() {
       <h3>Sound</h3><div class="seg">${choice('setSound', 1, ui.sound, 'On')}${choice('setSound', 0, !ui.sound, 'Off')}</div>
       <p class="muted">Saved on this device.${canAddToHome() ? ' Phones can clear them if you don\'t play for a while, unless you add the game to your home screen.' : ''}</p>
       ${canAddToHome() ? '<button class="ghost small" data-act="addToHome">Add to your home screen</button>' : ''}
+      <h3>Feedback</h3>
+      <button class="ghost" data-act="modal" data-m="feedback">Send feedback</button>
     </div>`
   );
+}
+
+// ---------- feedback ----------
+// The form lives in its own element outside #app while it's open, so the redraw on every game update can't take the
+// text box (or the keyboard) away mid-sentence. The photo strip and the status line are updated in place.
+function syncFeedbackSheet() {
+  let sheet = document.getElementById('feedback-sheet');
+  if (ui.modal !== 'feedback') {
+    if (sheet) sheet.remove();
+    return;
+  }
+  if (sheet) return;
+  sheet = document.createElement('div');
+  sheet.id = 'feedback-sheet';
+  sheet.innerHTML = feedbackModal();
+  sheet.addEventListener('click', onClick);
+  sheet.addEventListener('change', onChange);
+  sheet.addEventListener('keydown', onKey);
+  document.body.appendChild(sheet);
+}
+
+function feedbackModal() {
+  const who = ui.name.trim() ? `your name (${esc(ui.name.trim())})` : 'your name';
+  return wrapModal(
+    'Send feedback',
+    `<div class="feedback">
+      <p>Tell us what's working, what's confusing, or what you'd like to see. A photo or screenshot helps.</p>
+      <textarea data-field="fbText" maxlength="4000" placeholder="Your message"></textarea>
+      <input class="fb-website" data-field="fbWebsite" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <div class="fb-photos"></div>
+      <label class="fb-add">Add photos (up to ${FEEDBACK_PHOTOS})<input type="file" accept="image/*" multiple data-field="fbPhotos" hidden></label>
+      <p class="muted">Goes to the person who runs this game, with ${who} and your phone type.</p>
+      <div class="fb-status"></div>
+    </div>`,
+    '<button class="primary" data-act="sendFeedback">Send</button>',
+  );
+}
+
+function showFeedbackPhotos() {
+  const strip = document.querySelector('.fb-photos');
+  if (!strip) return;
+  strip.innerHTML = ui.fbPhotos
+    .map((src, i) => `<span class="fb-thumb"><img src="${src}" alt="Photo ${i + 1}"><button class="ghost small" data-act="removeFbPhoto" data-i="${i}" aria-label="Remove photo">✕</button></span>`)
+    .join('');
+  const add = document.querySelector('.fb-add');
+  if (add) add.hidden = ui.fbPhotos.length >= FEEDBACK_PHOTOS;
+}
+
+function feedbackStatus(text, bad = false) {
+  const el = document.querySelector('.fb-status');
+  if (el) el.innerHTML = text ? `<span class="${bad ? 'err' : 'muted'}">${esc(text)}</span>` : '';
+}
+
+// Phones take big photos; shrink to at most 1600px on the long side as a JPEG before sending
+async function shrinkPhoto(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.8);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function addFeedbackPhotos(input) {
+  const files = [...input.files].slice(0, FEEDBACK_PHOTOS - ui.fbPhotos.length);
+  input.value = '';
+  for (const f of files) {
+    try {
+      ui.fbPhotos.push(await shrinkPhoto(f));
+    } catch {
+      feedbackStatus("That photo couldn't be added. Try a different one.", true);
+    }
+  }
+  showFeedbackPhotos();
+}
+
+// e.g. "iPhone · Safari · home screen app · 390×844"
+function deviceText() {
+  const ua = navigator.userAgent;
+  const device = /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iPad'
+    : /iPhone/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Macintosh/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'Other';
+  const browser = /EdgiOS|Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox'
+    : /Safari\//.test(ua) ? 'Safari' : 'other browser';
+  return [device, browser, isStandalone() ? 'home screen app' : '', `${screen.width}×${screen.height}`].filter(Boolean).join(' · ');
+}
+
+async function sendFeedback(button) {
+  const box = document.querySelector('[data-field=fbText]');
+  const message = box ? box.value.trim() : '';
+  if (!message) {
+    feedbackStatus('Write a message first.', true);
+    return;
+  }
+  button.disabled = true;
+  feedbackStatus('Sending…');
+  const payload = {
+    message,
+    name: ui.name.trim(),
+    device: deviceText(),
+    photos: ui.fbPhotos.map((src) => ({ type: 'image/jpeg', data: src.slice(src.indexOf(',') + 1) })),
+    website: (document.querySelector('[data-field=fbWebsite]') || {}).value || '',
+  };
+  try {
+    // no Content-Type header: a plain-text POST goes straight through without a CORS preflight
+    const res = await fetch(FEEDBACK_URL, { method: 'POST', body: JSON.stringify(payload) });
+    const out = await res.json();
+    if (!out.ok) {
+      button.disabled = false;
+      feedbackStatus(out.error || "Couldn't send. Try again later.", true);
+      return;
+    }
+    ui.fbPhotos = [];
+    const body = document.querySelector('.feedback');
+    if (body) body.innerHTML = '<p><b>Thanks!</b> Your message is on its way.</p>';
+    button.remove();
+  } catch {
+    button.disabled = false;
+    feedbackStatus("Couldn't send. Check your connection and try again.", true);
+  }
 }
 
 function rulesModal(o) {
@@ -1694,7 +1828,8 @@ const FLY_MS = 550;
 function flyDiscard() {
   const seat = ui.flyFrom;
   ui.flyFrom = null;
-  if (seat == null || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  // nothing flies over an open pop-up (the pile is behind it anyway)
+  if (seat == null || ui.modal || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const row = $app.querySelector('.players');
   const chip = row && row.children[seat];
   const card = $app.querySelector('.discard-pile .stack > .card');
@@ -1856,7 +1991,13 @@ function onClick(e) {
       return render();
     case 'modal':
       ui.modal = t.dataset.m;
+      if (ui.modal === 'feedback') ui.fbPhotos = [];
       return render();
+    case 'sendFeedback':
+      return sendFeedback(t);
+    case 'removeFbPhoto':
+      ui.fbPhotos.splice(Number(t.dataset.i), 1);
+      return showFeedbackPhotos();
     case 'closeModal':
       ui.modal = null;
       ui.wildPrompt = null;
@@ -1980,6 +2121,7 @@ function onInput(e) {
 }
 
 function onChange(e) {
+  if (e.target.dataset.field === 'fbPhotos') return addFeedbackPhotos(e.target);
   const key = e.target.dataset.opt;
   if (key) send({ type: 'setOption', key, value: JSON.parse(e.target.value) });
 }

@@ -1358,6 +1358,74 @@ body.cards-lifted .spots-float {
   cursor: pointer;
 }
 
+/* the Send feedback form (from Settings) */
+.feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.feedback p {
+  margin: 0;
+}
+.feedback textarea {
+  font: inherit;
+  font-size: max(16px, 1em); /* iPhones zoom in on fields smaller than 16px */
+  min-height: 120px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background: var(--card);
+  color: #1b1b1b;
+  resize: vertical;
+}
+.feedback textarea:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+/* a field people never see; bots that fill everything in give themselves away */
+.feedback .fb-website {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+}
+.fb-photos {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.fb-photos:empty {
+  display: none;
+}
+.fb-thumb {
+  position: relative;
+}
+.fb-thumb img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+.fb-thumb button {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  padding: 2px 7px;
+  background-color: var(--panel-strong);
+}
+.fb-add {
+  align-self: flex-start;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  background-color: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+.fb-add[hidden] {
+  display: none;
+}
 .settings h3 {
   margin: 14px 0 8px;
   color: var(--gold);

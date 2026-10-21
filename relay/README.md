@@ -12,11 +12,16 @@ This folder isn't published with the site; it's only kept here so the script is 
 
 ### 1. Let the relay into your Notion backlog
 
-1. Go to <https://www.notion.so/profile/integrations> and choose **New integration**.
-2. Name it "Shanghai feedback", pick your workspace, leave the type as **Internal**, and save.
-3. On the integration's page, copy the **Internal Integration Secret**. That's the Notion key for step 2.
-4. Open the **Shanghai Game Backlog** database in Notion, click **•••** at the top right, then **Connections**, find
-   "Shanghai feedback" and confirm. Without this the relay can't add tickets.
+Notion calls these "connections" now (they used to be "integrations"). Only a workspace owner can make one.
+
+1. In Notion's **Developer tools** (Settings → Connections → Develop your own connections), open the **Connections**
+   tab and choose **New connection**.
+2. Name it "Shanghai feedback" and pick **API token** as the authentication method (not OAuth), then **Create
+   connection**.
+3. Copy the connection's token. That's the Notion key for step 2. (Skip "Personal access tokens": those act as you,
+   with access to everything you can see.)
+4. Give the connection the backlog and nothing else: open the **Shanghai Game Backlog** database, click **•••** at the
+   top right, then **Connections**, find "Shanghai feedback" and confirm. Without this the relay can't add tickets.
 
 ### 2. Create the relay
 
@@ -41,7 +46,11 @@ This folder isn't published with the site; it's only kept here so the script is 
 
 1. Choose **Deploy** → **New deployment**. Click the gear next to "Select type" and choose **Web app**.
 2. Set **Execute as: Me** and **Who has access: Anyone**, then **Deploy**.
-3. Copy the **Web app URL** (it ends in `/exec`). Opening it in a browser should say the relay is running.
+3. Copy the **Web app URL** (it ends in `/exec`). Opening it in a private tab should say the relay is running.
+
+If a Google page says "Sorry, unable to open the file at this time" during permission or deploy, the browser is
+signed in to more than one Google account and the pop-up picked the wrong one. Check **Manage deployments** in case it
+worked anyway; otherwise retry in a private tab signed in to just the account that owns the script.
 4. That URL goes in `FEEDBACK_URL` at the top of `js/main.js`.
 
 ## Later
