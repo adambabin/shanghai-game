@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A browser Shanghai rummy game with one family's house rules. It's a static site with no build step and no backend: plain ES modules plus a vendored PeerJS (`vendor/peerjs.min.js`). Deployed to GitHub Pages by `.github/workflows/pages.yml` on every push to `main`. That workflow runs `npm test` first, then publishes `index.html`, `manifest.webmanifest`, `icons/`, `css/`, `js/` and `vendor/`. New top-level files must be added to its copy step.
 
+Phones keep the site's files, and an iPhone home screen app is often just resumed from memory, so releases used to stay out of sight. Two things fix that:
+
+- **Stamping:** before publishing, `scripts/stamp.mjs` stamps the copy with the commit (`?v=<sha>` on every css/js/vendor reference and on every import between modules, an `app-version` meta tag, and `version.json`). The repo's files stay unstamped. Imports must all carry the same stamp or a module would load twice; `tests/stamp.test.js` checks that.
+- **Update check:** `checkForUpdate()` in `main.js` runs on open and whenever the page comes back into view. It fetches `version.json` uncached. On a newer release it reloads, but only from the home screen and not while typing; in a game it waits until you leave. It reloads to `?v=<release>`, a new address with no saved copy, and only once per release (sessionStorage), so a stale page can't cause a reload loop. Saved games and settings are untouched because the site's address doesn't change.
+
 ## Commands
 
 - `npm test` runs all tests (`node --test tests/*.test.js`). No dependencies to install.
@@ -98,6 +103,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 
 - `tests/engine.test.js` builds `rigged()` games with hand-crafted hands. Its `deckDraw()` helper allows a buy and times out the window before drawing, because a plain `drawDeck` is refused while a live discard is undecided.
 - `tests/saves.test.js` checks the per-game save slots with an in-memory `localStorage`.
+- `tests/stamp.test.js` stamps a copy of the site and checks the references, the imports and that the modules still load.
 - `tests/sim.test.js` plays many full bot-only games and asserts most rounds end with someone going out. Bot or rule changes that cause stalls show up here.
 - UI changes have been checked with ad-hoc Playwright scripts (Chromium is preinstalled; use the `?debug` hook), not with committed tests.
 

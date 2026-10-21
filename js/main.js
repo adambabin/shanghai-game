@@ -9,6 +9,14 @@ const $toasts = document.getElementById('toasts');
 // The feedback relay (a Google Apps Script web app; see relay/README.md). Changing it here points the form elsewhere.
 const FEEDBACK_URL = 'https://script.google.com/macros/s/AKfycbyIxTgLEeY2Z56joKHSOuLphUA7TJJlJ2DYlxmQAgKAFojiI6bwOuPIHpoEMhBYmPN8/exec';
 const FEEDBACK_PHOTOS = 3;
+// The release this page is, stamped in by the deploy step (scripts/stamp.mjs); absent when served straight from the repo
+const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || null;
+// an update reload arrives with ?v=<release> on the address (see reloadIfIdle); tidy it away
+if (new URLSearchParams(location.search).has('v')) {
+  const u = new URL(location.href);
+  u.searchParams.delete('v');
+  history.replaceState(null, '', u);
+}
 
 // ---------- local storage helpers ----------
 const store = {
@@ -1913,6 +1921,7 @@ function leave() {
   u.searchParams.delete('join');
   history.replaceState(null, '', u);
   render();
+  reloadIfIdle();
 }
 
 async function share() {
@@ -2165,9 +2174,45 @@ setInterval(() => {
   document.querySelectorAll('[data-countdown]').forEach((el) => (el.textContent = secondsLeft()));
 }, 250);
 
+// ---------- updates ----------
+// Phones keep the game's files, and a home screen app is often just resumed from memory, so a new release can stay
+// out of sight for a long time. When the page opens or comes back into view, ask the site which release is live
+// (version.json, never from a saved copy). If it's newer, reload, but only from the home screen and not while typing,
+// so a game is never interrupted: in a game it waits until you're back home.
+async function checkForUpdate() {
+  if (!APP_VERSION) return;
+  try {
+    const res = await fetch('version.json', { cache: 'no-store' });
+    const { version } = await res.json();
+    if (version && version !== APP_VERSION) ui.updateReady = version;
+  } catch {}
+  reloadIfIdle();
+}
+
+function reloadIfIdle() {
+  if (!ui.updateReady || ui.session || ui.modal === 'feedback') return;
+  const el = document.activeElement;
+  if (el && el.matches('input, textarea')) return;
+  // once per release: if the reload still brought the old page, wait for the next time the game is opened rather
+  // than reloading over and over
+  try {
+    if (sessionStorage.getItem('shanghai.updatedTo') === ui.updateReady) return;
+    sessionStorage.setItem('shanghai.updatedTo', ui.updateReady);
+  } catch {
+    return;
+  }
+  // a new address the phone has no saved copy of, so the page itself comes fresh too
+  const u = new URL(location.href);
+  u.searchParams.set('v', ui.updateReady);
+  location.replace(u);
+}
+
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && checkForUpdate());
+
 // Test hook: ?debug exposes UI state to automated browser tests
 if (new URLSearchParams(location.search).has('debug')) window.__shanghai = ui;
 
 // Opening an invite link with a saved name joins straight away
 if (ui.joinCode && ui.name) startJoin();
 else render();
+checkForUpdate();
