@@ -356,6 +356,7 @@ function render() {
   else if (!snap.lobby.started || !snap.view) $app.innerHTML = lobbyHTML(snap);
   else $app.innerHTML = gameHTML(snap);
   layoutHand();
+  placeTapSpots();
   markTableOverflow();
   fitHomeGames();
   const players = $app.querySelector('.players');
@@ -793,24 +794,23 @@ function newGroupSpotsHTML(v) {
   if (me == null || v.players[me].laid || v.phase === 'roundOver' || v.phase === 'gameOver') return '';
   const cfg = ROUNDS[v.round];
   const count = (type) => ui.staged.filter((g) => g.type === type).length;
-  const spot = (type) => `<div class="new-group" data-drop="newGroup" data-type="${type}"><span class="plus">+</span>New ${type}</div>`;
-  const spots = (count('set') < cfg.sets ? spot('set') : '') + (count('run') < cfg.runs ? spot('run') : '');
-  return spots ? `<div class="spots-float">${spots}</div>` : '';
+  // with 2 or more cards selected, the spots the selection could start also show without dragging, to tap
+  // (taking the place of the old Make set / Make run buttons); one selected card shows nothing
+  const isWild = wildTest(v.options);
+  const sel = selectedCards(v);
+  const fits = (type) => sel.length >= 2 && !ui.dockCollapsed && (type === 'set' ? couldBeSet(sel, isWild) : couldBeRun(sel, isWild));
+  const spot = (type) =>
+    `<div class="new-group ${fits(type) ? 'fits' : ''}" data-drop="newGroup" data-type="${type}" ${fits(type) ? `data-act="stage"` : ''}><span class="plus">+</span>New ${type}</div>`;
+  const types = ['set', 'run'].filter((type) => count(type) < cfg[`${type}s`]);
+  if (!types.length) return '';
+  return `<div class="spots-float ${types.some(fits) ? 'tap' : ''}">${types.map(spot).join('')}</div>`;
 }
 
 function handHTML(v, isWild) {
   const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
   const cards = ui.order.filter((id) => !stagedIds.has(id)).map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
-  const me = v.you;
-  const p = v.players[me];
   const n = ui.selected.size;
   const btns = [];
-  if (!p.laid && v.phase !== 'roundOver' && n >= 2) {
-    // offer whichever group the selected cards could grow into (a joker plus one card could be either)
-    const sel = selectedCards(v);
-    if (couldBeSet(sel, isWild)) btns.push('<button class="primary" data-act="stage" data-type="set">Make set</button>');
-    if (couldBeRun(sel, isWild)) btns.push('<button class="primary" data-act="stage" data-type="run">Make run</button>');
-  }
   if (v.canUndo) btns.push('<button class="ghost" data-act="undo">Undo</button>');
   if (n) btns.push('<button class="ghost" data-act="clearSel">Clear</button>');
   btns.push(`<button class="ghost" data-act="sort" data-how="${ui.sortMode === 'rank' ? 'suit' : 'rank'}">${ui.sortMode === 'rank' ? 'Sort by suit' : 'Sort by rank'}</button>`);
@@ -1293,26 +1293,46 @@ function placeSpots(hand) {
   const spots = $app.querySelector('.spots-float');
   const dock = hand && hand.closest('.dock');
   if (!spots || !dock) return;
-  const row = $app.querySelector('.staged-row');
+  const n = [...spots.children].filter((el) => getComputedStyle(el).display !== 'none').length;
+  if (!n) return;
   const box = dock.getBoundingClientRect();
-  const bar = (bottom) => {
-    spots.classList.remove('tiles');
-    Object.assign(spots.style, { left: `${box.left + 12}px`, width: `${box.width - 24}px`, top: `${bottom - 52}px`, height: '52px' });
-  };
-  if (!row) return bar(hand.getBoundingClientRect().top + 10);
+  const place = (left, width, top, height, gap = 8) =>
+    Object.assign(spots.style, { left: `${left}px`, width: `${width}px`, top: `${top}px`, height: `${height}px`, columnGap: `${gap}px` });
+  const row = $app.querySelector('.staged-row');
+  spots.classList.remove('tiles');
+  if (!row) {
+    // the gap above the hand, leaving the hide-cards arrow in the middle uncovered: one spot to its left, or
+    // one either side of it
+    const left = box.left + 12;
+    const bottom = hand.getBoundingClientRect().top + 10;
+    const arrow = $app.querySelector('.dock-toggle');
+    const a = arrow ? arrow.getBoundingClientRect() : { left: box.left + box.width / 2, width: 0 };
+    if (n === 1) return place(left, a.left - 8 - left, bottom - 52, 52);
+    return place(left, box.width - 24, bottom - 52, 52, a.width + 16);
+  }
   const r = row.getBoundingClientRect();
   const groups = [...row.querySelectorAll('.staged')];
   const last = groups[groups.length - 1].getBoundingClientRect();
-  const n = spots.children.length;
   const need = n * 92 + (n - 1) * 8;
-  if (r.right - (last.right + 8) < need) return bar(r.top + 2);
-  spots.classList.add('tiles');
-  Object.assign(spots.style, { left: `${last.right + 8}px`, width: `${need}px`, top: `${last.top}px`, height: `${last.height}px` });
+  if (r.right - (last.right + 8) >= need) {
+    spots.classList.add('tiles');
+    return place(last.right + 8, need, last.top, last.height);
+  }
+  // the row is full: over the "Your lay down" line, short of the Lay down button
+  const lay = $app.querySelector('.staging-head button');
+  const end = lay ? lay.getBoundingClientRect().left - 8 : box.right - 12;
+  place(box.left + 12, end - box.left - 12, r.top + 2 - 40, 40);
+}
+
+// Spots shown for tapping (cards selected, no drag) are placed after each render
+function placeTapSpots() {
+  if ($app.querySelector('.spots-float.tap')) placeSpots(document.getElementById('hand'));
 }
 
 function putBackInHand(d) {
   d.out = false;
   document.body.classList.remove('cards-lifted');
+  placeTapSpots();
   d.group.forEach((el) => (el.style.visibility = ''));
   d.ghost.remove();
   d.ghost = null;
@@ -1915,6 +1935,7 @@ window.addEventListener('resize', () => {
   layoutHand();
   markTableOverflow();
   fitHomeGames();
+  placeTapSpots();
 });
 // Keep the page at 100%: Safari ignores user-scalable=no, so block pinch gestures directly
 for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault(), { passive: false });

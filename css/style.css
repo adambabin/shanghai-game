@@ -1149,11 +1149,24 @@ body.cards-lifted .new-group,
 body.cards-lifted .spots-float {
   display: flex;
 }
-/* placed by placeSpots() just above where a new group will show */
+/* with 2 or more cards selected, the spots they could start show without dragging, to tap */
+.spots-float.tap,
+.spots-float.tap .new-group.fits {
+  display: flex;
+}
+.new-group[data-act] {
+  cursor: pointer;
+}
+/* placed by placeSpots() just above where a new group will show; only the spots themselves take taps, so the
+   hide-cards arrow between two of them still works */
 .spots-float {
   position: fixed;
   z-index: 50;
   gap: 8px;
+  pointer-events: none;
+}
+.spots-float .new-group {
+  pointer-events: auto;
 }
 .new-group {
   flex: 1 1 0;
