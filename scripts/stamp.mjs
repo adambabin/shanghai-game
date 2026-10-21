@@ -1,17 +1,18 @@
 // Stamps a built copy of the site with a release version so phones fetch each release's files instead of a saved
-// copy: every css/js/vendor reference (and every import between modules) gets "?v=<version>", index.html gets an
-// app-version meta tag, and version.json holds the version for the game's update check (checkForUpdate in main.js).
+// copy: every css/js/vendor reference (and every import between modules) gets "?v=<version>", index.html gets
+// app-version and app-released (when it was published) meta tags, and version.json holds the version for the game's
+// update check (checkForUpdate in main.js). Feedback sends both along so a ticket says which release it came from.
 // Run by the deploy workflow on the _site folder only; the files in the repo stay unstamped.
 //   node scripts/stamp.mjs <site dir> <version>
 import fs from 'node:fs';
 import path from 'node:path';
 
-export function stampSite(dir, version) {
+export function stampSite(dir, version, released = new Date().toISOString()) {
   const v = encodeURIComponent(version);
   const indexPath = path.join(dir, 'index.html');
   let html = fs.readFileSync(indexPath, 'utf8');
   html = html.replace(/((?:href|src)=")((?:css|js|vendor)\/[^"?]+)(")/g, `$1$2?v=${v}$3`);
-  html = html.replace('<head>', `<head>\n    <meta name="app-version" content="${version}" />`);
+  html = html.replace('<head>', `<head>\n    <meta name="app-version" content="${version}" />\n    <meta name="app-released" content="${released}" />`);
   fs.writeFileSync(indexPath, html);
 
   const jsDir = path.join(dir, 'js');

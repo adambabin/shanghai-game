@@ -20,6 +20,7 @@ function stampedCopy(version) {
 test('index.html points at stamped files and carries the version', () => {
   const html = fs.readFileSync(path.join(stampedCopy('abc123'), 'index.html'), 'utf8');
   assert.match(html, /<meta name="app-version" content="abc123" \/>/);
+  assert.match(html, /<meta name="app-released" content="\d{4}-\d\d-\d\dT[\d:.]+Z" \/>/);
   assert.match(html, /href="css\/style\.css\?v=abc123"/);
   assert.match(html, /src="js\/main\.js\?v=abc123"/);
   assert.match(html, /src="vendor\/peerjs\.min\.js\?v=abc123"/);
