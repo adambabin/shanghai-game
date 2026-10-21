@@ -290,7 +290,8 @@ export function applyAction(state, seat, action) {
     }
 
     case 'layDown': {
-      if (!myTurn || state.phase !== 'play') return err('You can only lay down on your turn, after drawing.');
+      if (!myTurn || !inRound) return err("You can only lay down on your turn.");
+      if (state.phase === 'draw') return err('Draw a card first, then lay down.');
       if (state.laid[seat]) return err("You've already laid down this round.");
       const cfg = ROUNDS[state.round];
       const groups = action.groups || [];
