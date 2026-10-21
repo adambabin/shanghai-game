@@ -47,11 +47,11 @@ Notion calls these "connections" now (they used to be "integrations"). Only a wo
 1. Choose **Deploy** → **New deployment**. Click the gear next to "Select type" and choose **Web app**.
 2. Set **Execute as: Me** and **Who has access: Anyone**, then **Deploy**.
 3. Copy the **Web app URL** (it ends in `/exec`). Opening it in a private tab should say the relay is running.
+4. That URL goes in `FEEDBACK_URL` at the top of `js/main.js`.
 
 If a Google page says "Sorry, unable to open the file at this time" during permission or deploy, the browser is
 signed in to more than one Google account and the pop-up picked the wrong one. Check **Manage deployments** in case it
 worked anyway; otherwise retry in a private tab signed in to just the account that owns the script.
-4. That URL goes in `FEEDBACK_URL` at the top of `js/main.js`.
 
 ## Later
 
