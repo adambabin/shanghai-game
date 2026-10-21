@@ -198,6 +198,20 @@ function afterPlay(state, seat) {
   if (state.hands[seat].length === 0) finishRound(state, seat);
 }
 
+// Why a Shanghai call missed, in words for the person who called it
+function notShanghaiReason(state, seat) {
+  const ld = state.lastDiscard;
+  const top = state.discard[state.discard.length - 1];
+  if (!top) return 'There is no card on the discard pile.';
+  if (!ld || ld.card.id !== top.id) return `The ${cardLabel(top)} was uncovered by a buy, not just discarded.`;
+  const by = state.players[ld.by].name;
+  if (ld.by === seat) return "You can't call Shanghai on your own discard.";
+  if (ld.declared) return `${by} already declared the ${cardLabel(top)} dead.`;
+  if (ld.called) return 'Someone already called it.';
+  if (!ld.open) return `Too late: the ${cardLabel(top)} has been picked up or the next player has drawn.`;
+  return `The ${cardLabel(top)} doesn't fit on any pile.`;
+}
+
 function topIsShanghai(state) {
   const ld = state.lastDiscard;
   return !!(ld && ld.open && ld.eligible && !ld.called && state.discard.length && state.discard[state.discard.length - 1].id === ld.card.id);
@@ -435,8 +449,9 @@ export function applyAction(state, seat, action) {
       }
       const got = drawCards(state, seat, state.options.falseCallPenalty);
       const cost = got.length ? ` ${name} picks up ${got.length} card${got.length === 1 ? '' : 's'}.` : '';
-      log(state, `${name} called Shanghai, but there wasn't one.${cost}`, 'falsecall', { seat });
-      return { ok: true, result: 'miss' };
+      const why = notShanghaiReason(state, seat);
+      log(state, `${name} called Shanghai, but there wasn't one.${cost}`, 'falsecall', { seat, why });
+      return { ok: true, result: 'miss', why };
     }
 
     default:

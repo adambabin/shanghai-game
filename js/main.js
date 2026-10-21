@@ -281,7 +281,8 @@ function processLog(v) {
       toast(e.text, true, 5000);
       beep([880, 660, 440], 0.16);
     } else if (e.kind === 'falsecall') {
-      toast(e.text, true, 5000);
+      // the caller hears why; everyone else just hears that it missed
+      toast(e.seat === v.you && e.why ? `That wasn't a Shanghai. ${e.why}` : e.text, true, 5000);
       beep([220, 180], 0.2);
     } else if (e.kind === 'win') {
       beep([523, 659, 784]);
@@ -745,6 +746,8 @@ function activityHTML(v) {
   // prompts keep their own buttons; any other message opens the game log when tapped
   let main = buyBarHTML(v);
   const log = 'data-act="modal" data-m="log" title="Tap for the game log"';
+  // a mistake of yours (like a Shanghai call that missed) shows above a prompt instead of hiding behind it
+  if (main && f && f.bad) main = `<div class="buy-bar flash bad"><span>${esc(f.text)}</span></div>${main}`;
   if (!main && showFlash) main = `<div class="buy-bar flash tappable ${f.bad ? 'bad' : ''}" ${log}><span>${esc(f.text)}</span></div>`;
   if (!main) {
     const warn = mine && v.phase === 'play' && (v.hand.length === 1 || v.mustPlay.some((id) => v.hand.some((c) => c.id === id)));
@@ -1202,6 +1205,7 @@ function rulesModal(o) {
     <h3>Shanghai!</h3>
     <ul><li>If anyone discards a card that could have gone on a pile, anyone else can hit <b>SHANGHAI!</b> before the next player draws. The discarder picks up ${o.shanghaiPenalty} cards and that card is dead.</li>
     <li>A card counts as playable if it fits on the end of a pile or could swap out a joker in a run (e.g. a 9 when there's 7, 8, joker, 10).</li>
+    <li>Only the card just discarded can be a Shanghai. A card uncovered when someone buys the one on top doesn't count.</li>
     <li>Calling Shanghai when there isn't one ${o.falseCallPenalty ? `costs you ${o.falseCallPenalty} card${o.falseCallPenalty === 1 ? '' : 's'}` : 'costs nothing'}.</li>
     <li>Want to get rid of a playable card on purpose? Before discarding, tap SHANGHAI! yourself. Your discard is declared dead: no penalty, but nobody can pick it up or buy it until another card covers it. (If the card couldn't actually go anywhere, it isn't a Shanghai: you'll get a heads-up and the card stays live.)</li></ul>
     <h3>Swapping wild cards</h3>

@@ -356,3 +356,25 @@ test('a wrong Shanghai call costs nothing by default, or what the host chose', (
   assert.equal(h.hands[1].length, before + 1);
   assert.equal(h.log[h.log.length - 1].text, "B called Shanghai, but there wasn't one. B picks up 1 card.");
 });
+
+test('a Shanghai call that misses says why', () => {
+  const p0 = [c(4, 'S'), c(4, 'H'), c(4, 'D'), c(9, 'S'), c(9, 'H'), c(9, 'C'), c(4, 'C'), c(12, 'D'), c(3, 'H'), c(5, 'D'), c(6, 'D')];
+  const p1 = Array.from({ length: 11 }, (_, i) => c((i % 6) + 2, 'H'));
+  const p2 = Array.from({ length: 11 }, (_, i) => c((i % 6) + 2, 'D'));
+  const g = rigged([p0, p1, p2]);
+  assert.ok(deckDraw(g, 0).ok);
+  applyAction(g, 0, { type: 'layDown', groups: [{ type: 'set', ids: [p0[0].id, p0[1].id, p0[2].id] }, { type: 'set', ids: [p0[3].id, p0[4].id, p0[5].id] }] });
+  // the QD fits nowhere
+  applyAction(g, 0, { type: 'discard', id: p0[7].id });
+  assert.equal(applyAction(g, 1, { type: 'shanghai' }).why, "The Q♦ doesn't fit on any pile.");
+  assert.equal(applyAction(g, 0, { type: 'shanghai' }).why, "You can't call Shanghai on your own discard.");
+  assert.equal(g.log[g.log.length - 1].why, "You can't call Shanghai on your own discard.");
+
+  // p1 lets others buy, p2 buys the QD, and the card underneath is uncovered: not a fresh discard
+  assert.ok(applyAction(g, 1, { type: 'allowBuy' }).ok);
+  assert.equal(buyAsking(g), 2);
+  assert.ok(applyAction(g, 2, { type: 'buyAnswer', buy: true }).ok);
+  const r = applyAction(g, 1, { type: 'shanghai' });
+  assert.equal(r.result, 'miss');
+  assert.match(r.why, /^The .+ was uncovered by a buy, not just discarded\.$/);
+});
