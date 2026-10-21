@@ -1843,9 +1843,8 @@ function finishTake(take) {
   render();
 }
 
-// Moves a card dragged out of a staged group to where it was dropped: into your hand (where the space opened,
-// still selected so it's ready to tap or drag somewhere else), onto another group or New set / New run spot, or
-// onto the discard pile. A group left short stays as it is, to fill again; an empty one goes away.
+// Moves a card dragged out of a staged group to where it was dropped: into your hand (where the space opened),
+// onto another group or New set / New run spot, or onto the discard pile. A group left short stays as it is, to fill again; an empty one goes away.
 function takeOutOfStaged(v, d, target) {
   const isWild = wildTest(v.options);
   const from = ui.staged[d.i];
@@ -1882,7 +1881,6 @@ function takeOutOfStaged(v, d, target) {
   } else if (ui.sortMode !== 'manual') {
     ui.order = sortIds(v.hand, ui.sortMode);
   }
-  ui.selected.add(card.id);
 }
 
 // ---------- playing cards (shared by taps and drags) ----------
