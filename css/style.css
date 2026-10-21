@@ -1132,6 +1132,59 @@ table.scores td.zero {
 .staged-row::-webkit-scrollbar {
   display: none;
 }
+/* spots to start a new staged group: only while cards are lifted out of the hand */
+.new-group,
+.spots-float {
+  display: none;
+}
+body.cards-lifted .new-group,
+body.cards-lifted .spots-float {
+  display: flex;
+}
+.spots-float {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 100%;
+  margin-bottom: 8px;
+  justify-content: center;
+  gap: 10px;
+}
+.spots-float .new-group {
+  min-height: 84px;
+  background-color: var(--felt-dark);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+.new-group {
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 92px;
+  min-height: calc(var(--sh) + 30px);
+  box-sizing: border-box;
+  border: 2px dashed var(--gold);
+  border-radius: 9px;
+  background-color: var(--panel);
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 13px;
+}
+.new-group .plus {
+  font-size: 22px;
+  line-height: 1;
+}
+.new-group small {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+/* the spot under the cards fills in */
+.spots-float .new-group.drop-hover {
+  outline: none;
+  border-style: solid;
+  background-color: #5d6b2c;
+}
 .staged {
   flex-direction: column;
   align-items: stretch;
@@ -1338,6 +1391,12 @@ table.scores td.zero {
     justify-content: flex-end;
     border-left: 1px solid rgba(255, 255, 255, 0.08);
     background-color: rgba(0, 0, 0, 0.12);
+  }
+  /* the right column has room above the deck row */
+  .spots-float {
+    top: 8px;
+    bottom: auto;
+    margin-bottom: 0;
   }
   /* the table no longer runs under the deck row, so no shadow over it */
   .bottom.raised {
