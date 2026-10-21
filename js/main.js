@@ -736,6 +736,20 @@ function stagingHTML(v, isWild) {
     <div class="staged-row hscroll">${groups}</div></div>`;
 }
 
+// "New set" / "New run" spots for the groups the round still needs. They only show while cards are lifted out
+// of the hand, so tapping and the Make set / Make run buttons look the same as ever. They float just above the
+// deck row, so showing them never moves the piles or your staged groups in the middle of a drag.
+function newGroupSpotsHTML(v) {
+  const me = v.you;
+  if (me == null || v.players[me].laid || v.phase === 'roundOver' || v.phase === 'gameOver') return '';
+  const cfg = ROUNDS[v.round];
+  const count = (type) => ui.staged.filter((g) => g.type === type).length;
+  const spot = (type, min) =>
+    `<div class="new-group" data-drop="newGroup" data-type="${type}"><span class="plus">+</span>New ${type}<small>${min} or more</small></div>`;
+  const spots = (count('set') < cfg.sets ? spot('set', SET_MIN) : '') + (count('run') < cfg.runs ? spot('run', RUN_MIN) : '');
+  return spots ? `<div class="spots-float">${spots}</div>` : '';
+}
+
 function handHTML(v, isWild) {
   const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
   const cards = ui.order.filter((id) => !stagedIds.has(id)).map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
@@ -796,7 +810,7 @@ function gameHTML(snap) {
     </div>
     <div class="players hscroll">${playerChips(v)}</div>
     <div class="table">${tableHTML(v, isWild)}</div>
-    <div class="bottom">${centerHTML(v, isWild)}${dockHTML(v, isWild)}</div>
+    <div class="bottom">${newGroupSpotsHTML(v)}${centerHTML(v, isWild)}${dockHTML(v, isWild)}</div>
     ${modalHTML(snap)}
   </div>`;
 }
@@ -1201,6 +1215,7 @@ function closeGap(d, cards) {
 
 function liftOutOfHand(d) {
   d.out = true;
+  document.body.classList.add('cards-lifted');
   // the dragged cards leave holes where they were, so it's clear where they'd go back to
   d.group.forEach((el) => (el.style.visibility = 'hidden'));
   closeGap(d, d.cardEls);
@@ -1217,6 +1232,7 @@ function liftOutOfHand(d) {
 
 function putBackInHand(d) {
   d.out = false;
+  document.body.classList.remove('cards-lifted');
   d.group.forEach((el) => (el.style.visibility = ''));
   d.ghost.remove();
   d.ghost = null;
@@ -1297,6 +1313,7 @@ function dropTarget(d) {
   let bestDist = Infinity;
   for (const el of els) {
     let r = el.getBoundingClientRect();
+    if (!r.width) continue; // not showing
     const box = el.closest('.table, .staged-row');
     if (box) {
       const b = box.getBoundingClientRect();
@@ -1342,6 +1359,7 @@ function autoScroll(d) {
 
 function endDrag(d) {
   ui.drag = null;
+  document.body.classList.remove('cards-lifted');
   if (d.ghost) d.ghost.remove();
   ui.swallowClick = d.moved;
 }
@@ -1403,6 +1421,7 @@ function dropOn(v, target, ids, x) {
     return discard(cards[0].id);
   }
   if (kind === 'staged') return addToStaged(v, Number(target.dataset.i), cards, isWild);
+  if (kind === 'newGroup') return stageGroup(target.dataset.type, cards, isWild);
   const meld = v.melds.find((m) => m.id === Number(target.dataset.meld));
   if (!meld) return;
   // where on the pile: on a joker, or which half of it
@@ -1420,6 +1439,15 @@ function discard(id) {
     ui.selected.clear();
     ui.armed = false;
   }
+}
+
+// Starts a staged group. One card is enough to start one when it's dragged onto a "New set" or "New run" spot.
+function stageGroup(type, cards, isWild) {
+  const ok = cards.length === 1 || (type === 'set' ? couldBeSet(cards, isWild) : couldBeRun(cards, isWild));
+  if (!ok) return toast(type === 'set' ? "Those cards can't make a set." : "Those cards can't make a run.", true);
+  ui.staged.push({ type, ids: cards.map((c) => c.id) });
+  for (const c of cards) ui.selected.delete(c.id);
+  ui.revealStaged = true;
 }
 
 function addToStaged(v, i, added, isWild) {
@@ -1661,16 +1689,9 @@ function onClick(e) {
       ui.armed = !ui.armed;
       if (ui.armed) toast('Your next discard is declared dead: no penalty, but nobody can pick it up.');
       return render();
-    case 'stage': {
-      const cards = selectedCards(v);
-      const type = t.dataset.type;
-      const ok = type === 'set' ? couldBeSet(cards, isWild) : couldBeRun(cards, isWild);
-      if (!ok) return toast(type === 'set' ? "Those cards can't make a set." : "Those cards can't make a run.", true);
-      ui.staged.push({ type, ids: cards.map((c) => c.id) });
-      ui.selected.clear();
-      ui.revealStaged = true;
+    case 'stage':
+      stageGroup(t.dataset.type, selectedCards(v), isWild);
       return render();
-    }
     case 'addToStaged': {
       const added = selectedCards(v);
       if (!added.length) return toast('Select cards to add to this group, or tap ✕ to put it back.');
