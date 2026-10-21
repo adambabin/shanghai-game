@@ -926,46 +926,130 @@ function layoutHand() {
   hand.style.setProperty('--ch', `${L.ch}px`);
   hand.style.width = `${L.cw + step * Math.max(0, L.perRow - 1)}px`;
   hand.style.height = `${L.ch + 22 + rowGap * (L.rows - 1)}px`;
-  cards.forEach((el, i) => {
-    const row = Math.floor(i / L.perRow);
-    el.style.left = `${(i % L.perRow) * step}px`;
-    el.style.top = `${18 + row * rowGap}px`;
-    el.style.zIndex = i + 1;
-  });
-  Object.assign(hand.dataset, { step, perRow: L.perRow, rowGap, rows: L.rows });
+  const slots = handSlots(n, { step, perRow: L.perRow, rowGap, cw: L.cw });
+  cards.forEach((el, i) => placeInSlot(el, slots[i], i));
+  Object.assign(hand.dataset, { step, perRow: L.perRow, rowGap, rows: L.rows, cw: L.cw });
+}
+
+// Where each of the hand's n slots sits. While dragging, slots gapAt..gapAt+gapLen-1 are the empty space
+// the dragged cards will drop into. The space is at least 60% of a card wide so it shows up even in a
+// crowded hand, and it comes out of the other cards' overlap in that row, so the hand never gets wider.
+function handSlots(n, g, gapAt = -1, gapLen = 0) {
+  const isGap = (i) => i >= gapAt && i < gapAt + gapLen;
+  const gapStep = gapLen ? Math.max(g.step, (g.cw * 0.6 + (gapLen - 1) * g.step) / gapLen) : g.step;
+  const room = g.step * (g.perRow - 1);
+  const slots = [];
+  for (let start = 0; start < n; start += g.perRow) {
+    const end = Math.min(n, start + g.perRow);
+    // the distance from each slot to the next one in the row
+    const steps = [];
+    for (let i = start; i < end - 1; i++) steps.push(isGap(i) ? gapStep : g.step);
+    const total = steps.reduce((a, b) => a + b, 0);
+    if (total > room) {
+      const gapTotal = steps.reduce((a, s, k) => a + (isGap(start + k) ? s : 0), 0);
+      const plain = steps.filter((s, k) => !isGap(start + k)).length;
+      const squeezed = plain ? (room - gapTotal) / plain : 0;
+      for (let k = 0; k < steps.length; k++) {
+        if (plain && squeezed >= 8) steps[k] = isGap(start + k) ? steps[k] : squeezed;
+        else steps[k] *= room / total;
+      }
+    }
+    let left = 0;
+    for (let i = start; i < end; i++) {
+      slots.push({ left, top: 18 + (start / g.perRow) * g.rowGap });
+      left += steps[i - start] || 0;
+    }
+  }
+  return slots;
+}
+
+// Cards higher in the hand order sit on top. Odd z-indexes are left free for the drop outlines.
+function placeInSlot(el, slot, i) {
+  el.style.left = `${slot.left}px`;
+  el.style.top = `${slot.top}px`;
+  el.style.zIndex = i * 2 + 2;
 }
 
 function onPointerDown(e) {
   const el = e.target.closest('.hand .card');
-  if (!el) return;
+  // one drag at a time, and not while the last drop is still sliding into place
+  if (!el || ui.drag || el.parentElement.querySelector('.settling')) return;
   const hand = el.parentElement;
+  const cardEls = [...hand.querySelectorAll('.card')];
+  const id = Number(el.dataset.card);
+  // dragging a selected card brings the other selected cards along
+  const group = ui.selected.has(id) ? cardEls.filter((c) => ui.selected.has(Number(c.dataset.card))) : [el];
   ui.drag = {
     el,
-    id: Number(el.dataset.card),
+    id,
+    hand,
+    cardEls,
+    group,
+    held: group.indexOf(el),
+    rest: cardEls.filter((c) => !group.includes(c)),
+    start: group.map((c) => ({ left: parseFloat(c.style.left), top: parseFloat(c.style.top) })),
     x0: e.clientX,
     y0: e.clientY,
-    left0: parseFloat(el.style.left),
-    top0: parseFloat(el.style.top),
     step: parseFloat(hand.dataset.step) || 1,
     perRow: Number(hand.dataset.perRow) || 1,
     rowGap: parseFloat(hand.dataset.rowGap) || 1,
     rows: Number(hand.dataset.rows) || 1,
+    cw: parseFloat(hand.dataset.cw) || 62,
+    lift: (parseFloat(hand.style.getPropertyValue('--ch')) || 88) * 0.4,
+    to: -1,
+    outlines: [],
     moved: false,
     pointerId: e.pointerId,
   };
   el.setPointerCapture(e.pointerId);
 }
 
+// The slot (counting only the cards left in the hand) that the dragged cards would drop into
+function dropIndex(d, dx, dy) {
+  const s = d.start[d.held];
+  const left = s.left + dx - d.held * Math.min(d.step, d.cw * 0.3);
+  const col = Math.max(0, Math.min(d.perRow - 1, Math.round(left / d.step)));
+  const row = Math.max(0, Math.min(d.rows - 1, Math.round((s.top - 18 + dy) / d.rowGap)));
+  return Math.min(d.rest.length, row * d.perRow + col);
+}
+
 function onPointerMove(e) {
   const d = ui.drag;
   if (!d || e.pointerId !== d.pointerId) return;
   const dx = e.clientX - d.x0;
-  const dy = e.clientY - d.y0;
-  if (!d.moved && Math.hypot(dx, dy) < 8) return;
-  d.moved = true;
-  d.el.classList.add('dragging');
-  // with one row the card only lifts; with several it can move between rows
-  d.el.style.transform = `translate(${dx}px, ${d.rows > 1 ? dy : Math.min(0, dy)}px)`;
+  // with one row the cards only lift; with several they can move between rows
+  const dy = d.rows > 1 ? e.clientY - d.y0 : Math.min(0, e.clientY - d.y0);
+  if (!d.moved && Math.hypot(dx, e.clientY - d.y0) < 8) return;
+  if (!d.moved) {
+    d.moved = true;
+    d.hand.classList.add('drag-on');
+    // let the lifted cards float above the dock, unless it's scrolling and has to clip
+    const dock = d.hand.closest('.dock-body');
+    if (dock && dock.scrollHeight <= dock.clientHeight) dock.classList.add('lifting');
+    d.outlines = d.group.map(() => d.hand.appendChild(Object.assign(document.createElement('div'), { className: 'drop-slot' })));
+  }
+  // the held card follows the finger, floating a little higher so the space under it shows, and the rest of
+  // the group fans out from it
+  const fan = Math.min(d.step, d.cw * 0.3);
+  const held = d.start[d.held];
+  d.group.forEach((el, j) => {
+    el.classList.add('dragging');
+    el.style.zIndex = 200 + j;
+    const x = held.left + dx + (j - d.held) * fan - d.start[j].left;
+    const y = held.top + dy - d.lift - d.start[j].top;
+    el.style.transform = `translate(${x}px, ${y}px)`;
+  });
+  const to = dropIndex(d, dx, dy);
+  if (to === d.to) return;
+  d.to = to;
+  const k = d.group.length;
+  const slots = handSlots(d.cardEls.length, d, to, k);
+  d.rest.forEach((el, i) => placeInSlot(el, slots[i < to ? i : i + k], i < to ? i : i + k));
+  d.outlines.forEach((el, j) => {
+    el.style.left = `${slots[to + j].left}px`;
+    el.style.top = `${slots[to + j].top}px`;
+    el.style.zIndex = (to + j) * 2 + 1;
+  });
 }
 
 function onPointerUp(e) {
@@ -973,23 +1057,28 @@ function onPointerUp(e) {
   if (!d || e.pointerId !== d.pointerId) return;
   ui.drag = null;
   if (d.moved) {
-    const dx = e.clientX - d.x0;
-    const dy = e.clientY - d.y0;
-    const col = Math.max(0, Math.min(d.perRow - 1, Math.round((d.left0 + dx) / d.step)));
-    const row = Math.max(0, Math.min(d.rows - 1, Math.round((d.top0 - 18 + dy) / d.rowGap)));
+    const groupIds = d.group.map((el) => Number(el.dataset.card));
     const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
-    const visible = ui.order.filter((id) => !stagedIds.has(id));
-    const from = visible.indexOf(d.id);
-    const to = Math.max(0, Math.min(visible.length - 1, row * d.perRow + col));
-    visible.splice(from, 1);
-    visible.splice(to, 0, d.id);
+    const visible = ui.order.filter((id) => !stagedIds.has(id) && !groupIds.includes(id));
+    visible.splice(d.to, 0, ...groupIds);
     ui.order = [...visible, ...ui.order.filter((id) => stagedIds.has(id))];
     ui.sortMode = 'manual';
-  } else {
-    if (ui.selected.has(d.id)) ui.selected.delete(d.id);
-    else ui.selected.add(d.id);
-    ui.fresh.clear();
+    // slide the dragged cards into the space before redrawing
+    const slots = handSlots(d.cardEls.length, d);
+    d.outlines.forEach((el) => el.remove());
+    d.group.forEach((el, j) => {
+      el.classList.remove('dragging');
+      el.classList.add('settling');
+      el.style.left = `${slots[d.to + j].left}px`;
+      el.style.top = `${slots[d.to + j].top}px`;
+      el.style.transform = '';
+    });
+    setTimeout(render, 130);
+    return;
   }
+  if (ui.selected.has(d.id)) ui.selected.delete(d.id);
+  else ui.selected.add(d.id);
+  ui.fresh.clear();
   render();
 }
 
