@@ -5,6 +5,8 @@ const PREFIX = 'shanghai-family-rummy-';
 // WebRTC can take a long time to notice a peer vanished (closed tab, phone asleep), so both sides ping.
 const PING_MS = 3000;
 const STALE_MS = 10000;
+// A link that hasn't opened by now is stuck (often a phone on mobile data that can't get through): say so, and redial.
+const SLOW_MS = 15000;
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 export function randomCode() {
@@ -102,16 +104,33 @@ export function joinRoom(code, { onOpen, onMessage, onStatus }) {
   let closed = false;
   let retryTimer;
   let lastSeen = 0;
+  let dialTimer;
+  let connected = false;
+  let tryingSince = Date.now(); // when we last lost (or never had) a working link
+  // after SLOW_MS without getting through, report 'slow' instead of 'connecting' until it works
+  let noHost = false; // a wrong code (or a closed host page) keeps its own message while we retry
+  const status = (s, detail) => {
+    if (s === 'no-host') noHost = true;
+    if (s === 'connected') noHost = false;
+    if (s === 'connecting' && noHost) s = 'no-host';
+    else if (s === 'connecting' && !connected && Date.now() - tryingSince >= SLOW_MS) s = 'slow';
+    onStatus && onStatus(s, detail);
+  };
+  const slowCheck = setInterval(() => {
+    if (!connected && !closed && Date.now() - tryingSince >= SLOW_MS) status('connecting');
+  }, 1000);
   const pinger = setInterval(() => {
     if (!conn || !conn.open) return;
     if (Date.now() - lastSeen > STALE_MS) {
       // host went quiet: start over
       const dead = conn;
       conn = null;
+      connected = false;
+      tryingSince = Date.now();
       try {
         dead.close();
       } catch {}
-      onStatus && onStatus('connecting');
+      status('connecting');
       retry();
       return;
     }
@@ -120,13 +139,13 @@ export function joinRoom(code, { onOpen, onMessage, onStatus }) {
 
   const connect = () => {
     if (closed) return;
-    onStatus && onStatus('connecting');
+    status('connecting');
     if (!peer || peer.destroyed) {
       peer = new window.Peer(peerOptions());
       peer.on('open', dial);
       peer.on('error', (e) => {
-        if (e.type === 'peer-unavailable') onStatus && onStatus('no-host');
-        else onStatus && onStatus('error', e.message || String(e));
+        if (e.type === 'peer-unavailable') status('no-host');
+        else status('error', e.message || String(e));
         retry();
       });
       peer.on('disconnected', () => !closed && !peer.destroyed && peer.reconnect());
@@ -137,9 +156,21 @@ export function joinRoom(code, { onOpen, onMessage, onStatus }) {
     if (closed) return;
     const c = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' });
     conn = c;
+    // a link that never opens doesn't always report an error, so give up on it and dial again
+    clearTimeout(dialTimer);
+    dialTimer = setTimeout(() => {
+      if (conn !== c || c.open) return;
+      conn = null;
+      try {
+        c.close();
+      } catch {}
+      retry();
+    }, SLOW_MS);
     c.on('open', () => {
+      clearTimeout(dialTimer);
       lastSeen = Date.now();
-      onStatus && onStatus('connected');
+      connected = true;
+      status('connected');
       onOpen && onOpen();
     });
     c.on('data', (data) => {
@@ -149,7 +180,9 @@ export function joinRoom(code, { onOpen, onMessage, onStatus }) {
     });
     c.on('close', () => {
       if (conn !== c) return;
-      onStatus && onStatus('connecting');
+      if (connected) tryingSince = Date.now();
+      connected = false;
+      status('connecting');
       retry();
     });
   };
@@ -168,7 +201,9 @@ export function joinRoom(code, { onOpen, onMessage, onStatus }) {
     close() {
       closed = true;
       clearInterval(pinger);
+      clearInterval(slowCheck);
       clearTimeout(retryTimer);
+      clearTimeout(dialTimer);
       peer && peer.destroy();
     },
   };

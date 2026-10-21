@@ -382,7 +382,9 @@ function connectingHTML(snap) {
       ? `Can't find game ${esc(snap.code || ui.joinCode)} yet. Check the code; the host has to keep their page open. Still trying…`
       : snap.status === 'error'
         ? `Connection problem: ${esc(snap.error || '')}. Retrying…`
-        : 'Connecting to the game…';
+        : snap.status === 'slow'
+          ? `Can't reach the host yet. If you're on mobile data, try Wi-Fi, or ask the host to check their connection. Still trying…`
+          : 'Connecting to the game…';
   return `<div class="center-screen"><div class="panel"><div class="title" style="font-size:30px">Joining…</div><p class="muted">${msg}</p><button class="ghost" data-act="leave">Cancel</button></div></div>`;
 }
 
@@ -696,7 +698,7 @@ function gameHTML(snap) {
   const isWild = wildTest(v.options);
   const banner =
     !snap.isHost && snap.status !== 'connected'
-      ? `<div class="conn-banner">Lost connection to the host. Reconnecting…</div>`
+      ? `<div class="conn-banner">${snap.status === 'slow' ? "Still can't reach the host. If you're on mobile data, try Wi-Fi." : 'Lost connection to the host. Reconnecting…'}</div>`
       : snap.status === 'error'
         ? `<div class="conn-banner">${esc(snap.error)}</div>`
         : '';
