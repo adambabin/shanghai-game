@@ -262,6 +262,8 @@ function processLog(v) {
   }
   for (const e of v.log) {
     if (e.seq <= ui.lastSeq) continue;
+    // someone else's discard flies from their tile to the pile (yours you just put there yourself)
+    if (DISCARD_KINDS.includes(e.kind) && e.seat !== v.you) ui.flyFrom = e.seat;
     if (e.kind === 'shanghai') {
       shout('SHANGHAI!');
       toast(e.text, true, 5000);
@@ -359,6 +361,7 @@ function render() {
   placeTapSpots();
   markTableOverflow();
   fitHomeGames();
+  flyDiscard();
   const players = $app.querySelector('.players');
   if (players) {
     if (playersLeft != null) players.scrollLeft = playersLeft;
@@ -633,6 +636,29 @@ function tableHTML(v, isWild) {
   return rows.join('');
 }
 
+// Log entries that say what someone did on their turn, and the ones that end it with a discard
+const TURN_KINDS = ['draw', 'buy', 'laydown', 'play', 'swap', 'undo'];
+const DISCARD_KINDS = ['discard', 'dead', 'notshanghai'];
+
+// the latest entry this round that matches (each round's log starts with a 'round' line)
+function lastLog(v, test) {
+  for (let i = v.log.length - 1; i >= 0; i--) {
+    const e = v.log[i];
+    if (e.kind === 'round') return null;
+    if (test(e)) return e;
+  }
+  return null;
+}
+
+// a log line for the activity box: the player's name in bold, cards drawn as little cards, no full stop
+function logHTML(e, v) {
+  const name = e.seat != null ? v.players[e.seat].name : '';
+  let html = esc(e.text.replace(/\.$/, ''));
+  if (name && e.text.startsWith(name)) html = `<b>${e.seat === v.you ? 'You' : esc(name)}</b>` + html.slice(esc(name).length);
+  // "discarded the A♥" reads fine as "discarded A♥" and keeps the line short
+  return html.replace(/\bthe (?=(10|[2-9AJQK])[♠♥♦♣]|Joker)/g, '').replace(/(10|[2-9AJQK])([♠♥♦♣])|Joker/g, (m, rank, suit) => `<span class="mini-card ${suit === '♥' || suit === '♦' ? 'red' : ''}">${m}</span>`);
+}
+
 function statusText(v) {
   const me = v.you;
   const turnName = esc(v.players[v.turn].name);
@@ -640,7 +666,13 @@ function statusText(v) {
   const myTurn = v.turn === me;
   if (v.phase === 'ready') return `Sort and plan your hand. <b>${turnName}</b> goes first once everyone is ready.`;
   if (!myTurn) {
-    return v.phase === 'draw' ? `Waiting for <b>${turnName}</b> to draw…` : `<b>${turnName}</b> is playing…`;
+    if (v.phase === 'draw') {
+      const d = lastLog(v, (e) => DISCARD_KINDS.includes(e.kind));
+      return d ? `${logHTML(d, v)} · <b>${turnName}</b> to draw` : `Waiting for <b>${turnName}</b> to draw…`;
+    }
+    // what they've done so far this turn (drew, took the discard, laid down, played on a pile…)
+    const did = lastLog(v, (e) => e.seat === v.turn && TURN_KINDS.includes(e.kind));
+    return did ? logHTML(did, v) : `<b>${turnName}</b> is playing…`;
   }
   if (v.phase === 'draw') {
     if (v.buyWindow) return 'Waiting while others decide whether to buy…';
@@ -669,7 +701,8 @@ function centerHTML(v, isWild) {
   const pileAct = discardClickable ? 'drawDiscard' : canDiscard ? 'discard' : null;
   // kept to one short line so the discard card doesn't shift; the red glow shows a declared-dead discard
   const pileLabel = canDiscard ? 'Tap to discard' : v.topDead ? 'Dead card' : 'Discard';
-  const discard = `<div class="pile ${pileAct ? 'clickable' : ''} ${canDiscard ? 'discard-target' : ''} ${canDiscard && ui.armed ? 'armed' : ''}"><div class="stack" ${
+  const landing = ui.flyUntil > Date.now() ? 'landing' : '';
+  const discard = `<div class="pile discard-pile ${landing} ${pileAct ? 'clickable' : ''} ${canDiscard ? 'discard-target' : ''} ${canDiscard && ui.armed ? 'armed' : ''}"><div class="stack" ${
     pileAct ? `data-act="${pileAct}"` : ''
   } ${discardClickable ? 'data-drag="discard"' : ''} ${myTurn && v.phase === 'play' ? 'data-drop="discard"' : ''}>${top ? cardHTML(top, { isWild }) : '<div class="empty-pile"></div>'}${
     v.topDead ? '<div class="dead-stamp"><span>DEAD</span></div>' : ''
@@ -1647,6 +1680,45 @@ function playOn(v, meld, cards, isWild, drop = null) {
     }
   }
   done(send({ type: 'addToMeld', meldId: meld.id, ids }));
+}
+
+// Slide the new discard from the tile of the player who threw it down onto the discard pile. The real card on the
+// pile stays hidden (.landing) until it lands; re-renders in the meantime keep it hidden by checking ui.flyUntil.
+const FLY_MS = 550;
+function flyDiscard() {
+  const seat = ui.flyFrom;
+  ui.flyFrom = null;
+  if (seat == null || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const row = $app.querySelector('.players');
+  const chip = row && row.children[seat];
+  const card = $app.querySelector('.discard-pile .stack > .card');
+  if (!chip || !card) return;
+  const from = chip.getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  const to = card.getBoundingClientRect();
+  // a tile scrolled out of sight sends its card from the edge of the row
+  const fx = Math.min(Math.max(from.left + from.width / 2, box.left + 20), box.right - 20);
+  const fy = from.top + from.height / 2;
+  const ghost = card.cloneNode(true);
+  ghost.classList.add('flying-card');
+  Object.assign(ghost.style, { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px` });
+  document.body.appendChild(ghost);
+  ui.flyUntil = Date.now() + FLY_MS;
+  card.closest('.discard-pile').classList.add('landing');
+  const dx = fx - (to.left + to.width / 2);
+  const dy = fy - (to.top + to.height / 2);
+  ghost.animate(
+    [
+      { transform: `translate(${dx}px, ${dy}px) scale(0.35)`, opacity: 0.4 },
+      { transform: 'none', opacity: 1 },
+    ],
+    { duration: FLY_MS, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' }
+  ).onfinish = () => {
+    ghost.remove();
+    ui.flyUntil = 0;
+    const pile = $app.querySelector('.discard-pile.landing');
+    if (pile) pile.classList.remove('landing');
+  };
 }
 
 // ---------- events ----------
