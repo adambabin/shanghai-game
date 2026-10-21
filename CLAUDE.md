@@ -28,7 +28,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - It persists the game to `localStorage` so "Resume" works after a refresh. When restoring, it fills defaults for fields older saves lack, so add new state fields there too.
   - It broadcasts a per-seat `snapshot()` to every connection after each change.
   - `ClientSession` has the same `subscribe`/`send` interface but forwards actions to the host. Host-only actions (`start`, `nextRound`, `endRound`, `startNow`, `toggleBot`, …) are handled in `HostSession.act`, not the engine.
-- `js/net.js` wraps PeerJS. The room code maps to a fixed peer id prefix. Both sides ping (3s) and drop stale links (10s), and clients auto-reconnect. Rejoining with the same `clientId`, or the same name on a disconnected seat, reclaims that seat.
+- `js/net.js` wraps PeerJS. The room code maps to a fixed peer id prefix. `ICE_SERVERS` lists the relays (a Metered free-plan account first, PeerJS's free relay as fallback); phones on mobile data need one to reach the host. A joining player who can't get through within 15 seconds sees a "Can't reach the host" message (status `slow`) while it keeps retrying. Both sides ping (3s) and drop stale links (10s), and clients auto-reconnect. Rejoining with the same `clientId`, or the same name on a disconnected seat, reclaims that seat.
 - `js/bot.js` contains the computer players. They decide from the same `viewFor` view a human gets. `HostSession.scheduleBots` drives them with timers:
   - The turn timer resets on every change.
   - Reaction timers (Shanghai calls, buy answers) re-check validity when they fire.
