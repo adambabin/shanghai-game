@@ -292,6 +292,8 @@ function render() {
   // re-rendering replaces the table and pop-ups, so carry their scroll positions over
   const oldPlayers = $app.querySelector('.players');
   const playersLeft = oldPlayers ? oldPlayers.scrollLeft : null;
+  const oldStaged = $app.querySelector('.staged-row');
+  const stagedLeft = oldStaged ? oldStaged.scrollLeft : null;
   const oldTable = $app.querySelector('.table');
   const tableTop = oldTable ? oldTable.scrollTop : null;
   const oldModalBody = $app.querySelector('.modal-body');
@@ -310,8 +312,16 @@ function render() {
     if (playersLeft != null) players.scrollLeft = playersLeft;
     if (ui.revealTurn) revealTurn(players, playersLeft != null);
     ui.revealTurn = false;
-    markPlayersFade(players);
+    markEdgeFade(players);
   }
+  const staged = $app.querySelector('.staged-row');
+  if (staged) {
+    if (stagedLeft != null) staged.scrollLeft = stagedLeft;
+    // a group you just made goes on the end; bring it into view
+    if (ui.revealStaged) staged.scrollLeft = staged.scrollWidth;
+    markEdgeFade(staged);
+  }
+  ui.revealStaged = false;
   const modalBody = $app.querySelector('.modal-body');
   if (modalBody && modalTop != null) modalBody.scrollTop = modalTop;
   const table = $app.querySelector('.table');
@@ -330,11 +340,11 @@ function revealTurn(players, smooth) {
   if (to != null) players.scrollTo({ left: Math.max(0, to), behavior: smooth ? 'smooth' : 'auto' });
 }
 
-// fade whichever edge has more players past it
-function markPlayersFade(players) {
-  const max = players.scrollWidth - players.clientWidth;
-  players.classList.toggle('more-left', players.scrollLeft > 1);
-  players.classList.toggle('more-right', players.scrollLeft < max - 1);
+// sideways-scrolling rows (player tiles, staged groups) fade whichever edge has more past it
+function markEdgeFade(row) {
+  const max = row.scrollWidth - row.clientWidth;
+  row.classList.toggle('more-left', row.scrollLeft > 1);
+  row.classList.toggle('more-right', row.scrollLeft < max - 1);
 }
 
 // when the piles on the table don't all fit, shade the top edge of the deck row so it's clear there's more above it
@@ -636,8 +646,11 @@ function stagingHTML(v, isWild) {
   const canLay = ready && v.turn === me && v.phase === 'play';
   // only count what this round actually asks for
   const need = [cfg.sets && `${sets}/${cfg.sets} set${cfg.sets > 1 ? 's' : ''}`, cfg.runs && `${runs}/${cfg.runs} run${cfg.runs > 1 ? 's' : ''}`].filter(Boolean);
-  return `<div class="staging"><span class="label">Your lay down: ${need.join(' · ')}${adding ? ' · <b>tap a group to add</b>' : ''}</span>${groups}
-    <button class="primary small" data-act="layDown" ${canLay ? '' : 'disabled'}>${ready ? 'Lay down!' : 'Lay down'}</button></div>`;
+  // the button sits on the count line and the groups scroll sideways in one row, so however much you've staged,
+  // the button and your hand below stay on screen
+  return `<div class="staging"><div class="staging-head"><span class="label">Your lay down: ${need.join(' · ')}${adding ? ' · <b>tap a group to add</b>' : ''}</span>
+    <button class="primary small" data-act="layDown" ${canLay ? '' : 'disabled'}>${ready ? 'Lay down!' : 'Lay down'}</button></div>
+    <div class="staged-row hscroll">${groups}</div></div>`;
 }
 
 function handHTML(v, isWild) {
@@ -698,7 +711,7 @@ function gameHTML(snap) {
       <button class="icon-btn" data-act="modal" data-m="scores">Scores</button>
       <button class="icon-btn" data-act="modal" data-m="menu">☰</button>
     </div>
-    <div class="players">${playerChips(v)}</div>
+    <div class="players hscroll">${playerChips(v)}</div>
     <div class="table">${tableHTML(v, isWild)}</div>
     <div class="bottom">${centerHTML(v, isWild)}${dockHTML(v, isWild)}</div>
     ${modalHTML(snap)}
@@ -1163,6 +1176,7 @@ function onClick(e) {
       if (!ok) return toast(type === 'set' ? "Those cards can't make a set." : "Those cards can't make a run.", true);
       ui.staged.push({ type, ids: cards.map((c) => c.id) });
       ui.selected.clear();
+      ui.revealStaged = true;
       return render();
     }
     case 'addToStaged': {
@@ -1268,9 +1282,9 @@ function onKey(e) {
   }
 }
 
-// scroll events don't bubble, so listen while they pass down to the player row
+// scroll events don't bubble, so listen while they pass down to the sideways rows
 $app.addEventListener('scroll', (e) => {
-  if (e.target.classList && e.target.classList.contains('players')) markPlayersFade(e.target);
+  if (e.target.classList && e.target.classList.contains('hscroll')) markEdgeFade(e.target);
 }, true);
 $app.addEventListener('click', onClick);
 $app.addEventListener('input', onInput);

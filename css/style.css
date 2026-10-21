@@ -409,15 +409,15 @@ label.field {
 .players::-webkit-scrollbar {
   display: none;
 }
-.players.more-right {
+.hscroll.more-right {
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
 }
-.players.more-left {
+.hscroll.more-left {
   -webkit-mask-image: linear-gradient(to right, transparent, #000 32px);
   mask-image: linear-gradient(to right, transparent, #000 32px);
 }
-.players.more-left.more-right {
+.hscroll.more-left.more-right {
   -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
   mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
 }
@@ -1012,15 +1012,37 @@ table.scores td.zero {
   align-self: flex-start;
 }
 
-/* staging wraps instead of scrolling sideways */
+/* staging: the count and the Lay down button on one line, then the groups in one row that scrolls sideways */
 .staging {
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   overflow-x: visible;
-  justify-content: center;
+  gap: 2px;
 }
-.staging .label {
-  flex-basis: 100%;
-  text-align: center;
+.staging-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.staging-head .label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.staging-head button {
+  flex: none;
+}
+.staged-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0; /* room for the gold glow on staged groups */
+}
+.staged-row::-webkit-scrollbar {
+  display: none;
 }
 .staged {
   flex-direction: column;
@@ -1062,9 +1084,15 @@ table.scores td.zero {
 
 /* ---------- the tuck-away bottom area ---------- */
 .dock {
-  flex: none;
+  flex: 0 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+}
+/* on a short screen (small phone, a big lay-down) your cards scroll instead of being cut off */
+.dock-body {
+  min-height: 0;
+  overflow-y: auto;
 }
 .dock-toggle {
   align-self: center;
@@ -1091,7 +1119,8 @@ table.scores td.zero {
 
 /* the deck row, activity box and your hand, below the table */
 .bottom {
-  flex: none;
+  flex: 0 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   position: relative;
