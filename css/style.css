@@ -734,6 +734,32 @@ label.field {
   cursor: grabbing;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
 }
+/* cards lifted out of the hand, or a card dragged from the deck or discard, float above everything */
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+.drag-ghost .card,
+.drag-ghost .card-back {
+  position: absolute;
+  top: 0;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+}
+[data-drag] {
+  touch-action: none;
+}
+.pile .stack.lifted > :first-child {
+  opacity: 0.35;
+}
+/* the pile or group the dragged cards will drop onto */
+.drop-hover {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+  border-radius: 9px;
+}
 .hand .drop-slot {
   position: absolute;
   width: var(--cw);
