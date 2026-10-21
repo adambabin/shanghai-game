@@ -1,6 +1,7 @@
 // Shanghai feedback relay: a Google Apps Script web app that the game's "Send feedback" form posts to.
-// It files each message as a ticket in the Shanghai Game Backlog (Status and Theme: User feedback), saves any
-// photos to a Drive folder only the owner can open, and emails the owner a link. The Notion key and the email
+// It files each message as a ticket in the Shanghai Game Backlog (Status and Theme: User feedback) with any photos
+// shown right on the ticket, and emails the owner a link. A photo Notion won't take is kept in a Drive folder only
+// the owner can open and linked from the ticket instead. The Notion key and the email
 // address live in this project's Script properties, never in the game. Setup steps: relay/README.md.
 
 const NOTION_DATABASE_ID = 'acdc8b80-41f7-46ab-88d5-dde918f7cdb4'; // Shanghai Game Backlog
@@ -65,7 +66,8 @@ function photoFolder() {
   return found.hasNext() ? found.next() : DriveApp.createFolder(PHOTO_FOLDER);
 }
 
-// photos arrive as { type: 'image/jpeg', data: <base64> }, already shrunk by the game
+// photos arrive as { type: 'image/jpeg', data: <base64> }, already shrunk by the game. Each becomes either
+// { upload: <Notion file upload id> } to show on the ticket, or { link: <Drive URL> } if Notion wouldn't take it.
 function savePhotos(photos, name) {
   const saved = [];
   photos.slice(0, MAX_PHOTOS).forEach((p, i) => {
@@ -73,10 +75,39 @@ function savePhotos(photos, name) {
     const bytes = Utilities.base64Decode(p.data);
     if (bytes.length > MAX_PHOTO_BYTES) return;
     const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HHmm');
-    const file = photoFolder().createFile(Utilities.newBlob(bytes, p.type, `${stamp} ${name} ${i + 1}`));
-    saved.push(file.getUrl());
+    const ext = p.type.split('/')[1].replace('jpeg', 'jpg');
+    const blob = Utilities.newBlob(bytes, p.type, `${stamp} ${name} ${i + 1}.${ext}`);
+    try {
+      saved.push({ upload: uploadToNotion(blob) });
+    } catch (err) {
+      console.error(err);
+      saved.push({ link: photoFolder().createFile(blob).getUrl() });
+    }
   });
   return saved;
+}
+
+// Notion's file uploads: create an upload, then send the file to it. The id goes in an image block on the ticket.
+function uploadToNotion(blob) {
+  const headers = { Authorization: 'Bearer ' + settings().token, 'Notion-Version': NOTION_VERSION };
+  const created = UrlFetchApp.fetch('https://api.notion.com/v1/file_uploads', {
+    method: 'post',
+    contentType: 'application/json',
+    headers,
+    payload: JSON.stringify({ filename: blob.getName(), content_type: blob.getContentType() }),
+    muteHttpExceptions: true,
+  });
+  if (created.getResponseCode() >= 300) throw new Error('Notion upload: ' + created.getContentText());
+  const id = JSON.parse(created.getContentText()).id;
+  // a payload object holding a blob is sent as multipart/form-data, which is what Notion expects here
+  const sent = UrlFetchApp.fetch(`https://api.notion.com/v1/file_uploads/${id}/send`, {
+    method: 'post',
+    headers,
+    payload: { file: blob },
+    muteHttpExceptions: true,
+  });
+  if (sent.getResponseCode() >= 300) throw new Error('Notion upload: ' + sent.getContentText());
+  return id;
 }
 
 function paragraph(text, link) {
@@ -94,7 +125,13 @@ function createTicket(name, message, device, photos) {
   // Notion caps each block's text at 2000 characters
   for (let i = 0; i < message.length; i += 1900) children.push(paragraph(message.slice(i, i + 1900)));
   children.push(paragraph(`From ${name}${device ? ' · ' + device : ''}`));
-  photos.forEach((url, i) => children.push(paragraph(`Photo ${i + 1}`, url)));
+  photos.forEach((photo, i) =>
+    children.push(
+      photo.upload
+        ? { object: 'block', type: 'image', image: { type: 'file_upload', file_upload: { id: photo.upload } } }
+        : paragraph(`Photo ${i + 1}`, photo.link)
+    )
+  );
 
   const res = UrlFetchApp.fetch('https://api.notion.com/v1/pages', {
     method: 'post',
@@ -120,10 +157,15 @@ function notify(name, message, pageUrl) {
   MailApp.sendEmail(settings().email, `Shanghai feedback from ${name}`, `${name} wrote:\n\n${preview}\n\nOpen it in Notion: ${pageUrl}`);
 }
 
-// Run this once from the editor (select it, then Run): it asks for permission, then files a test ticket and emails
-// you, so you can see the whole thing works before the game uses it. Delete the test ticket afterwards.
+// Run this from the editor (select it, then Run): it asks for permission, then files a test ticket with a small
+// test picture and emails you, so you can see the whole thing works before the game uses it. Delete the test
+// ticket afterwards.
 function testSetup() {
-  const url = createTicket('Setup test', 'This is a test from the feedback relay. You can delete it.', 'Apps Script editor', []);
+  // a tiny green square, sent the same way the game sends photos
+  const square = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR42mPQWxBFEmIY1TCqYfhqAAAxmygQxiQWKgAAAABJRU5ErkJggg==';
+  const photos = savePhotos([{ type: 'image/png', data: square }], 'Setup test');
+  console.log(photos[0].upload ? 'The picture went to Notion.' : 'Notion did not take the picture; it went to Drive: ' + photos[0].link);
+  const url = createTicket('Setup test', 'This is a test from the feedback relay. You can delete it.', 'Apps Script editor', photos);
   notify('Setup test', 'This is a test from the feedback relay.', url);
   console.log('Test ticket: ' + url);
 }

@@ -3,8 +3,9 @@
 The game is a static site with no server, so it can't hold the Notion key or send email itself. `feedback-relay.gs`
 is a small Google Apps Script web app that does both, running under the owner's Google account. The game's
 "Send feedback" form posts to it. Each message becomes a ticket in the Shanghai Game Backlog, in the **User feedback**
-column (Status) with the **User feedback** theme. Photos go to a Drive folder only the owner can open, and the owner
-gets an email with a link to the ticket.
+column (Status) with the **User feedback** theme, and any photos show right on the ticket. The owner gets an email with
+a link to the ticket. (If Notion ever won't take a photo, it's kept in a Drive folder only the owner can open and
+linked from the ticket instead.)
 
 This folder isn't published with the site; it's only kept here so the script is versioned.
 
@@ -55,6 +56,10 @@ worked anyway; otherwise retry in a private tab signed in to just the account th
 
 ## Later
 
+- **Updating to a new version of the script** (like the one that puts photos on the ticket): open the project, select
+  all the code and paste in the new `feedback-relay.gs`, save, then **Deploy** → **Manage deployments** → edit
+  (pencil) → **Version: New version** → **Deploy**. Run `testSetup` once to check: the test ticket should show a small
+  green square.
 - **Changing the script:** after saving, use **Deploy** → **Manage deployments** → edit (pencil) → **Version: New
   version** → **Deploy**. That keeps the same URL. A *new* deployment gets a new URL.
 - **If the address is ever abused** (junk tickets): make a new deployment, put its URL in the game, and archive the
