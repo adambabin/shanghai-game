@@ -756,11 +756,26 @@ label.field {
 .hand .card.sel.fresh {
   box-shadow: 0 0 0 3px var(--gold), 0 6px 12px rgba(0, 0, 0, 0.4);
 }
+/* while dragging, the other cards slide aside to open a space where the dragged cards will land */
+.hand.drag-on .card,
+.hand .card.settling {
+  transition: left 0.12s ease, top 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
+}
 .hand .card.dragging {
   transition: none;
-  z-index: 100;
   cursor: grabbing;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+}
+.hand .drop-slot {
+  position: absolute;
+  width: var(--cw);
+  height: var(--ch);
+  border: 2px dashed var(--gold);
+  border-radius: 8px;
+  background-color: var(--felt-dark); /* covers the card underneath, like the card that will land here */
+  opacity: 0.85;
+  pointer-events: none;
+  transition: left 0.12s ease, top 0.12s ease;
 }
 .hand-buttons {
   display: flex;
@@ -1125,6 +1140,9 @@ table.scores td.zero {
 .dock-body {
   min-height: 0;
   overflow-y: auto;
+}
+.dock-body.lifting {
+  overflow: visible;
 }
 .dock-toggle {
   align-self: center;
