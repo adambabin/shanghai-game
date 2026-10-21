@@ -50,6 +50,7 @@ const ui = {
   pendingRender: false,
   swallowClick: false, // set when a drag ends, so the click the browser sends after it isn't taken as a tap
   drawTo: null, // where in the hand a card being drawn by dragging should go
+  afterDraw: null, // a discard dragged onto a group or pile, to play once it's in your hand
 };
 
 // card back colors you can pick in Settings (the CSS for each lives in style.css)
@@ -215,6 +216,12 @@ function onSnapshot(snap) {
   const v = snap.view;
   if (v) {
     syncHand(v);
+    // a discard dragged onto a group or pile: play it as soon as it's in your hand
+    const take = ui.afterDraw;
+    if (take && v.hand.some((c) => c.id === take.id)) {
+      ui.afterDraw = null;
+      setTimeout(() => finishTake(take));
+    }
     processLog(v);
     trackMeldChanges(v);
     ui.windowDeadline = v.buyWindow ? Date.now() + v.buyWindow.msLeft : null;
@@ -602,7 +609,8 @@ function tableHTML(v, isWild) {
     return `<div class="table-empty"><span class="table-round">Round ${v.round + 1} of ${ROUNDS.length}</span><b class="table-contract">${contractText(v.round)}</b></div>`;
   const playable = canPlayOn(v);
   // piles take dragged cards whenever you could play on them, selected or not
-  const droppable = v.you != null && v.turn === v.you && v.phase === 'play' && v.players[v.you].laid;
+  const laid = v.you != null && v.players[v.you].laid;
+  const droppable = laid && v.turn === v.you && v.phase === 'play';
   const rows = [];
   v.players.forEach((p, i) => {
     // sets before runs, so everyone's piles line up the same way
@@ -614,8 +622,8 @@ function tableHTML(v, isWild) {
         const ok = playable;
         const fresh = ui.justPlayed && Date.now() < ui.justPlayed.until && ui.justPlayed.ids.has(m.id);
         return `<div class="meld ${ok ? 'target' : ''} ${fresh ? 'just-played' : ''}" ${ok ? 'data-act="playOn"' : ''} ${
-          droppable ? `data-drop="meld" data-meld="${m.id}"` : ''
-        } title="${m.type}">
+          droppable ? 'data-drop="meld"' : ''
+        } ${laid ? `data-meld="${m.id}"` : ''} title="${m.type}">
           ${m.cards.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>`;
       })
       .join('');
@@ -1261,7 +1269,7 @@ function closeGap(d, cards) {
 function liftOutOfHand(d) {
   d.out = true;
   document.body.classList.add('cards-lifted');
-  placeSpots(d);
+  placeSpots(d.hand);
   // the dragged cards leave holes where they were, so it's clear where they'd go back to
   d.group.forEach((el) => (el.style.visibility = 'hidden'));
   closeGap(d, d.cardEls);
@@ -1280,9 +1288,9 @@ function liftOutOfHand(d) {
 // - nothing staged yet: a bar in the space between the deck row and your hand
 // - groups staged with room after them: tiles at the end of the row, beside the groups
 // - the row is full: a bar over the "Your lay down" line above it, so they never cover a group
-function placeSpots(d) {
+function placeSpots(hand) {
   const spots = $app.querySelector('.spots-float');
-  const dock = d.hand.closest('.dock');
+  const dock = hand && hand.closest('.dock');
   if (!spots || !dock) return;
   const row = $app.querySelector('.staged-row');
   const box = dock.getBoundingClientRect();
@@ -1290,7 +1298,7 @@ function placeSpots(d) {
     spots.classList.remove('tiles');
     Object.assign(spots.style, { left: `${box.left + 12}px`, width: `${box.width - 24}px`, top: `${bottom - 52}px`, height: '52px' });
   };
-  if (!row) return bar(d.hand.getBoundingClientRect().top + 10);
+  if (!row) return bar(hand.getBoundingClientRect().top + 10);
   const r = row.getBoundingClientRect();
   const groups = [...row.querySelectorAll('.staged')];
   const last = groups[groups.length - 1].getBoundingClientRect();
@@ -1343,6 +1351,11 @@ function movePileDrag(d) {
     const r = d.card.getBoundingClientRect();
     d.ghost = makeGhost([d.card.cloneNode(true)], 0, `${r.width}px`, `${r.height}px`);
     d.el.classList.add('lifted');
+    // the discard can go straight onto a staged group or a New set / New run spot, so show the spots
+    if (d.from === 'discard') {
+      document.body.classList.add('cards-lifted');
+      placeSpots(document.getElementById('hand'));
+    }
   }
   moveGhost(d);
   // over your hand, it opens a space where the card will go
@@ -1377,9 +1390,12 @@ function movePileDrag(d) {
 // Piles on the table and staged groups only count where they're scrolled into view.
 function dropTarget(d) {
   const els =
-    d.kind === 'pile'
-      ? [document.getElementById('hand') || $app.querySelector('.dock')].filter(Boolean)
-      : [...$app.querySelectorAll('[data-drop]')];
+    d.kind === 'hand'
+      ? [...$app.querySelectorAll('[data-drop]')]
+      : [
+          document.getElementById('hand') || $app.querySelector('.dock'),
+          ...(d.from === 'discard' ? $app.querySelectorAll('[data-drop="staged"], [data-drop="newGroup"], .meld[data-meld]') : []),
+        ].filter(Boolean);
   let best = null;
   let bestDist = Infinity;
   for (const el of els) {
@@ -1443,7 +1459,8 @@ function onPointerUp(e) {
   // a pile that was only tapped is handled by the click that follows
   if (d.kind === 'pile') {
     if (!d.moved) return; // redrawing now would remove the pile before its click arrives
-    if (v && d.hover) drawTo(d.from, d.to);
+    if (v && d.hover && (d.hover.id === 'hand' || d.hover.classList.contains('dock'))) drawTo(d.from, d.to);
+    else if (v && d.hover) takeDiscardTo(v, d.hover, d.aimX);
     return render();
   }
   if (!d.moved) {
@@ -1494,13 +1511,55 @@ function dropOn(v, target, ids, x) {
   if (kind === 'staged') return addToStaged(v, Number(target.dataset.i), cards, isWild);
   if (kind === 'newGroup') return stageGroup(target.dataset.type, cards, isWild);
   const meld = v.melds.find((m) => m.id === Number(target.dataset.meld));
-  if (!meld) return;
-  // where on the pile: on a joker, or which half of it
+  if (meld) playOn(v, meld, cards, isWild, dropSpot(target, meld, x, isWild));
+}
+
+// Where on a pile something was dropped: on a joker, or which half of it
+function dropSpot(target, meld, x, isWild) {
   const r = target.getBoundingClientRect();
   const shown = [...target.querySelectorAll('.card')];
   const over = shown.filter((c) => c.getBoundingClientRect().left <= x).length - 1;
   const onWild = over >= 0 && x <= shown[over].getBoundingClientRect().right && isWild(meld.cards[over]);
-  playOn(v, meld, cards, isWild, { onWild, side: x < r.left + r.width / 2 ? 'low' : 'high' });
+  return { onWild, side: x < r.left + r.width / 2 ? 'low' : 'high' };
+}
+
+// Takes the discard straight onto a staged group, a New set / New run spot or a pile on the table. The card is
+// checked first, with the usual message if it can't go there, so it stays on the discard pile rather than being
+// taken for nothing. Once it's in your hand (right away for the host, after the host replies for everyone
+// else), finishTake() plays it.
+function takeDiscardTo(v, target, x) {
+  const isWild = wildTest(v.options);
+  const card = v.discardTop;
+  if (!card) return;
+  const kind = target.dataset.drop || 'meld';
+  const take = { id: card.id, kind, until: Date.now() + 5000 };
+  if (kind === 'staged') {
+    take.i = Number(target.dataset.i);
+    const g = ui.staged[take.i];
+    if (!g || !stagedWith(v, g, [card], isWild)) return toast(`${cardLabel(card)} can't go in that ${g ? g.type : 'group'}.`, true);
+  } else if (kind === 'newGroup') {
+    take.type = target.dataset.type;
+  } else {
+    const meld = v.melds.find((m) => m.id === Number(target.dataset.meld));
+    if (!meld) return;
+    if (!(wildSlotFor(meld, card, isWild) >= 0 || addCards(meld, [card], isWild)))
+      return toast(`${cardLabel(card)} can't go on that ${meld.type}.`, true);
+    take.meldId = meld.id;
+    take.spot = dropSpot(target, meld, x, isWild);
+  }
+  ui.afterDraw = take;
+  if (!send({ type: 'drawDiscard' }).ok) ui.afterDraw = null;
+}
+
+function finishTake(take) {
+  const v = ui.snap && ui.snap.view;
+  const card = v && v.hand.find((c) => c.id === take.id);
+  if (!card || Date.now() > take.until) return;
+  const isWild = wildTest(v.options);
+  if (take.kind === 'staged') addToStaged(v, take.i, [card], isWild);
+  else if (take.kind === 'newGroup') stageGroup(take.type, [card], isWild);
+  else playOn(v, v.melds.find((m) => m.id === take.meldId), [card], isWild, take.spot);
+  render();
 }
 
 // ---------- playing cards (shared by taps and drags) ----------
@@ -1521,13 +1580,18 @@ function stageGroup(type, cards, isWild) {
   ui.revealStaged = true;
 }
 
+// A staged group with cards added, in order, or null if they don't fit
+function stagedWith(v, g, added, isWild) {
+  const existing = g.ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
+  const all = g.type === 'set' ? [...existing, ...added] : arrangeRun(existing, added, isWild);
+  return (g.type === 'set' ? couldBeSet(all, isWild) : couldBeRun(all, isWild)) ? all : null;
+}
+
 function addToStaged(v, i, added, isWild) {
   const g = ui.staged[i];
   if (!g) return;
-  const existing = g.ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
-  const all = g.type === 'set' ? [...existing, ...added] : arrangeRun(existing, added, isWild);
-  if (!(g.type === 'set' ? couldBeSet(all, isWild) : couldBeRun(all, isWild)))
-    return toast(`${added.map(cardLabel).join(' ')} can't go in that ${g.type}.`, true);
+  const all = stagedWith(v, g, added, isWild);
+  if (!all) return toast(`${added.map(cardLabel).join(' ')} can't go in that ${g.type}.`, true);
   g.ids = all.map((c) => c.id);
   for (const c of added) ui.selected.delete(c.id);
   if (ui.flash && ui.flash.bad) ui.flash = null; // an earlier "can't go there" no longer applies
