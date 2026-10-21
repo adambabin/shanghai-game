@@ -776,15 +776,14 @@ function stagingHTML(v, isWild) {
 
 // "New set" / "New run" spots for the groups the round still needs. They only show while cards are lifted out
 // of the hand, so tapping and the Make set / Make run buttons look the same as ever. placeSpots() floats them
-// just above the hand (or the staged groups), so showing them never moves anything in the middle of a drag.
+// next to your staged groups (or just above the hand), so showing them never moves anything mid-drag.
 function newGroupSpotsHTML(v) {
   const me = v.you;
   if (me == null || v.players[me].laid || v.phase === 'roundOver' || v.phase === 'gameOver') return '';
   const cfg = ROUNDS[v.round];
   const count = (type) => ui.staged.filter((g) => g.type === type).length;
-  const spot = (type, min) =>
-    `<div class="new-group" data-drop="newGroup" data-type="${type}"><span class="plus">+</span>New ${type}<small>${min} or more</small></div>`;
-  const spots = (count('set') < cfg.sets ? spot('set', SET_MIN) : '') + (count('run') < cfg.runs ? spot('run', RUN_MIN) : '');
+  const spot = (type) => `<div class="new-group" data-drop="newGroup" data-type="${type}"><span class="plus">+</span>New ${type}</div>`;
+  const spots = (count('set') < cfg.sets ? spot('set') : '') + (count('run') < cfg.runs ? spot('run') : '');
   return spots ? `<div class="spots-float">${spots}</div>` : '';
 }
 
@@ -1274,17 +1273,29 @@ function liftOutOfHand(d) {
   autoScroll(d);
 }
 
-// The New set / New run spots go just above where a new group will show: over the "Your lay down" line when
-// groups are staged, else in the space between the deck row and your hand. Either way they cover nothing you'd
-// drop onto, and they sit on top of the page, so nothing moves.
+// The New set / New run spots go where a new group will show, on top of the page so nothing moves:
+// - nothing staged yet: a bar in the space between the deck row and your hand
+// - groups staged with room after them: tiles at the end of the row, beside the groups
+// - the row is full: a bar over the "Your lay down" line above it, so they never cover a group
 function placeSpots(d) {
   const spots = $app.querySelector('.spots-float');
   const dock = d.hand.closest('.dock');
   if (!spots || !dock) return;
   const row = $app.querySelector('.staged-row');
-  const bottom = row ? row.getBoundingClientRect().top + 2 : d.hand.getBoundingClientRect().top + 10;
   const box = dock.getBoundingClientRect();
-  Object.assign(spots.style, { left: `${box.left + 12}px`, width: `${box.width - 24}px`, top: `${bottom - 52}px`, height: '52px' });
+  const bar = (bottom) => {
+    spots.classList.remove('tiles');
+    Object.assign(spots.style, { left: `${box.left + 12}px`, width: `${box.width - 24}px`, top: `${bottom - 52}px`, height: '52px' });
+  };
+  if (!row) return bar(d.hand.getBoundingClientRect().top + 10);
+  const r = row.getBoundingClientRect();
+  const groups = [...row.querySelectorAll('.staged')];
+  const last = groups[groups.length - 1].getBoundingClientRect();
+  const n = spots.children.length;
+  const need = n * 92 + (n - 1) * 8;
+  if (r.right - (last.right + 8) < need) return bar(r.top + 2);
+  spots.classList.add('tiles');
+  Object.assign(spots.style, { left: `${last.right + 8}px`, width: `${need}px`, top: `${last.top}px`, height: `${last.height}px` });
 }
 
 function putBackInHand(d) {
