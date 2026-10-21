@@ -1174,14 +1174,14 @@ body.cards-lifted .spots-float {
   font-weight: 700;
   font-size: 14px;
 }
+/* beside the staged groups the spots are tiles shaped like a group */
+.spots-float.tiles .new-group {
+  flex-direction: column;
+  gap: 2px;
+}
 .new-group .plus {
   font-size: 22px;
   line-height: 1;
-}
-.new-group small {
-  font-weight: 400;
-  font-size: 12px;
-  color: var(--ink-dim);
 }
 /* the spot under the cards fills in */
 .new-group.drop-hover {
