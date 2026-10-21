@@ -957,11 +957,13 @@ function modalHTML(snap) {
 }
 
 // the title and the Close button stay put; only the middle scrolls
-// closeFirst puts Close on the left, for forms whose main button (Send) belongs on the right
-function wrapModal(title, body, actions = '', { closeFirst = false } = {}) {
+// closeFirst puts Close on the left, for forms whose main button (Send) belongs on the right; headAction is a small
+// button that sits at the right end of the title line
+function wrapModal(title, body, actions = '', { closeFirst = false, headAction = '' } = {}) {
   const close = '<button class="ghost" data-act="closeModal">Close</button>';
+  const head = headAction ? `<div class="modal-head"><h2>${title}</h2>${headAction}</div>` : `<h2>${title}</h2>`;
   return `<div class="overlay" data-act="closeModal"><div class="modal framed" data-stop>
-    <h2>${title}</h2><div class="modal-body">${body}</div>
+    ${head}<div class="modal-body">${body}</div>
     <div class="actions">${closeFirst ? close + actions : actions + close}</div></div></div>`;
 }
 
@@ -1197,7 +1199,6 @@ function rulesModal(o) {
   return wrapModal(
     'How to play',
     `<div class="rules">
-    <button class="ghost small" data-act="replayTour">Show the tour</button>
     <p>Lowest score after ${ROUNDS.length} rounds wins. Each round has a contract you must lay down before you can play on any piles.</p>
     <ul>${rounds}</ul>
     <h3>Around the table</h3>
@@ -1231,7 +1232,9 @@ function rulesModal(o) {
     <li>Made a mistake? Undo takes back plays you made this turn, until you discard. It can even put back a discard you picked up, so you can choose again.</li></ul>
     <h3>Scoring</h3>
     <ul><li>2–9: face value · 10, J, Q, K: 10 · Ace: 20 · Joker${o.twoClubsWild ? ' / 2♣' : ''}: 50</li></ul>
-    </div>`
+    </div>`,
+    '',
+    { headAction: '<button class="ghost small" data-act="replayTour">Show the tour</button>' }
   );
 }
 

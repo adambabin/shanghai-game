@@ -994,6 +994,17 @@ label.field {
   margin: 0;
   padding: 20px 20px 12px;
 }
+.modal.framed .modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 20px;
+}
+.modal.framed .modal-head button {
+  flex: none;
+  margin-top: 8px; /* level with the title text, which sits below the h2's top padding */
+}
 .modal.framed .modal-body {
   flex: 1;
   min-height: 0;
