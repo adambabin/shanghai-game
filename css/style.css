@@ -1207,6 +1207,10 @@ body.cards-lifted .spots-float {
   font-weight: 700;
   font-size: 14px;
 }
+/* in the gap above the hand it's a slim pill, so it covers neither the pile labels nor the cards */
+.spots-float.slim .new-group {
+  border-radius: 999px;
+}
 /* beside the staged groups the spots are tiles shaped like a group */
 .spots-float.tiles .new-group {
   flex-direction: column;

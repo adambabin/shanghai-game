@@ -1332,16 +1332,22 @@ function placeSpots(hand) {
   const place = (left, width, top, height, gap = 8) =>
     Object.assign(spots.style, { left: `${left}px`, width: `${width}px`, top: `${top}px`, height: `${height}px`, columnGap: `${gap}px` });
   const row = $app.querySelector('.staged-row');
-  spots.classList.remove('tiles');
+  spots.classList.remove('tiles', 'slim');
   if (!row) {
-    // the gap above the hand, leaving the hide-cards arrow in the middle uncovered: one spot to its left, or
-    // one either side of it
+    // a slim pill in the gap between the Deck / Discard labels and the tops of the hand's cards (selected ones
+    // sit higher), so it covers neither; it leaves the hide-cards arrow in the middle uncovered too, with one
+    // spot to its left or one either side of it
+    spots.classList.add('slim');
     const left = box.left + 12;
-    const bottom = hand.getBoundingClientRect().top + 10;
+    const labels = [...$app.querySelectorAll('.center .pile > span')].map((el) => el.getBoundingClientRect().bottom);
+    // (cards being dragged don't count: they've already been lifted out)
+    const cards = [...hand.querySelectorAll('.card:not(.dragging)')].map((el) => el.getBoundingClientRect().top);
+    const bottom = (cards.length ? Math.min(...cards) : hand.getBoundingClientRect().top + 18) - 4;
+    const height = Math.max(28, Math.min(44, bottom - (labels.length ? Math.max(...labels) + 3 : bottom - 44)));
     const arrow = $app.querySelector('.dock-toggle');
     const a = arrow ? arrow.getBoundingClientRect() : { left: box.left + box.width / 2, width: 0 };
-    if (n === 1) return place(left, a.left - 8 - left, bottom - 52, 52);
-    return place(left, box.width - 24, bottom - 52, 52, a.width + 16);
+    if (n === 1) return place(left, a.left - 8 - left, bottom - height, height);
+    return place(left, box.width - 24, bottom - height, height, a.width + 16);
   }
   const r = row.getBoundingClientRect();
   const groups = [...row.querySelectorAll('.staged')];
