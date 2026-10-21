@@ -520,15 +520,10 @@ label.field {
   white-space: nowrap;
   min-width: 0;
 }
-.chip .buy-dots {
-  display: inline-flex;
-  gap: 3px;
-}
-.chip .buy-dots i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--gold);
+.buys-left {
+  color: var(--gold);
+  font-weight: 800;
+  letter-spacing: 1px;
 }
 .chip .ptags:empty {
   display: none;
@@ -1260,9 +1255,19 @@ body.cards-lifted .spots-float {
 }
 .dock-toggle.icon {
   padding: 0 14px;
-  font-size: 16px;
-  line-height: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
   margin: 0 0 2px;
+}
+.dock-toggle.icon svg {
+  width: 22px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* the deck row, activity box and your hand, below the table */
