@@ -769,7 +769,10 @@ function stagingHTML(v, isWild) {
   const need = [cfg.sets && `${sets}/${cfg.sets} set${cfg.sets > 1 ? 's' : ''}`, cfg.runs && `${runs}/${cfg.runs} run${cfg.runs > 1 ? 's' : ''}`].filter(Boolean);
   // the button sits on the count line and the groups scroll sideways in one row, so however much you've staged,
   // the button and your hand below stay on screen
-  return `<div class="staging"><div class="staging-head"><span class="label">Your lay down: ${need.join(' · ')}${adding ? ' · <b>tap a group to add</b>' : ''}</span>
+  // with cards selected the hint takes the place of "Your lay down:", so the line still fits in later rounds
+  return `<div class="staging"><div class="staging-head"><span class="label">${adding ? '' : 'Your lay down: '}${need.join(' · ')}${
+    adding ? ' · <b>Drag or Tap a Group</b>' : ''
+  }</span>
     <button class="primary small" data-act="layDown" ${canLay ? '' : 'disabled'}>${ready ? 'Lay down!' : 'Lay down'}</button></div>
     <div class="staged-row hscroll">${groups}</div></div>`;
 }
