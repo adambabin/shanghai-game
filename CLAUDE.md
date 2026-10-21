@@ -49,6 +49,11 @@ There is no linter or formatter configured. Match the existing style: 2-space in
     uploaded to Notion and shown on the ticket, Drive only as a fallback) and emails the owner. A Shanghai call that
     misses records `why` on its log entry (`notShanghaiReason`), and the caller sees it, above any prompt. The form
     lives in `#feedback-sheet` outside `#app` (`syncFeedbackSheet()`), so redraws can't steal the text box mid-sentence. The POST has no Content-Type header so it skips the CORS preflight.
+  - **First-game tour and tips** (`TOUR`, `TIPS`, `placeGuide()` at the end of every render, drawn in `#guide` on body):
+    a 7-step tour starts in the first game on a phone, during round 1's look-over-your-cards pause; it blocks the game and
+    can be skipped. Then one-time tips at the first take-or-buy choice, the first discard after piles are down (it only
+    asks whether the card fits, never says) and the first staged group. Remembered via `store` (`tourDone`, `tipsSeen`,
+    `tipsOff`); How to play's "Show the tour" starts it over.
   - Per-player settings (card back color, low-to-high or high-to-low sorting, sound) live in `ui` too and are saved to `localStorage` via `store` (keys prefixed `shanghai.`). No accounts: they stay on that browser/device. Card back colors are `[data-back=…]` CSS blocks in `style.css`.
   - The home screen and Settings offer "Add to your home screen" on phones (hidden once opened from the icon). It matters on iPhone: Safari clears a site's storage after about a week unused, but a home screen app keeps its own (separate) storage. On Android it uses Chrome's install prompt when available.
   - All in-game messaging goes through the activity box above the deck row (`activityHTML`; it grows upward over the table, so the piles and hand never move). It shows, in priority order: a prompt you must answer, then your-turn status, then a brief `toast()` flash, then the turn status. Tapping the box (when it isn't a prompt) opens the game log. `toast()` only floats a pop-up outside a game.
@@ -100,6 +105,11 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 - Each ticket gets its own branch from the latest `main`. The owner often has another Claude session working at the same time, so fetch `main` before branching and again before merging, and merge it in if it moved.
 - When the owner says to merge, push the branch to `main` (which deploys), then set the ticket to Pending testing. It's closed once they've tried it on their phone.
 - Cloud sessions can push but can't delete branches on GitHub; old branches are cleaned up from the repo's branches page.
+- **Keep the tour and tips current.** When a change adds or changes something a new player has to understand (a new button
+  or control, a new prompt, a rule change, or something that moves or renames what a `TOUR` step or `TIPS` entry points
+  at), check `TOUR` and `TIPS` in `main.js`. Then ask the owner whether to add or update a tour step or a one-time tip,
+  and suggest the wording. Fix broken selectors and outdated text as part of the change itself. Keep the tour short (it's
+  7 steps now): new things usually belong in a tip at the moment they come up.
 
 ## Testing notes
 
