@@ -378,3 +378,18 @@ test('a Shanghai call that misses says why', () => {
   assert.equal(r.result, 'miss');
   assert.match(r.why, /^The .+ was uncovered by a buy, not just discarded\.$/);
 });
+
+test('laying down at the wrong time or with the wrong groups says what is wrong', () => {
+  const p0 = [c(4, 'S'), c(4, 'H'), c(4, 'D'), c(9, 'S'), c(9, 'H'), c(9, 'C'), c(4, 'C'), c(12, 'D'), c(3, 'H'), c(5, 'D'), c(6, 'D')];
+  const p1 = Array.from({ length: 11 }, (_, i) => c((i % 6) + 2, 'H'));
+  const g = rigged([p0, p1]);
+  const set1 = { type: 'set', ids: [p0[0].id, p0[1].id, p0[2].id] };
+  const set2 = { type: 'set', ids: [p0[3].id, p0[4].id, p0[5].id] };
+  assert.equal(applyAction(g, 1, { type: 'layDown', groups: [set1, set2] }).error, 'You can only lay down on your turn.');
+  assert.equal(applyAction(g, 0, { type: 'layDown', groups: [set1, set2] }).error, 'Draw a card first, then lay down.');
+  assert.ok(deckDraw(g, 0).ok);
+  assert.equal(applyAction(g, 0, { type: 'layDown', groups: [set1] }).error, 'This round you need exactly 2 Sets.');
+  const bad = { type: 'set', ids: [p0[3].id, p0[4].id, p0[7].id] };
+  assert.match(applyAction(g, 0, { type: 'layDown', groups: [set1, bad] }).error, /^That isn't a valid set/);
+  assert.ok(applyAction(g, 0, { type: 'layDown', groups: [set1, set2] }).ok);
+});

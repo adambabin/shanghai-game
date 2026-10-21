@@ -804,14 +804,12 @@ function stagingHTML(v, isWild) {
   const sets = ui.staged.filter((g) => g.type === 'set').length;
   const runs = ui.staged.filter((g) => g.type === 'run').length;
   if (!ui.staged.length) return '';
-  let allComplete = true;
   // with cards selected, every staged group lights up: tap one to add them (it says so if they don't fit)
   const adding = ui.selected.size > 0;
   const groups = ui.staged
     .map((g, i) => {
       const cards = g.ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
       const built = g.type === 'set' ? buildSet(cards, isWild) : buildRun(cards, isWild);
-      if (!built) allComplete = false;
       const min = g.type === 'set' ? SET_MIN : RUN_MIN;
       // complete, still short of cards, or enough cards that don't work yet (e.g. too many jokers)
       const status = built ? '✓' : cards.length < min ? `${cards.length}/${min}` : '!';
@@ -822,8 +820,9 @@ function stagingHTML(v, isWild) {
         <div class="staged-cards">${shown.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div></div>`;
     })
     .join('');
-  const ready = sets === cfg.sets && runs === cfg.runs && allComplete;
-  const canLay = ready && v.turn === me && v.phase === 'play';
+  // tappable for your whole turn, ready or not: deciding you're ready is part of the game, and the game says what's
+  // wrong if you aren't (the ✓ on each group and the counts still help)
+  const canLay = v.turn === me && (v.phase === 'draw' || v.phase === 'play');
   // only count what this round actually asks for
   const need = [cfg.sets && `${sets}/${cfg.sets} set${cfg.sets > 1 ? 's' : ''}`, cfg.runs && `${runs}/${cfg.runs} run${cfg.runs > 1 ? 's' : ''}`].filter(Boolean);
   // the button sits on the count line and the groups scroll sideways in one row, so however much you've staged,
@@ -832,7 +831,7 @@ function stagingHTML(v, isWild) {
   return `<div class="staging"><div class="staging-head"><span class="label">${adding ? '' : 'Your lay down: '}${need.join(' · ')}${
     adding ? ' · <b>Tap or Drag to a Group</b>' : ''
   }</span>
-    <button class="primary small" data-act="layDown" ${canLay ? '' : 'disabled'}>${ready ? 'Lay down!' : 'Lay down'}</button></div>
+    <button class="primary small" data-act="layDown" ${canLay ? '' : 'disabled'}>Lay down</button></div>
     <div class="staged-row hscroll">${groups}</div></div>`;
 }
 
@@ -1198,6 +1197,9 @@ function rulesModal(o) {
     `<div class="rules">
     <p>Lowest score after ${ROUNDS.length} rounds wins. Each round has a contract you must lay down before you can play on any piles.</p>
     <ul>${rounds}</ul>
+    <h3>Around the table</h3>
+    <ul><li><span class="dealer-badge inline">D</span> marks the dealer. The deal moves one seat each round, and the player after the dealer goes first.</li>
+    <li><b class="buys-left">${'$'.repeat(o.buyLimit)}</b> next to a name shows how many buys that player has left this round. They go away once the player lays down.</li></ul>
     <h3>Sets &amp; runs</h3>
     <ul><li>Set: 3 or more of the same rank.</li><li>Run: 4 or more in a row, same suit. Aces are high only (J-Q-K-A, never A-2-3-4).</li>
     <li>Jokers are wild${o.twoClubsWild ? ', and so is the 2♣' : '. The 2♣ is NOT wild'}. Every set or run needs more real cards than wild cards (a 4-card run needs 3 real cards), and a run can't have two wild cards next to each other.</li>
@@ -1211,8 +1213,7 @@ function rulesModal(o) {
     <li>If you allow it, the offer goes around the table in order, starting with the player after you. Each player gets 10 seconds to say Buy or No; the first to buy gets the card plus ${o.buyPenalty} from the deck.</li>
     <li>When a card is bought, the card underneath is live again (even if it had been Shanghai'd), and you choose again: take it, or allow buying.</li>
     <li>If nobody buys it, you can still take it, or draw from the deck.</li>
-    <li>${o.buyLimit} buys per round. Once you've laid down you can't buy.</li>
-    <li>The <b class="buys-left">$</b> signs by each name are the buys that player has left.</li></ul>
+    <li>${o.buyLimit} buys per round. Once you've laid down you can't buy.</li></ul>
     <h3>Shanghai!</h3>
     <ul><li>If anyone discards a card that could have gone on a pile, anyone else can hit <b>SHANGHAI!</b> before the next player draws. The discarder picks up ${o.shanghaiPenalty} cards and that card is dead.</li>
     <li>A card counts as playable if it fits on the end of a pile or could swap out a joker in a run (e.g. a 9 when there's 7, 8, joker, 10).</li>
