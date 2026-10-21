@@ -15,12 +15,35 @@ export function randomCode() {
   return s;
 }
 
+// Phones on mobile data usually can't connect straight to each other, so their messages go through a relay.
+// The family's Metered account (free plan) comes first; PeerJS's own free relay is a fallback.
+// These are relay-only credentials and visible to anyone who reads this file; if they're abused, make new
+// ones in the Metered dashboard and swap them in here.
+const RELAY_USER = '8c10c05befe33884f15d5bac';
+const RELAY_PASS = 'n6xq05p3tkCbvybg';
+const ICE_SERVERS = [
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  { urls: 'stun:stun.l.google.com:19302' },
+  {
+    urls: [
+      'turn:global.relay.metered.ca:80',
+      'turn:global.relay.metered.ca:80?transport=tcp',
+      'turn:global.relay.metered.ca:443',
+      'turns:global.relay.metered.ca:443?transport=tcp',
+    ],
+    username: RELAY_USER,
+    credential: RELAY_PASS,
+  },
+  { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
+];
+
 function peerOptions() {
+  const config = { iceServers: ICE_SERVERS };
   // ?peerserver=host:port lets a self-hosted PeerJS server stand in for the free public one
   const custom = new URLSearchParams(location.search).get('peerserver');
-  if (!custom) return { debug: 1 };
+  if (!custom) return { config, debug: 1 };
   const [host, port] = custom.split(':');
-  return { host, port: Number(port) || 9000, path: '/', secure: location.protocol === 'https:', debug: 1 };
+  return { host, port: Number(port) || 9000, path: '/', secure: location.protocol === 'https:', config, debug: 1 };
 }
 
 // Host side. onMessage(connId, msg), onClose(connId). Returns { send, close }.
