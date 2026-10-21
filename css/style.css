@@ -1154,34 +1154,25 @@ body.cards-lifted .new-group,
 body.cards-lifted .spots-float {
   display: flex;
 }
+/* placed by placeSpots() just above where a new group will show */
 .spots-float {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 100%;
-  margin-bottom: 8px;
-  justify-content: center;
-  gap: 10px;
-}
-.spots-float .new-group {
-  min-height: 84px;
-  background-color: var(--felt-dark);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  position: fixed;
+  z-index: 50;
+  gap: 8px;
 }
 .new-group {
-  flex: none;
-  flex-direction: column;
+  flex: 1 1 0;
   align-items: center;
   justify-content: center;
-  min-width: 92px;
-  min-height: calc(var(--sh) + 30px);
+  gap: 8px;
   box-sizing: border-box;
   border: 2px dashed var(--gold);
-  border-radius: 9px;
-  background-color: var(--panel);
+  border-radius: 10px;
+  background-color: var(--felt-dark);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
   color: var(--gold);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 14px;
 }
 .new-group .plus {
   font-size: 22px;
@@ -1189,11 +1180,11 @@ body.cards-lifted .spots-float {
 }
 .new-group small {
   font-weight: 400;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink-dim);
 }
 /* the spot under the cards fills in */
-.spots-float .new-group.drop-hover {
+.new-group.drop-hover {
   outline: none;
   border-style: solid;
   background-color: #5d6b2c;
@@ -1404,12 +1395,6 @@ body.cards-lifted .spots-float {
     justify-content: flex-end;
     border-left: 1px solid rgba(255, 255, 255, 0.08);
     background-color: rgba(0, 0, 0, 0.12);
-  }
-  /* the right column has room above the deck row */
-  .spots-float {
-    top: 8px;
-    bottom: auto;
-    margin-bottom: 0;
   }
   /* the table no longer runs under the deck row, so no shadow over it */
   .bottom.raised {

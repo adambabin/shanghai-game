@@ -775,8 +775,8 @@ function stagingHTML(v, isWild) {
 }
 
 // "New set" / "New run" spots for the groups the round still needs. They only show while cards are lifted out
-// of the hand, so tapping and the Make set / Make run buttons look the same as ever. They float just above the
-// deck row, so showing them never moves the piles or your staged groups in the middle of a drag.
+// of the hand, so tapping and the Make set / Make run buttons look the same as ever. placeSpots() floats them
+// just above the hand (or the staged groups), so showing them never moves anything in the middle of a drag.
 function newGroupSpotsHTML(v) {
   const me = v.you;
   if (me == null || v.players[me].laid || v.phase === 'roundOver' || v.phase === 'gameOver') return '';
@@ -1149,6 +1149,7 @@ function onPointerDown(e) {
     grabX: e.clientX - r.left,
     grabY: e.clientY - r.top,
     ...handGeo(hand),
+    ch: parseFloat(hand.style.getPropertyValue('--ch')) || 88,
     lift: (parseFloat(hand.style.getPropertyValue('--ch')) || 88) * 0.4,
     to: -1,
     outlines: [],
@@ -1188,8 +1189,12 @@ function onPointerMove(e) {
   d.px = e.clientX;
   d.py = e.clientY;
   if (d.kind === 'pile') return movePileDrag(d);
-  // lifted well clear of the hand, the cards come out of it and float with your finger
-  const out = d.py < d.hand.getBoundingClientRect().top - 16;
+  // lifted clear of the hand, the cards come out of it and float with your finger. It goes by where the held
+  // card is (it floats above the finger), and coming back in takes a little more than going out, so it doesn't
+  // flicker at the edge.
+  const cardsTop = d.hand.getBoundingClientRect().top + 18;
+  const heldMiddle = d.py - d.grabY - d.lift + d.ch / 2;
+  const out = heldMiddle < cardsTop - (d.out ? 0 : 40);
   if (out !== d.out) (out ? liftOutOfHand : putBackInHand)(d);
   if (out) return moveGhost(d);
   moveInHand(d);
@@ -1254,6 +1259,7 @@ function closeGap(d, cards) {
 function liftOutOfHand(d) {
   d.out = true;
   document.body.classList.add('cards-lifted');
+  placeSpots(d);
   // the dragged cards leave holes where they were, so it's clear where they'd go back to
   d.group.forEach((el) => (el.style.visibility = 'hidden'));
   closeGap(d, d.cardEls);
@@ -1266,6 +1272,19 @@ function liftOutOfHand(d) {
   );
   d.ghostX = d.grabX + d.held * fan;
   autoScroll(d);
+}
+
+// The New set / New run spots go just above where a new group will show: over the "Your lay down" line when
+// groups are staged, else in the space between the deck row and your hand. Either way they cover nothing you'd
+// drop onto, and they sit on top of the page, so nothing moves.
+function placeSpots(d) {
+  const spots = $app.querySelector('.spots-float');
+  const dock = d.hand.closest('.dock');
+  if (!spots || !dock) return;
+  const row = $app.querySelector('.staged-row');
+  const bottom = row ? row.getBoundingClientRect().top + 2 : d.hand.getBoundingClientRect().top + 10;
+  const box = dock.getBoundingClientRect();
+  Object.assign(spots.style, { left: `${box.left + 12}px`, width: `${box.width - 24}px`, top: `${bottom - 52}px`, height: '52px' });
 }
 
 function putBackInHand(d) {
