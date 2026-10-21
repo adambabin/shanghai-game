@@ -43,7 +43,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - Purely local UI state lives in the `ui` object and never reaches the engine: hand order and sort mode, selection, staged lay-down groups, the armed Shanghai declaration, dock collapse.
   - Games other people host that you've joined are remembered in `store` (`joinedGames`: room code, host, other names, round as last seen) and listed in "Your games" too. One drops off when you see it finish, are removed from it, or tap ✕.
   - `fitHomeGames()` (after every render and on resize) hides games from the end of the home list until the room code, How to play and Settings (`.home-links`) fit on screen, keeping at least your latest game, and then shows "View all your games". That opens the full list (`ui.allGames`, `allGamesHTML()`) with a Back button.
-  - Settings → **Send feedback** (`feedbackModal`) posts a message, up to 3 photos (shrunk on the phone to 1600px
+  - **Send feedback** (in the in-game ☰ menu below Settings, and "Feedback" beside How to play / Settings on the home screen; `feedbackModal`) posts a message, up to 3 photos (shrunk on the phone to 1600px
     JPEGs), the player's name and phone type to `FEEDBACK_URL`: a Google Apps Script relay (`relay/`, not published
     with the site; setup in `relay/README.md`) that files a ticket in the Notion backlog's User feedback column and
     emails the owner. The form lives in `#feedback-sheet` outside `#app` (`syncFeedbackSheet()`), so redraws can't

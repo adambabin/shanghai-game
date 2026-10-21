@@ -499,7 +499,7 @@ function homeHTML() {
     ${yourGamesHTML()}
     <div class="divider">— or join someone else's game —</div>
     <div class="row"><input data-field="joinCode" placeholder="ROOM CODE" maxlength="5" style="text-transform:uppercase;letter-spacing:3px" value="${esc(ui.joinCode)}"><button data-act="join" style="flex:none">Join</button></div>
-    <div class="row home-links"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="modal" data-m="settings">Settings</button></div>
+    <div class="row home-links"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="modal" data-m="settings">Settings</button><button class="ghost small" data-act="modal" data-m="feedback">Feedback</button></div>
     ${canAddToHome() ? '<button class="ghost small" data-act="addToHome">Add Shanghai to your home screen</button>' : ''}
   </div></div>${ui.modal === 'rules' ? rulesModal(DEFAULT_OPTIONS) : ui.modal === 'settings' ? settingsModal() : ui.modal === 'install' ? installModal() : ''}`;
 }
@@ -952,10 +952,12 @@ function modalHTML(snap) {
 }
 
 // the title and the Close button stay put; only the middle scrolls
-function wrapModal(title, body, actions = '') {
+// closeFirst puts Close on the left, for forms whose main button (Send) belongs on the right
+function wrapModal(title, body, actions = '', { closeFirst = false } = {}) {
+  const close = '<button class="ghost" data-act="closeModal">Close</button>';
   return `<div class="overlay" data-act="closeModal"><div class="modal framed" data-stop>
     <h2>${title}</h2><div class="modal-body">${body}</div>
-    <div class="actions">${actions}<button class="ghost" data-act="closeModal">Close</button></div></div></div>`;
+    <div class="actions">${closeFirst ? close + actions : actions + close}</div></div></div>`;
 }
 
 function totalsOf(v) {
@@ -1012,6 +1014,7 @@ function menuModal(snap) {
     '<button class="ghost" data-act="modal" data-m="log">Game log</button>',
     '<button class="ghost" data-act="modal" data-m="rules">Rules</button>',
     '<button class="ghost" data-act="modal" data-m="settings">Settings</button>',
+    '<button class="ghost" data-act="modal" data-m="feedback">Send feedback</button>',
   ];
   if (snap.isHost) {
     if (snap.lobby.code) items.push(`<button class="ghost" data-act="share">Share invite link (${snap.lobby.code})</button>`);
@@ -1042,8 +1045,6 @@ function settingsModal() {
       <h3>Sound</h3><div class="seg">${choice('setSound', 1, ui.sound, 'On')}${choice('setSound', 0, !ui.sound, 'Off')}</div>
       <p class="muted">Saved on this device.${canAddToHome() ? ' Phones can clear them if you don\'t play for a while, unless you add the game to your home screen.' : ''}</p>
       ${canAddToHome() ? '<button class="ghost small" data-act="addToHome">Add to your home screen</button>' : ''}
-      <h3>Feedback</h3>
-      <button class="ghost" data-act="modal" data-m="feedback">Send feedback</button>
     </div>`
   );
 }
@@ -1081,6 +1082,7 @@ function feedbackModal() {
       <div class="fb-status"></div>
     </div>`,
     '<button class="primary" data-act="sendFeedback">Send</button>',
+    { closeFirst: true }
   );
 }
 
