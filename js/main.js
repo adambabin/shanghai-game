@@ -164,6 +164,7 @@ function cardHTML(c, { sm = false, cls = '', attrs = '', isWild } = {}) {
 // ---------- session ----------
 function startSession(session) {
   if (ui.session) ui.session.close();
+  ui.allGames = false;
   ui.session = session;
   ui.snap = null;
   ui.lastSeq = null;
@@ -342,13 +343,14 @@ function render() {
   const modalTop = oldModalBody && ui.renderedModal === ui.modal ? oldModalBody.scrollTop : null;
   ui.renderedModal = ui.modal;
   const snap = ui.snap;
-  if (!ui.session || !snap) $app.innerHTML = homeHTML();
+  if (!ui.session || !snap) $app.innerHTML = ui.allGames ? allGamesHTML() : homeHTML();
   else if (snap.status === 'kicked') $app.innerHTML = messageHTML('The host removed you from the game.');
   else if (!snap.lobby) $app.innerHTML = connectingHTML(snap);
   else if (!snap.lobby.started || !snap.view) $app.innerHTML = lobbyHTML(snap);
   else $app.innerHTML = gameHTML(snap);
   layoutHand();
   markTableOverflow();
+  fitHomeGames();
   const players = $app.querySelector('.players');
   if (players) {
     if (playersLeft != null) players.scrollLeft = playersLeft;
@@ -405,7 +407,7 @@ function roundText(round) {
 }
 
 // every game you can go back to: the ones saved on this device (yours) and the ones you joined, newest first
-function yourGamesHTML() {
+function yourGameRows() {
   const hosted = HostSession.savedGames().map((s) => ({
     at: s.savedAt || 0,
     html: `<button class="ghost game-pick" data-act="resume" data-id="${esc(s.id)}">
@@ -420,9 +422,45 @@ function yourGamesHTML() {
       <span>${roundText(g.round)} · ${namesText(g.others)}</span></button>
       <button class="ghost small game-forget" data-act="forgetJoined" data-code="${esc(g.code)}" aria-label="Remove">✕</button>`,
   }));
-  const all = [...hosted, ...joined].sort((a, b) => b.at - a.at);
-  if (!all.length) return '';
-  return `<div class="divider">— your games —</div><div class="your-games">${all.map((g) => `<div class="game-row">${g.html}</div>`).join('')}</div>`;
+  return [...hosted, ...joined].sort((a, b) => b.at - a.at).map((g) => `<div class="game-row">${g.html}</div>`);
+}
+
+// On the home screen the list may be cut short (see fitHomeGames) so joining by code stays on screen
+function yourGamesHTML() {
+  const rows = yourGameRows();
+  if (!rows.length) return '';
+  return `<div class="divider">— your games —</div><div class="your-games">${rows.join('')}</div>
+    <button class="ghost small view-all" data-act="viewAllGames" hidden>View all your games (${rows.length})</button>`;
+}
+
+function allGamesHTML() {
+  const rows = yourGameRows();
+  // removed the last one: nothing left to list
+  if (!rows.length) {
+    ui.allGames = false;
+    return homeHTML();
+  }
+  return `<div class="center-screen"><div class="panel">
+    <div class="panel-head"><button class="ghost small" data-act="homeBack">‹ Back</button><b>Your games</b></div>
+    <div class="your-games">${rows.join('')}</div>
+  </div></div>`;
+}
+
+// Hide games from the end of the home list until the room code, How to play and Settings fit on screen.
+// Your latest game always stays.
+function fitHomeGames() {
+  const list = $app.querySelector('.your-games');
+  const viewAll = $app.querySelector('.view-all');
+  const links = $app.querySelector('.home-links');
+  if (!list || !viewAll || !links) return;
+  const rows = [...list.children];
+  rows.forEach((r) => (r.hidden = false));
+  viewAll.hidden = true;
+  const fits = () => links.getBoundingClientRect().bottom <= document.documentElement.clientHeight - 16;
+  if (fits()) return;
+  viewAll.hidden = false;
+  for (let n = rows.length - 1; n >= 1 && !fits(); n--) rows[n].hidden = true;
+  if (rows.every((r) => !r.hidden)) viewAll.hidden = true;
 }
 
 function homeHTML() {
@@ -437,7 +475,7 @@ function homeHTML() {
     ${yourGamesHTML()}
     <div class="divider">— or join someone else's game —</div>
     <div class="row"><input data-field="joinCode" placeholder="ROOM CODE" maxlength="5" style="text-transform:uppercase;letter-spacing:3px" value="${esc(ui.joinCode)}"><button data-act="join" style="flex:none">Join</button></div>
-    <div class="row"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="modal" data-m="settings">Settings</button></div>
+    <div class="row home-links"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="modal" data-m="settings">Settings</button></div>
     ${canAddToHome() ? '<button class="ghost small" data-act="addToHome">Add Shanghai to your home screen</button>' : ''}
   </div></div>${ui.modal === 'rules' ? rulesModal(DEFAULT_OPTIONS) : ui.modal === 'settings' ? settingsModal() : ui.modal === 'install' ? installModal() : ''}`;
 }
@@ -1590,6 +1628,13 @@ function onClick(e) {
       startSession(new HostSession({ name: ui.name, clientId, solo: saved.solo, restore: saved }));
       return;
     }
+    case 'viewAllGames':
+      ui.allGames = true;
+      window.scrollTo(0, 0);
+      return render();
+    case 'homeBack':
+      ui.allGames = false;
+      return render();
     case 'rejoin':
       ui.joinCode = t.dataset.code;
       return startJoin();
@@ -1771,6 +1816,7 @@ window.addEventListener('pointercancel', (e) => {
 window.addEventListener('resize', () => {
   layoutHand();
   markTableOverflow();
+  fitHomeGames();
 });
 // Keep the page at 100%: Safari ignores user-scalable=no, so block pinch gestures directly
 for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault(), { passive: false });

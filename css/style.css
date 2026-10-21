@@ -221,6 +221,19 @@ h3 {
   flex: none;
   width: 44px;
 }
+.game-row[hidden] {
+  display: none;
+}
+/* the All games screen: Back on the left, title beside it */
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 20px;
+}
+.panel-head button {
+  flex: none;
+}
 label.field {
   display: flex;
   flex-direction: column;
