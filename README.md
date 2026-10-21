@@ -11,7 +11,7 @@ No accounts, no server to run. The host's browser runs the game and everyone els
 3. **Host a game** gives you a 5-letter room code and a **Share invite link** button. Send the link to everyone. When they open it and type their name, they're in your lobby.
 4. In the lobby the host can add computer players to fill seats, adjust the house rules, and start the game (2–8 players).
 
-The host has to keep their page open for the whole game. If the host refreshes or their browser restarts, **Resume your last game** on the start page reopens the same room, and everyone reconnects automatically. If a player drops off, they can reopen the invite link (even on another device, using the same name) to get their seat back. Meanwhile the host can open the ☰ menu and let the computer play for them.
+The host has to keep their page open for the whole game. If the host refreshes, their browser restarts, or they leave to play something else, tapping the game under **Your games** on the start page reopens the same room, and everyone reconnects automatically. Games against the computer and games you've joined are listed there too. If a player drops off, they can reopen the invite link (even on another device, using the same name) to get their seat back. Meanwhile the host can open the ☰ menu and let the computer play for them.
 
 ## House rules
 

@@ -13,6 +13,8 @@ A browser Shanghai rummy game with one family's house rules. It's a static site 
 - Serve locally: `npm start` (or `python3 -m http.server 8080`) and open http://localhost:8080.
 - `?debug` on the URL exposes the UI state as `window.__shanghai`. `window.__shanghai.session.game` is the host's live engine state. Browser tests rig scenarios by mutating it and calling `session.changed()`.
 - `?peerserver=host:port` uses a self-hosted PeerJS server instead of the public one. Invite links carry it along. This is how multiplayer is tested locally: run a `peer` server and open several browser contexts.
+  - In Claude Code cloud containers there's no IPv6, so bind the server to IPv4 (`peerjs --host 127.0.0.1 --port 9000`) and use `?peerserver=127.0.0.1:9000`, not `localhost`.
+  - The containers can't reach the Metered or PeerJS relays, so playing across networks can only be tested on real devices (e.g. one phone on mobile data with Wi-Fi off).
 
 There is no linter or formatter configured. Match the existing style: 2-space indent, single quotes, semicolons, ~140-char lines.
 
@@ -28,7 +30,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
   - It persists each game to `localStorage` under its own key (`shanghai.hostGame.<gameId>`), so several games (vs the computer or hosted) can be resumed from "Your games" on the home screen. Only one runs at a time: leaving a hosted game pauses it for everyone until the host resumes it, and the room code stays the same. `savedGames()` moves the single save older versions used into the list. When restoring, it fills defaults for fields older saves lack, so add new state fields there too.
   - It broadcasts a per-seat `snapshot()` to every connection after each change.
   - `ClientSession` has the same `subscribe`/`send` interface but forwards actions to the host. Host-only actions (`start`, `nextRound`, `endRound`, `startNow`, `toggleBot`, …) are handled in `HostSession.act`, not the engine.
-- `js/net.js` wraps PeerJS. The room code maps to a fixed peer id prefix. `ICE_SERVERS` lists the relays (a Metered free-plan account first, PeerJS's free relay as fallback); phones on mobile data need one to reach the host. A joining player who can't get through within 15 seconds sees a "Can't reach the host" message (status `slow`) while it keeps retrying. Both sides ping (3s) and drop stale links (10s), and clients auto-reconnect. Rejoining with the same `clientId`, or the same name on a disconnected seat, reclaims that seat.
+- `js/net.js` wraps PeerJS. The room code maps to a fixed peer id prefix. `ICE_SERVERS` lists the relays (a Metered free-plan account first, PeerJS's free relay as fallback); phones on mobile data need one to reach the host. The Metered username and password are `RELAY_USER` / `RELAY_PASS` at the top of `net.js`. They're relay-only and public by necessity (every browser needs them); if they're abused, make new ones in the Metered dashboard and swap them in. A joining player who can't get through within 15 seconds sees a "Can't reach the host" message (status `slow`) while it keeps retrying. Both sides ping (3s) and drop stale links (10s), and clients auto-reconnect. Rejoining with the same `clientId`, or the same name on a disconnected seat, reclaims that seat.
 - `js/bot.js` contains the computer players. They decide from the same `viewFor` view a human gets. `HostSession.scheduleBots` drives them with timers:
   - The turn timer resets on every change.
   - Reaction timers (Shanghai calls, buy answers) re-check validity when they fire.
@@ -75,6 +77,13 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 - **Wild cards:** only jokers are wild; the 2♣ is optional. Every set and run needs more real cards than wilds, and a run can't have two wilds side by side. These are checked on lay down and on every add.
 - **Aces:** high only (no A-2-3-4).
 - **Rounds 8, 9 and 11** can be nearly impossible under these rules. The sim test tolerates stalls via the host's `endRound`.
+
+## How work gets done
+
+- The backlog is the "Shanghai Game Backlog" database in Notion (Status: Backlog → In progress → Pending testing → Closed). A ticket that says "ask questions" or "show options" means ask (or mock up options) before building.
+- Each ticket gets its own branch from the latest `main`. The owner often has another Claude session working at the same time, so fetch `main` before branching and again before merging, and merge it in if it moved.
+- When the owner says to merge, push the branch to `main` (which deploys), then set the ticket to Pending testing. It's closed once they've tried it on their phone.
+- Cloud sessions can push but can't delete branches on GitHub; old branches are cleaned up from the repo's branches page.
 
 ## Testing notes
 
