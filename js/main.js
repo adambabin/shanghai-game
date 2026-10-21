@@ -60,6 +60,8 @@ const ui = {
   sortDesc: store.get('sortDesc', false),
   drag: null,
   pendingRender: false,
+  tour: null, // the step of the first-game tour being shown
+  tip: null, // the one-time tip being shown (a key of TIPS)
   fbPhotos: [], // feedback photos, shrunk to JPEG data URLs
   swallowClick: false, // set when a drag ends, so the click the browser sends after it isn't taken as a tap
   drawTo: null, // where in the hand a card being drawn by dragging should go
@@ -395,8 +397,8 @@ function render() {
   const modalBody = $app.querySelector('.modal-body');
   if (modalBody && modalTop != null) modalBody.scrollTop = modalTop;
   const table = $app.querySelector('.table');
-  if (!table) return;
-  if (tableTop != null) table.scrollTop = tableTop;
+  if (table && tableTop != null) table.scrollTop = tableTop;
+  placeGuide();
 }
 
 // The row of player tiles scrolls sideways when it doesn't fit; bring whoever's turn it is into view.
@@ -1195,6 +1197,7 @@ function rulesModal(o) {
   return wrapModal(
     'How to play',
     `<div class="rules">
+    <button class="ghost small" data-act="replayTour">Show the tour</button>
     <p>Lowest score after ${ROUNDS.length} rounds wins. Each round has a contract you must lay down before you can play on any piles.</p>
     <ul>${rounds}</ul>
     <h3>Around the table</h3>
@@ -1888,6 +1891,168 @@ function flyDiscard() {
   };
 }
 
+// ---------- tour & tips ----------
+// A short tour for someone's first game on this phone (during round 1's "look over your cards" pause, so nothing is
+// happening yet), then a few one-time tips the first time certain moments come up. The tour blocks the game and can
+// be skipped at any step; tips never block anything. Both live in #guide on body, and placeGuide() re-points them
+// after every render because the things they point at move. Done/seen is remembered on this phone via store.
+const TOUR = [
+  {
+    at: ['.table-empty', '.topbar .contract'],
+    html: (v) => `<b>Each round has a goal.</b> This round it's <b>${contractText(v.round)}</b>. A set is 3 or more of the same card,
+      like three 7s. A run is 4 or more in a row in one suit, like 5♥ 6♥ 7♥ 8♥.`,
+  },
+  { at: ['#hand'], html: () => '<b>These are your cards.</b> Tap cards to pick them. Drag them into any order you like, or tap Sort.' },
+  {
+    at: ['.center .pile'],
+    html: () => `<b>Each turn starts with a draw:</b> one card from the deck, or the top card of the discard pile. If you pass on the
+      discard, the others can buy it.`,
+  },
+  {
+    at: ['.topbar .contract'],
+    html: () => `<b>Lay down your goal.</b> When you have the cards, pick them and tap New set or New run, then Lay down. After that
+      you can add cards to any pile on the table.`,
+  },
+  {
+    at: ['.discard-pile'],
+    html: () => `<b>End each turn with a discard.</b> Pick one card and tap the discard pile, or drag it there. The first to play
+      all their cards wins the round, and the lowest score after ${ROUNDS.length} rounds wins the game.`,
+  },
+  {
+    at: ['.shanghai-btn'],
+    html: (v) => `<b>SHANGHAI!</b> If someone throws away a card that fits a pile on the table, tap this before the next player
+      draws. They pick up ${v.options.shanghaiPenalty} extra cards.`,
+  },
+  {
+    at: ['.players'],
+    html: () => `<b>Everyone at the table.</b> The gold outline shows whose turn it is, <span class="dealer-badge inline">D</span>
+      marks the dealer and <b class="buys-left">$</b> shows buys left. That's it. Have fun!`,
+  },
+];
+
+// One-time tips: when each applies, and what it points at. The Shanghai one only asks the question, so it never
+// gives away whether the card really fits.
+const TIPS = {
+  takeOrBuy: {
+    when: (v) => v.turn === v.you && v.mustDecide,
+    at: ['.activity'],
+    html: (v) => `<b>Take it</b> puts the ${esc(cardLabel(v.discardTop))} in your hand. <b>Allow buy</b> lets the others buy it
+      first (it costs them ${v.options.buyPenalty} extra cards), then you draw from the deck.`,
+  },
+  shanghai: {
+    when: (v) => v.phase === 'draw' && v.melds.length > 0 && lastLog(v, (e) => DISCARD_KINDS.includes(e.kind))?.seat !== v.you,
+    at: ['.shanghai-btn'],
+    html: () => 'Does that card fit on a pile on the table? If it does, tap <b>SHANGHAI!</b> before the next player draws.',
+  },
+  layDown: {
+    when: (v) => ui.staged.length > 0 && !v.players[v.you].laid,
+    at: ['.staging'],
+    html: () => "Keep making groups until you have this round's goal, then tap <b>Lay down</b>. If something's not right, it'll say.",
+  },
+};
+
+function guideTarget(selectors) {
+  for (const sel of selectors) {
+    const els = [...$app.querySelectorAll(sel)].filter((e) => e.offsetParent);
+    if (els.length) return els;
+  }
+  return null;
+}
+
+// Decide what (if anything) to show, build it when that changes, and point it at its target.
+function placeGuide() {
+  const v = ui.snap && ui.snap.view;
+  const inGame = !!(v && v.you != null && ui.session);
+  if (inGame && ui.tour == null && !store.get('tourDone', false) && v.phase === 'ready' && !ui.modal) {
+    ui.tour = 0;
+    ui.dockCollapsed = false;
+  }
+  if (!inGame) ui.tour = null;
+  // a tip stays up while its moment lasts, unless dismissed
+  if (ui.tip && (!inGame || ui.modal || !TIPS[ui.tip].when(v))) ui.tip = null;
+  if (inGame && ui.tour == null && !ui.tip && !ui.modal && !store.get('tipsOff', false)) {
+    const seen = store.get('tipsSeen', []);
+    const key = Object.keys(TIPS).find((k) => !seen.includes(k) && TIPS[k].when(v));
+    if (key) {
+      ui.tip = key;
+      store.set('tipsSeen', [...seen, key]);
+    }
+  }
+  const showing = ui.tour != null ? `tour:${ui.tour}` : ui.tip ? `tip:${ui.tip}` : null;
+  let layer = document.getElementById('guide');
+  if (!showing) {
+    if (layer) layer.remove();
+    return;
+  }
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'guide';
+    layer.addEventListener('click', onGuideClick);
+    document.body.appendChild(layer);
+  }
+  const tour = ui.tour != null;
+  const item = tour ? TOUR[ui.tour] : TIPS[ui.tip];
+  if (layer.dataset.showing !== showing) {
+    layer.dataset.showing = showing;
+    layer.className = tour ? 'tour' : 'tip';
+    const last = tour && ui.tour === TOUR.length - 1;
+    const foot = tour
+      ? `<button class="guide-skip" data-guide="skip">Skip tour</button><span class="guide-steps">${ui.tour + 1} of ${TOUR.length}</span>
+        <button class="primary" data-guide="next">${last ? 'Play!' : 'Next'}</button>`
+      : '<button class="guide-skip" data-guide="tipsOff">Turn off tips</button><button class="primary" data-guide="gotIt">Got it</button>';
+    layer.innerHTML = `${tour ? '<div class="guide-block"></div>' : ''}<div class="guide-spot"></div>
+      <div class="guide-bubble"><p>${item.html(v)}</p><div class="guide-foot">${foot}</div></div>`;
+  }
+  const spot = layer.querySelector('.guide-spot');
+  const bubble = layer.querySelector('.guide-bubble');
+  const els = guideTarget(item.at);
+  if (!els) {
+    // nothing to point at (e.g. scrolled away): just the note, in the middle
+    spot.hidden = true;
+    spot.removeAttribute('style');
+    bubble.className = 'guide-bubble';
+    bubble.style.top = `${Math.max(16, (innerHeight - bubble.offsetHeight) / 2)}px`;
+    return;
+  }
+  const pad = 6;
+  // the area it covers, kept on screen (the player row can be wider than the screen)
+  const r = els
+    .map((e) => e.getBoundingClientRect())
+    .reduce((a, b) => ({ left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) }), {
+      left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity,
+    });
+  r.left = Math.max(r.left, pad + 4);
+  r.right = Math.min(r.right, document.documentElement.clientWidth - pad - 4);
+  spot.hidden = false;
+  Object.assign(spot.style, {
+    left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.right - r.left + 2 * pad}px`, height: `${r.bottom - r.top + 2 * pad}px`,
+  });
+  const h = bubble.offsetHeight;
+  const fitsAbove = r.top - pad - 14 - h >= 8;
+  const fitsBelow = r.bottom + pad + 14 + h <= innerHeight - 8;
+  // the tour reads top to bottom; a tip goes above when it can, so it doesn't cover the cards it's about
+  const below = tour ? fitsBelow || !fitsAbove : !fitsAbove;
+  bubble.className = `guide-bubble ${below ? 'below' : 'above'}`;
+  bubble.style.top = `${below ? Math.min(r.bottom + pad + 14, innerHeight - h - 8) : r.top - pad - 14 - h}px`;
+  const b = bubble.getBoundingClientRect();
+  bubble.style.setProperty('--arrow-x', `${Math.max(24, Math.min(b.width - 24, (r.left + r.right) / 2 - b.left))}px`);
+}
+
+function onGuideClick(e) {
+  const act = e.target.closest('[data-guide]')?.dataset.guide;
+  if (act === 'next') ui.tour = ui.tour + 1 < TOUR.length ? ui.tour + 1 : null;
+  if (act === 'skip' || (act === 'next' && ui.tour == null)) {
+    ui.tour = null;
+    store.set('tourDone', true);
+  }
+  if (act === 'gotIt') ui.tip = null;
+  if (act === 'tipsOff') {
+    ui.tip = null;
+    store.set('tipsOff', true);
+  }
+  if (act) render();
+}
+
 // ---------- events ----------
 function startHost(solo) {
   ui.name = ui.name.trim();
@@ -2015,6 +2180,17 @@ function onClick(e) {
       return share();
     case 'rules':
       ui.modal = 'rules';
+      return render();
+    case 'replayTour':
+      // starts the tour (and the tips) over: now if you're in a game, else in your next one
+      store.set('tourDone', false);
+      store.set('tipsSeen', []);
+      store.set('tipsOff', false);
+      ui.modal = null;
+      if (v && v.you != null) {
+        ui.tour = 0;
+        ui.dockCollapsed = false;
+      } else toast('The tour will start in your next game.');
       return render();
     case 'modal':
       ui.modal = t.dataset.m;
@@ -2183,6 +2359,7 @@ window.addEventListener('resize', () => {
   markTableOverflow();
   fitHomeGames();
   placeTapSpots();
+  placeGuide();
 });
 // Keep the page at 100%: Safari ignores user-scalable=no, so block pinch gestures directly
 for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault(), { passive: false });

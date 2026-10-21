@@ -877,6 +877,91 @@ label.field {
 }
 
 /* ---------- overlays ---------- */
+/* ---------- first-game tour and one-time tips (#guide, built by placeGuide) ---------- */
+#guide .guide-block {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+#guide .guide-spot {
+  position: fixed;
+  z-index: 61;
+  border-radius: 12px;
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+  pointer-events: none;
+}
+/* the tour dims everything but what it's pointing at */
+#guide.tour .guide-spot {
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62);
+}
+#guide.tour .guide-spot[hidden] {
+  display: block;
+  inset: 0;
+  outline: none;
+}
+#guide .guide-bubble {
+  position: fixed;
+  z-index: 62;
+  left: 16px;
+  right: 16px;
+  max-width: 460px;
+  margin: 0 auto;
+  background: var(--card);
+  color: #1b1b1b;
+  border-radius: 14px;
+  padding: 14px 16px 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+#guide .guide-bubble p {
+  margin: 0;
+  line-height: 1.4;
+}
+#guide .guide-bubble b {
+  color: var(--felt-dark);
+}
+#guide .guide-bubble .dealer-badge.inline {
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  vertical-align: -2px;
+}
+#guide .guide-bubble::after {
+  content: '';
+  position: absolute;
+  left: var(--arrow-x, 50%);
+  width: 16px;
+  height: 16px;
+  background: var(--card);
+  transform: translateX(-50%) rotate(45deg);
+}
+#guide .guide-bubble.below::after {
+  top: -8px;
+}
+#guide .guide-bubble.above::after {
+  bottom: -8px;
+}
+#guide .guide-bubble:not(.below):not(.above)::after {
+  display: none;
+}
+#guide .guide-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+#guide .guide-skip {
+  background: none;
+  color: #6b6b6b;
+  padding: 6px 0;
+  font-weight: 400;
+  text-decoration: underline;
+}
+#guide .guide-steps {
+  color: #6b6b6b;
+  font-size: 14px;
+}
 .overlay {
   position: fixed;
   inset: 0;

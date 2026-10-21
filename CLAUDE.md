@@ -49,6 +49,11 @@ There is no linter or formatter configured. Match the existing style: 2-space in
     uploaded to Notion and shown on the ticket, Drive only as a fallback) and emails the owner. A Shanghai call that
     misses records `why` on its log entry (`notShanghaiReason`), and the caller sees it, above any prompt. The form
     lives in `#feedback-sheet` outside `#app` (`syncFeedbackSheet()`), so redraws can't steal the text box mid-sentence. The POST has no Content-Type header so it skips the CORS preflight.
+  - **First-game tour and tips** (`TOUR`, `TIPS`, `placeGuide()` at the end of every render, drawn in `#guide` on body):
+    a 7-step tour starts in the first game on a phone, during round 1's look-over-your-cards pause; it blocks the game and
+    can be skipped. Then one-time tips at the first take-or-buy choice, the first discard after piles are down (it only
+    asks whether the card fits, never says) and the first staged group. Remembered via `store` (`tourDone`, `tipsSeen`,
+    `tipsOff`); How to play's "Show the tour" starts it over.
   - Per-player settings (card back color, low-to-high or high-to-low sorting, sound) live in `ui` too and are saved to `localStorage` via `store` (keys prefixed `shanghai.`). No accounts: they stay on that browser/device. Card back colors are `[data-back=…]` CSS blocks in `style.css`.
   - The home screen and Settings offer "Add to your home screen" on phones (hidden once opened from the icon). It matters on iPhone: Safari clears a site's storage after about a week unused, but a home screen app keeps its own (separate) storage. On Android it uses Chrome's install prompt when available.
   - All in-game messaging goes through the activity box above the deck row (`activityHTML`; it grows upward over the table, so the piles and hand never move). It shows, in priority order: a prompt you must answer, then your-turn status, then a brief `toast()` flash, then the turn status. Tapping the box (when it isn't a prompt) opens the game log. `toast()` only floats a pop-up outside a game.
