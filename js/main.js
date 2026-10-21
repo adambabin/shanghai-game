@@ -48,6 +48,8 @@ const ui = {
   sortDesc: store.get('sortDesc', false),
   drag: null,
   pendingRender: false,
+  swallowClick: false, // set when a drag ends, so the click the browser sends after it isn't taken as a tap
+  drawTo: null, // where in the hand a card being drawn by dragging should go
 };
 
 // card back colors you can pick in Settings (the CSS for each lives in style.css)
@@ -287,6 +289,15 @@ function syncHand(v) {
   const known = new Set(ui.order);
   const added = ids.filter((id) => !known.has(id));
   ui.order = ui.order.filter((id) => idSet.has(id)).concat(added);
+  // a card dragged in from the deck or discard pile goes where it was dropped
+  if (added.length === 1 && ui.drawTo && Date.now() < ui.drawTo.until) {
+    const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
+    const order = ui.order.filter((id) => id !== added[0]);
+    const before = order.filter((id) => !stagedIds.has(id))[ui.drawTo.index];
+    order.splice(before == null ? order.length : order.indexOf(before), 0, added[0]);
+    ui.order = order;
+  }
+  if (added.length) ui.drawTo = null;
   // keep the hand in the chosen order as cards come and go (unless you've arranged it by hand)
   if (ui.sortMode !== 'manual') ui.order = sortIds(v.hand, ui.sortMode);
   if (added.length) {
@@ -550,8 +561,9 @@ function canPlayOn(v) {
 
 function tableHTML(v, isWild) {
   if (!v.melds.length) return `<div class="table-empty">No one has laid down yet.<br>This round: <b>${contractText(v.round)}</b></div>`;
-  const sel = selectedCards(v);
   const playable = canPlayOn(v);
+  // piles take dragged cards whenever you could play on them, selected or not
+  const droppable = v.you != null && v.turn === v.you && v.phase === 'play' && v.players[v.you].laid;
   const rows = [];
   v.players.forEach((p, i) => {
     // sets before runs, so everyone's piles line up the same way
@@ -562,7 +574,9 @@ function tableHTML(v, isWild) {
         // every pile lights up: picking the right one is part of the game
         const ok = playable;
         const fresh = ui.justPlayed && Date.now() < ui.justPlayed.until && ui.justPlayed.ids.has(m.id);
-        return `<div class="meld ${ok ? 'target' : ''} ${fresh ? 'just-played' : ''}" ${ok ? `data-act="playOn" data-meld="${m.id}"` : ''} title="${m.type}">
+        return `<div class="meld ${ok ? 'target' : ''} ${fresh ? 'just-played' : ''}" ${ok ? 'data-act="playOn"' : ''} ${
+          droppable ? `data-drop="meld" data-meld="${m.id}"` : ''
+        } title="${m.type}">
           ${m.cards.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>`;
       })
       .join('');
@@ -598,7 +612,8 @@ function centerHTML(v, isWild) {
   const top = v.discardTop;
   const discardClickable = canDraw && top && !v.topDead;
   const deckClickable = canDraw && !v.mustDecide;
-  const deck = `<div class="pile ${deckClickable ? 'clickable' : ''}"><div class="stack" ${deckClickable ? 'data-act="drawDeck"' : ''}>${
+  // anything you can tap to draw, you can also drag down into your hand
+  const deck = `<div class="pile ${deckClickable ? 'clickable' : ''}"><div class="stack" ${deckClickable ? 'data-act="drawDeck" data-drag="deck"' : ''}>${
     v.deckCount ? '<div class="card-back"></div>' : '<div class="empty-pile"></div>'
   }</div><span>Deck</span></div>`;
   // with one card selected on your turn, the discard pile is where you tap to discard it
@@ -608,7 +623,7 @@ function centerHTML(v, isWild) {
   const pileLabel = canDiscard ? 'Tap to discard' : v.topDead ? 'Dead card' : 'Discard';
   const discard = `<div class="pile ${pileAct ? 'clickable' : ''} ${canDiscard ? 'discard-target' : ''} ${canDiscard && ui.armed ? 'armed' : ''}"><div class="stack" ${
     pileAct ? `data-act="${pileAct}"` : ''
-  }>${top ? cardHTML(top, { isWild }) : '<div class="empty-pile"></div>'}${
+  } ${discardClickable ? 'data-drag="discard"' : ''} ${myTurn && v.phase === 'play' ? 'data-drop="discard"' : ''}>${top ? cardHTML(top, { isWild }) : '<div class="empty-pile"></div>'}${
     v.topDead ? '<div class="dead-stamp"><span>DEAD</span></div>' : ''
   }</div><span>${pileLabel}</span></div>`;
 
@@ -703,7 +718,7 @@ function stagingHTML(v, isWild) {
       // complete, still short of cards, or enough cards that don't work yet (e.g. too many jokers)
       const status = built ? '✓' : cards.length < min ? `${cards.length}/${min}` : '!';
       const shown = built ? built.cards : cards;
-      return `<div class="staged ${built ? 'done' : ''} ${adding ? 'target' : ''}" data-act="addToStaged" data-i="${i}" title="Select cards and tap to add them">
+      return `<div class="staged ${built ? 'done' : ''} ${adding ? 'target' : ''}" data-act="addToStaged" data-drop="staged" data-i="${i}" title="Select cards and tap to add them">
         <div class="staged-head"><span class="kind">${g.type.toUpperCase()} ${status}</span>
         <button class="unstage" data-act="unstage" data-i="${i}" title="Put these cards back">✕</button></div>
         <div class="staged-cards">${shown.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div></div>`;
@@ -1035,16 +1050,38 @@ function placeInSlot(el, slot, i) {
   el.style.zIndex = i * 2 + 2;
 }
 
+// Dragging works alongside tapping: a press that moves less than 8px is still a tap. Cards dragged within your
+// hand rearrange it. Lifted up out of the hand they float with your finger and can be dropped on the discard
+// pile, a staged group or a pile on the table. The deck and the discard can be dragged down into your hand to
+// draw. Drop targets reach DROP_BUFFER past their edges so a drop doesn't have to be exact.
+const DROP_BUFFER = 24;
+
+function handGeo(hand) {
+  return {
+    step: parseFloat(hand.dataset.step) || 1,
+    perRow: Number(hand.dataset.perRow) || 1,
+    rowGap: parseFloat(hand.dataset.rowGap) || 1,
+    rows: Number(hand.dataset.rows) || 1,
+    cw: parseFloat(hand.dataset.cw) || 62,
+  };
+}
+
 function onPointerDown(e) {
-  const el = e.target.closest('.hand .card');
+  ui.swallowClick = false;
   // one drag at a time, and not while the last drop is still sliding into place
-  if (!el || ui.drag || el.parentElement.querySelector('.settling')) return;
+  if (ui.drag || $app.querySelector('.hand .settling')) return;
+  const pile = e.target.closest('[data-drag]');
+  if (pile) return startPileDrag(e, pile);
+  const el = e.target.closest('.hand .card');
+  if (!el) return;
   const hand = el.parentElement;
   const cardEls = [...hand.querySelectorAll('.card')];
   const id = Number(el.dataset.card);
   // dragging a selected card brings the other selected cards along
   const group = ui.selected.has(id) ? cardEls.filter((c) => ui.selected.has(Number(c.dataset.card))) : [el];
+  const r = el.getBoundingClientRect();
   ui.drag = {
+    kind: 'hand',
     el,
     id,
     hand,
@@ -1055,38 +1092,60 @@ function onPointerDown(e) {
     start: group.map((c) => ({ left: parseFloat(c.style.left), top: parseFloat(c.style.top) })),
     x0: e.clientX,
     y0: e.clientY,
-    step: parseFloat(hand.dataset.step) || 1,
-    perRow: Number(hand.dataset.perRow) || 1,
-    rowGap: parseFloat(hand.dataset.rowGap) || 1,
-    rows: Number(hand.dataset.rows) || 1,
-    cw: parseFloat(hand.dataset.cw) || 62,
+    grabX: e.clientX - r.left,
+    grabY: e.clientY - r.top,
+    ...handGeo(hand),
     lift: (parseFloat(hand.style.getPropertyValue('--ch')) || 88) * 0.4,
     to: -1,
     outlines: [],
+    out: false,
     moved: false,
     pointerId: e.pointerId,
   };
   el.setPointerCapture(e.pointerId);
 }
 
-// The slot (counting only the cards left in the hand) that the dragged cards would drop into
-function dropIndex(d, dx, dy) {
-  const s = d.start[d.held];
-  const left = s.left + dx - d.held * Math.min(d.step, d.cw * 0.3);
-  const col = Math.max(0, Math.min(d.perRow - 1, Math.round(left / d.step)));
-  const row = Math.max(0, Math.min(d.rows - 1, Math.round((s.top - 18 + dy) / d.rowGap)));
-  return Math.min(d.rest.length, row * d.perRow + col);
+function startPileDrag(e, pile) {
+  const card = pile.firstElementChild;
+  const r = card.getBoundingClientRect();
+  ui.drag = {
+    kind: 'pile',
+    from: pile.dataset.drag,
+    el: pile,
+    card,
+    x0: e.clientX,
+    y0: e.clientY,
+    grabX: e.clientX - r.left,
+    grabY: e.clientY - r.top,
+    lift: r.height * 0.4,
+    to: -1,
+    outlines: [],
+    moved: false,
+    pointerId: e.pointerId,
+  };
+  pile.setPointerCapture(e.pointerId);
 }
 
 function onPointerMove(e) {
   const d = ui.drag;
   if (!d || e.pointerId !== d.pointerId) return;
-  const dx = e.clientX - d.x0;
+  if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 8) return;
+  d.moved = true;
+  d.px = e.clientX;
+  d.py = e.clientY;
+  if (d.kind === 'pile') return movePileDrag(d);
+  // lifted well clear of the hand, the cards come out of it and float with your finger
+  const out = d.py < d.hand.getBoundingClientRect().top - 16;
+  if (out !== d.out) (out ? liftOutOfHand : putBackInHand)(d);
+  if (out) return moveGhost(d);
+  moveInHand(d);
+}
+
+function moveInHand(d) {
+  const dx = d.px - d.x0;
   // with one row the cards only lift; with several they can move between rows
-  const dy = d.rows > 1 ? e.clientY - d.y0 : Math.min(0, e.clientY - d.y0);
-  if (!d.moved && Math.hypot(dx, e.clientY - d.y0) < 8) return;
-  if (!d.moved) {
-    d.moved = true;
+  const dy = d.rows > 1 ? d.py - d.y0 : Math.min(0, d.py - d.y0);
+  if (!d.outlines.length) {
     d.hand.classList.add('drag-on');
     // let the lifted cards float above the dock, unless it's scrolling and has to clip
     const dock = d.hand.closest('.dock-body');
@@ -1104,47 +1163,304 @@ function onPointerMove(e) {
     const y = held.top + dy - d.lift - d.start[j].top;
     el.style.transform = `translate(${x}px, ${y}px)`;
   });
-  const to = dropIndex(d, dx, dy);
+  showGap(d, slotAt(d, held.left + dx - d.held * fan, held.top + dy, d.rest.length));
+}
+
+// The slot (counting only the cards staying in the hand) that a card at left/top within the hand would drop into
+function slotAt(g, left, top, max) {
+  const col = Math.max(0, Math.min(g.perRow - 1, Math.round(left / g.step)));
+  const row = Math.max(0, Math.min(g.rows - 1, Math.round((top - 18) / g.rowGap)));
+  return Math.min(max, row * g.perRow + col);
+}
+
+// Slides the cards staying in the hand aside to open a space at slot `to`, outlined where the cards will land
+function showGap(d, to) {
   if (to === d.to) return;
   d.to = to;
-  const k = d.group.length;
-  const slots = handSlots(d.cardEls.length, d, to, k);
+  const k = d.outlines.length;
+  const slots = handSlots(d.rest.length + k, d, to, k);
   d.rest.forEach((el, i) => placeInSlot(el, slots[i < to ? i : i + k], i < to ? i : i + k));
   d.outlines.forEach((el, j) => {
+    el.style.display = '';
     el.style.left = `${slots[to + j].left}px`;
     el.style.top = `${slots[to + j].top}px`;
     el.style.zIndex = (to + j) * 2 + 1;
   });
 }
 
+// Closes the space again, with every card back in its place
+function closeGap(d, cards) {
+  if (d.to === -1) return;
+  d.to = -1;
+  const slots = handSlots(cards.length, d);
+  cards.forEach((el, i) => placeInSlot(el, slots[i], i));
+  d.outlines.forEach((el) => (el.style.display = 'none'));
+}
+
+function liftOutOfHand(d) {
+  d.out = true;
+  // the dragged cards leave holes where they were, so it's clear where they'd go back to
+  d.group.forEach((el) => (el.style.visibility = 'hidden'));
+  closeGap(d, d.cardEls);
+  const fan = Math.min(d.step, d.cw * 0.3);
+  d.ghost = makeGhost(
+    d.group.map((el) => el.cloneNode(true)),
+    fan,
+    d.hand.style.getPropertyValue('--cw'),
+    d.hand.style.getPropertyValue('--ch')
+  );
+  d.ghostX = d.grabX + d.held * fan;
+  autoScroll(d);
+}
+
+function putBackInHand(d) {
+  d.out = false;
+  d.group.forEach((el) => (el.style.visibility = ''));
+  d.ghost.remove();
+  d.ghost = null;
+  setHover(d, null);
+}
+
+// The floating copy of the dragged cards, kept outside the page so nothing clips it
+function makeGhost(cards, fan, cw, ch) {
+  const ghost = document.createElement('div');
+  ghost.className = 'drag-ghost';
+  if (cw) ghost.style.setProperty('--cw', cw);
+  if (ch) ghost.style.setProperty('--ch', ch);
+  cards.forEach((c, j) => {
+    c.removeAttribute('style');
+    c.classList.remove('dragging', 'sel', 'fresh');
+    c.style.left = `${j * fan}px`;
+    ghost.appendChild(c);
+  });
+  document.body.appendChild(ghost);
+  return ghost;
+}
+
+// Moves the floating cards to the finger and lights up the drop target under them
+function moveGhost(d) {
+  const x = d.px - (d.ghostX ?? d.grabX);
+  const y = d.py - d.grabY - d.lift;
+  d.ghost.style.transform = `translate(${x}px, ${y}px)`;
+  // aim with the middle of the held card (what you see), not the finger under it
+  const card = d.ghost.children[d.held || 0].getBoundingClientRect();
+  d.aimX = card.left + card.width / 2;
+  d.aimY = card.top + card.height / 2;
+  setHover(d, dropTarget(d));
+}
+
+function movePileDrag(d) {
+  if (!d.ghost) {
+    const r = d.card.getBoundingClientRect();
+    d.ghost = makeGhost([d.card.cloneNode(true)], 0, `${r.width}px`, `${r.height}px`);
+    d.el.classList.add('lifted');
+  }
+  moveGhost(d);
+  // over your hand, it opens a space where the card will go
+  const hand = document.getElementById('hand');
+  if (!hand) return;
+  if (d.hover !== hand) {
+    if (d.to !== -1) {
+      d.to = -1;
+      layoutHand();
+      d.outlines.forEach((el) => (el.style.display = 'none'));
+    }
+    return;
+  }
+  if (!d.cardEls) {
+    d.cardEls = [...hand.querySelectorAll('.card')];
+    d.rest = d.cardEls;
+    Object.assign(d, handGeo(hand));
+    // one more card has to fit in the same width
+    const n = d.cardEls.length + 1;
+    const room = Math.max(d.step * (d.perRow - 1), d.cw * 0.7);
+    d.perRow = Math.ceil(n / d.rows);
+    d.step = d.perRow > 1 ? room / (d.perRow - 1) : 1;
+    hand.classList.add('drag-on');
+    d.outlines = [hand.appendChild(Object.assign(document.createElement('div'), { className: 'drop-slot' }))];
+  }
+  const h = hand.getBoundingClientRect();
+  const g = d.ghost.firstElementChild.getBoundingClientRect();
+  showGap(d, slotAt(d, g.left - h.left, g.top + d.lift - h.top, d.rest.length));
+}
+
+// What the dragged cards would drop onto: the target nearest the aim point, within DROP_BUFFER of its edges.
+// Piles on the table and staged groups only count where they're scrolled into view.
+function dropTarget(d) {
+  const els =
+    d.kind === 'pile'
+      ? [document.getElementById('hand') || $app.querySelector('.dock')].filter(Boolean)
+      : [...$app.querySelectorAll('[data-drop]')];
+  let best = null;
+  let bestDist = Infinity;
+  for (const el of els) {
+    let r = el.getBoundingClientRect();
+    const box = el.closest('.table, .staged-row');
+    if (box) {
+      const b = box.getBoundingClientRect();
+      r = { left: Math.max(r.left, b.left), right: Math.min(r.right, b.right), top: Math.max(r.top, b.top), bottom: Math.min(r.bottom, b.bottom) };
+      if (r.left >= r.right || r.top >= r.bottom) continue;
+    }
+    const dx = Math.max(0, r.left - d.aimX, d.aimX - r.right);
+    const dy = Math.max(0, r.top - d.aimY, d.aimY - r.bottom);
+    if (dx > DROP_BUFFER || dy > DROP_BUFFER) continue;
+    const dist = Math.hypot(dx, dy);
+    if (dist < bestDist) [best, bestDist] = [el, dist];
+  }
+  return best;
+}
+
+function setHover(d, el) {
+  if (d.hover === el) return;
+  if (d.hover) d.hover.classList.remove('drop-hover');
+  d.hover = el;
+  // your own hand doesn't need a glow: the space opening in it shows where the card goes
+  if (el && el.id !== 'hand') el.classList.add('drop-hover');
+}
+
+// Holding cards near the top or bottom edge of the table scrolls it, to reach piles that are out of view
+function autoScroll(d) {
+  const tick = () => {
+    if (ui.drag !== d || !d.out) return;
+    const table = $app.querySelector('.table');
+    if (table && d.aimY != null) {
+      const r = table.getBoundingClientRect();
+      const inside = d.aimX >= r.left && d.aimX <= r.right;
+      const by = d.aimY < r.top + 40 && d.aimY > r.top - 40 ? -8 : d.aimY > r.bottom - 40 && d.aimY < r.bottom ? 8 : 0;
+      if (inside && by) {
+        const before = table.scrollTop;
+        table.scrollTop += by;
+        if (table.scrollTop !== before) setHover(d, dropTarget(d));
+      }
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function endDrag(d) {
+  ui.drag = null;
+  if (d.ghost) d.ghost.remove();
+  ui.swallowClick = d.moved;
+}
+
 function onPointerUp(e) {
   const d = ui.drag;
   if (!d || e.pointerId !== d.pointerId) return;
-  ui.drag = null;
-  if (d.moved) {
-    const groupIds = d.group.map((el) => Number(el.dataset.card));
-    const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
-    const visible = ui.order.filter((id) => !stagedIds.has(id) && !groupIds.includes(id));
-    visible.splice(d.to, 0, ...groupIds);
-    ui.order = [...visible, ...ui.order.filter((id) => stagedIds.has(id))];
-    ui.sortMode = 'manual';
-    // slide the dragged cards into the space before redrawing
-    const slots = handSlots(d.cardEls.length, d);
-    d.outlines.forEach((el) => el.remove());
-    d.group.forEach((el, j) => {
-      el.classList.remove('dragging');
-      el.classList.add('settling');
-      el.style.left = `${slots[d.to + j].left}px`;
-      el.style.top = `${slots[d.to + j].top}px`;
-      el.style.transform = '';
-    });
-    setTimeout(render, 130);
+  endDrag(d);
+  const v = ui.snap && ui.snap.view;
+  // a pile that was only tapped is handled by the click that follows
+  if (d.kind === 'pile') {
+    if (!d.moved) return; // redrawing now would remove the pile before its click arrives
+    if (v && d.hover) drawTo(d.from, d.to);
+    return render();
+  }
+  if (!d.moved) {
+    if (ui.selected.has(d.id)) ui.selected.delete(d.id);
+    else ui.selected.add(d.id);
+    ui.fresh.clear();
+    return render();
+  }
+  const groupIds = d.group.map((el) => Number(el.dataset.card));
+  if (d.out) {
+    if (v && d.hover) dropOn(v, d.hover, groupIds, d.aimX);
+    return render();
+  }
+  const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
+  const visible = ui.order.filter((id) => !stagedIds.has(id) && !groupIds.includes(id));
+  visible.splice(d.to, 0, ...groupIds);
+  ui.order = [...visible, ...ui.order.filter((id) => stagedIds.has(id))];
+  ui.sortMode = 'manual';
+  // slide the dragged cards into the space before redrawing
+  const slots = handSlots(d.cardEls.length, d);
+  d.outlines.forEach((el) => el.remove());
+  d.group.forEach((el, j) => {
+    el.classList.remove('dragging');
+    el.classList.add('settling');
+    el.style.left = `${slots[d.to + j].left}px`;
+    el.style.top = `${slots[d.to + j].top}px`;
+    el.style.transform = '';
+  });
+  setTimeout(render, 130);
+}
+
+// Draws from the deck or discard pile; the new card goes where it was dropped in your hand (index `at`)
+function drawTo(from, at) {
+  ui.drawTo = at >= 0 ? { index: at, until: Date.now() + 5000 } : null;
+  if (at >= 0) ui.sortMode = 'manual';
+  const res = send({ type: from === 'deck' ? 'drawDeck' : 'drawDiscard' });
+  if (!res.ok) ui.drawTo = null;
+}
+
+function dropOn(v, target, ids, x) {
+  const isWild = wildTest(v.options);
+  const cards = ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
+  const kind = target.dataset.drop;
+  if (kind === 'discard') {
+    if (cards.length > 1) return toast('Discard one card at a time.', true);
+    return discard(cards[0].id);
+  }
+  if (kind === 'staged') return addToStaged(v, Number(target.dataset.i), cards, isWild);
+  const meld = v.melds.find((m) => m.id === Number(target.dataset.meld));
+  if (!meld) return;
+  // where on the pile: on a joker, or which half of it
+  const r = target.getBoundingClientRect();
+  const shown = [...target.querySelectorAll('.card')];
+  const over = shown.filter((c) => c.getBoundingClientRect().left <= x).length - 1;
+  const onWild = over >= 0 && x <= shown[over].getBoundingClientRect().right && isWild(meld.cards[over]);
+  playOn(v, meld, cards, isWild, { onWild, side: x < r.left + r.width / 2 ? 'low' : 'high' });
+}
+
+// ---------- playing cards (shared by taps and drags) ----------
+function discard(id) {
+  const res = send({ type: 'discard', id, declare: ui.armed });
+  if (res.ok) {
+    ui.selected.clear();
+    ui.armed = false;
+  }
+}
+
+function addToStaged(v, i, added, isWild) {
+  const g = ui.staged[i];
+  if (!g) return;
+  const existing = g.ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
+  const all = g.type === 'set' ? [...existing, ...added] : arrangeRun(existing, added, isWild);
+  if (!(g.type === 'set' ? couldBeSet(all, isWild) : couldBeRun(all, isWild)))
+    return toast(`${added.map(cardLabel).join(' ')} can't go in that ${g.type}.`, true);
+  g.ids = all.map((c) => c.id);
+  for (const c of added) ui.selected.delete(c.id);
+  if (ui.flash && ui.flash.bad) ui.flash = null; // an earlier "can't go there" no longer applies
+}
+
+// Plays cards on a pile on the table. A tap asks when it's unclear what you meant (swap the joker or add to the
+// run, which end a joker goes on); a drag answers from where you dropped: on a joker swaps it, and the left or
+// right half of a run is its low or high end.
+function playOn(v, meld, cards, isWild, drop = null) {
+  if (!meld || !cards.length) return;
+  const ids = cards.map((c) => c.id);
+  const done = (res) => {
+    if (res.ok) for (const id of ids) ui.selected.delete(id);
+  };
+  const canSwap = cards.length === 1 && wildSlotFor(meld, cards[0], isWild) >= 0;
+  const canAdd = !!addCards(meld, cards, isWild);
+  if (!canSwap && !canAdd) return toast(`${cards.map(cardLabel).join(' ')} can't go on that ${meld.type}.`, true);
+  if (canSwap && (!canAdd || (drop && drop.onWild))) return done(send({ type: 'swapWild', meldId: meld.id, id: ids[0] }));
+  if (canSwap && !drop) {
+    ui.wildPrompt = { meldId: meld.id, ids };
+    ui.modal = 'swap';
     return;
   }
-  if (ui.selected.has(d.id)) ui.selected.delete(d.id);
-  else ui.selected.add(d.id);
-  ui.fresh.clear();
-  render();
+  if (cards.some(isWild) && meld.type === 'run') {
+    const lowOk = addCards(meld, cards, isWild, 'low');
+    const highOk = addCards(meld, cards, isWild, 'high');
+    if (lowOk && highOk && lowOk.lo !== highOk.lo) {
+      if (drop) return done(send({ type: 'addToMeld', meldId: meld.id, ids, wildEnd: drop.side }));
+      ui.wildPrompt = { meldId: meld.id, ids };
+      ui.modal = 'wild';
+      return;
+    }
+  }
+  done(send({ type: 'addToMeld', meldId: meld.id, ids }));
 }
 
 // ---------- events ----------
@@ -1223,6 +1539,10 @@ async function share() {
 function onClick(e) {
   const t = e.target.closest('[data-act]');
   if (!t) return;
+  if (ui.swallowClick) {
+    ui.swallowClick = false;
+    return;
+  }
   // clicks inside a modal shouldn't hit the backdrop's close handler
   if (t.dataset.act === 'closeModal' && t.classList.contains('overlay') && e.target.closest('[data-stop]')) return;
   const act = t.dataset.act;
@@ -1350,17 +1670,9 @@ function onClick(e) {
       return render();
     }
     case 'addToStaged': {
-      const g = ui.staged[Number(t.dataset.i)];
       const added = selectedCards(v);
-      if (!g) return;
       if (!added.length) return toast('Select cards to add to this group, or tap ✕ to put it back.');
-      const existing = g.ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
-      const all = g.type === 'set' ? [...existing, ...added] : arrangeRun(existing, added, isWild);
-      if (!(g.type === 'set' ? couldBeSet(all, isWild) : couldBeRun(all, isWild)))
-        return toast(`${added.map(cardLabel).join(' ')} can't go in that ${g.type}.`, true);
-      g.ids = all.map((c) => c.id);
-      ui.selected.clear();
-      if (ui.flash && ui.flash.bad) ui.flash = null; // an earlier "can't go there" no longer applies
+      addToStaged(v, Number(t.dataset.i), added, isWild);
       return render();
     }
     case 'unstage':
@@ -1369,15 +1681,9 @@ function onClick(e) {
     case 'layDown':
       send({ type: 'layDown', groups: ui.staged.map((g) => ({ type: g.type, ids: g.ids })) });
       return render();
-    case 'discard': {
-      const [id] = [...ui.selected];
-      const res = send({ type: 'discard', id, declare: ui.armed });
-      if (res.ok) {
-        ui.selected.clear();
-        ui.armed = false;
-      }
+    case 'discard':
+      discard([...ui.selected][0]);
       return render();
-    }
     case 'clearSel':
       ui.selected.clear();
       return render();
@@ -1387,39 +1693,9 @@ function onClick(e) {
       ui.order = sortIds(v.hand, t.dataset.how).sort((a, b) => Number(stagedIds.has(a)) - Number(stagedIds.has(b)));
       return render();
     }
-    case 'playOn': {
-      const meld = v.melds.find((m) => m.id === Number(t.dataset.meld));
-      const cards = selectedCards(v);
-      const canSwap = cards.length === 1 && wildSlotFor(meld, cards[0], isWild) >= 0;
-      if (!canSwap && !addCards(meld, cards, isWild)) {
-        toast(`${cards.map(cardLabel).join(' ')} can't go on that ${meld.type}.`, true);
-        return;
-      }
-      if (canSwap) {
-        if (addCards(meld, cards, isWild)) {
-          ui.wildPrompt = { meldId: meld.id, ids: [cards[0].id] };
-          ui.modal = 'swap';
-          return render();
-        }
-        const res = send({ type: 'swapWild', meldId: meld.id, id: cards[0].id });
-        if (res.ok) ui.selected.clear();
-        return render();
-      }
-      const wild = cards.some(isWild);
-      if (wild && meld.type === 'run') {
-        const lowOk = addCards(meld, cards, isWild, 'low');
-        const highOk = addCards(meld, cards, isWild, 'high');
-        const differ = lowOk && highOk && lowOk.lo !== highOk.lo;
-        if (differ) {
-          ui.wildPrompt = { meldId: meld.id, ids: cards.map((c) => c.id) };
-          ui.modal = 'wild';
-          return render();
-        }
-      }
-      const res = send({ type: 'addToMeld', meldId: meld.id, ids: cards.map((c) => c.id) });
-      if (res.ok) ui.selected.clear();
+    case 'playOn':
+      playOn(v, v.melds.find((m) => m.id === Number(t.dataset.meld)), selectedCards(v), isWild);
       return render();
-    }
     case 'wildEnd': {
       const wp = ui.wildPrompt;
       ui.modal = null;
@@ -1465,7 +1741,7 @@ window.addEventListener('pointermove', onPointerMove);
 window.addEventListener('pointerup', onPointerUp);
 window.addEventListener('pointercancel', (e) => {
   if (ui.drag && e.pointerId === ui.drag.pointerId) {
-    ui.drag = null;
+    endDrag(ui.drag);
     render();
   }
 });
