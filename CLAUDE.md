@@ -104,6 +104,11 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 - Each ticket gets its own branch from the latest `main`. The owner often has another Claude session working at the same time, so fetch `main` before branching and again before merging, and merge it in if it moved.
 - When the owner says to merge, push the branch to `main` (which deploys), then set the ticket to Pending testing. It's closed once they've tried it on their phone.
 - Cloud sessions can push but can't delete branches on GitHub; old branches are cleaned up from the repo's branches page.
+- **Keep the tour and tips current.** When a change adds or changes something a new player has to understand (a new button
+  or control, a new prompt, a rule change, or something that moves or renames what a `TOUR` step or `TIPS` entry points
+  at), check `TOUR` and `TIPS` in `main.js`. Then ask the owner whether to add or update a tour step or a one-time tip,
+  and suggest the wording. Fix broken selectors and outdated text as part of the change itself. Keep the tour short (it's
+  7 steps now): new things usually belong in a tip at the moment they come up.
 
 ## Testing notes
 
