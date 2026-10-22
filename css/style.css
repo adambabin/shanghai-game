@@ -794,6 +794,11 @@ label.field {
   border-color: var(--gold);
   animation: glow 1.4s infinite;
 }
+/* a complete group lit up to take more cards shows only the gold glow: the glow animates box-shadow, so the green
+   "complete" ring would blink in and out under it */
+.staged.done.target {
+  box-shadow: none;
+}
 .staged .kind {
   font-size: 11px;
   font-weight: 800;

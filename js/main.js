@@ -1098,7 +1098,9 @@ function resultModal(snap) {
     <h2>${title}</h2>
     ${rr.winner == null ? '<p class="muted">Nobody went out this round.</p>' : ''}
     ${rows}
-    <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${over ? '<button class="ghost" data-act="leave">Home</button>' : ''}${actions}</div>
+    <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${
+      over ? '<button class="ghost" data-act="leave">Home</button>' : snap.isHost ? '' : '<button class="ghost" data-act="leave">Leave game</button>'
+    }${actions}</div>
   </div></div>`;
 }
 
