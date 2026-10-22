@@ -2,7 +2,22 @@
 
 import { wildTest, cardPoints } from './cards.js';
 import { addCards, fitsAnyMeld, placements, buildSet, buildRun, runValue, wildSlotFor } from './melds.js';
-import { ROUNDS, SET_MIN, RUN_MIN } from './rules.js';
+import { ROUNDS, SET_MIN, RUN_MIN, botLevelFor } from './rules.js';
+
+// How each computer skill plays.
+// declare: chance it says Shanghai itself when its discard could go on a pile (otherwise anyone can catch it).
+// playChance: chance it plays another card onto a pile rather than stopping there (going out is always taken).
+// buyMistake: chance it gets a buy answer backwards. smartBuys: weighs the extra cards, buys left and hand size.
+// call, callDelay: how often and how fast (ms, base + random) it calls Shanghai on someone else.
+const LEVELS = {
+  easy: { declare: 0.35, playChance: 0.7, buyMistake: 0.25, smartBuys: false, call: 0.5, callDelay: [3000, 3000] },
+  normal: { declare: 0.6, playChance: 1, buyMistake: 0, smartBuys: false, call: 0.75, callDelay: [1200, 2500] },
+  hard: { declare: 1, playChance: 1, buyMistake: 0, smartBuys: true, call: 0.95, callDelay: [900, 1800] },
+};
+
+export function botLevel(options) {
+  return LEVELS[botLevelFor(options)];
+}
 
 // ---------- Finding a lay down ----------
 
@@ -164,12 +179,19 @@ export function chooseDraw(view) {
   return { type: 'drawDeck' };
 }
 
-export function wantsToBuy(view) {
-  const isWild = wildTest(view.options);
+export function wantsToBuy(view, rng = Math.random) {
   const me = view.players[view.you];
   const top = view.discardTop;
   if (!top || view.topDead || me.laid) return false;
   if (!view.buyEligible.includes(view.you)) return false;
+  const lvl = botLevel(view.options);
+  const want = buyIsWorthIt(view, lvl);
+  return lvl.buyMistake && rng() < lvl.buyMistake ? !want : want;
+}
+
+function buyIsWorthIt(view, lvl) {
+  const isWild = wildTest(view.options);
+  const top = view.discardTop;
   if (isWild(top)) return true;
   const hand = view.hand;
   if (!findContract(hand, view.round, isWild) && findContract([...hand, top], view.round, isWild)) return true;
@@ -178,7 +200,22 @@ export function wantsToBuy(view) {
   const cfg = ROUNDS[view.round];
   const need = cfg.sets * SET_MIN + cfg.runs * RUN_MIN;
   const short = need >= cfg.deal;
-  return u >= (short ? 7 : 12);
+  let bar = short ? 7 : 12;
+  if (lvl.smartBuys) {
+    const o = view.options;
+    bar += (o.buyPenalty - 2) * 1.5; // more extra cards, pickier
+    if (hand.length >= cfg.deal + 4) bar += 3; // already holding plenty
+    if (!short && o.buyLimit - view.players[view.you].buysUsed === 1) bar += 2; // save the last buy for something better
+    // one card from laying down after this one: worth paying for
+    if (findContract([...hand, top, { id: -1, r: 0, s: 'J' }], view.round, isWild)) bar -= 3;
+  }
+  return u >= bar;
+}
+
+// How often and how soon this computer calls Shanghai on someone else's discard.
+export function shanghaiReaction(options, rng = Math.random) {
+  const { call, callDelay } = botLevel(options);
+  return { calls: rng() < call, delay: callDelay[0] + rng() * callDelay[1] };
 }
 
 // Would the top discard be a Shanghai? Bots only call when they're sure.
@@ -192,8 +229,9 @@ export function seesShanghai(view) {
 }
 
 // One action for the play phase (call repeatedly until it discards).
-export function choosePlay(view) {
+export function choosePlay(view, rng = Math.random) {
   const isWild = wildTest(view.options);
+  const lvl = botLevel(view.options);
   const me = view.players[view.you];
   const hand = view.hand;
 
@@ -215,7 +253,7 @@ export function choosePlay(view) {
     }
   } else {
     // swap a natural card for a wild in a run (only with cards to spare, so the wild can be played and we can still discard)
-    if (hand.length >= 3) {
+    if (hand.length >= 3 && rng() < lvl.playChance) {
       for (const c of hand) {
         const m = view.melds.find((m) => wildSlotFor(m, c, isWild) >= 0);
         if (!m) continue;
@@ -230,7 +268,9 @@ export function choosePlay(view) {
     // wilds last, so naturals extend first
     plays.sort((a, b) => Number(isWild(a.c)) - Number(isWild(b.c)));
     if (plays.length) {
-      if (hand.length === 1 || hand.length > 2) return { type: 'addToMeld', meldId: plays[0].m.id, ids: [plays[0].c.id] };
+      // easier computers don't always play everything they could; that leaves cards to Shanghai later
+      if (hand.length > 2 && rng() >= lvl.playChance) plays.length = 0;
+      else if (hand.length === 1 || hand.length > 2) return { type: 'addToMeld', meldId: plays[0].m.id, ids: [plays[0].c.id] };
       // with 2 cards left, only play if both can go and we go out
       for (const p of plays) {
         const after = addCards(p.m, [p.c], isWild);
@@ -245,7 +285,8 @@ export function choosePlay(view) {
   if (hand.length === 1) return { type: 'undo' };
   const worst = worstCard(hand, view, isWild);
   // discarding a card that could go on a pile: say Shanghai first so nobody can catch it
-  return { type: 'discard', id: worst.c.id, declare: !!worst.fits };
+  // (easier computers forget sometimes, so you can catch them)
+  return { type: 'discard', id: worst.c.id, declare: !!worst.fits && rng() < lvl.declare };
 }
 
 function canFinishAfter(leftover, view, groups, isWild) {

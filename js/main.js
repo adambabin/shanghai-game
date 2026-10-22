@@ -2,7 +2,7 @@ import { HostSession, ClientSession } from './host.js';
 import { joinRoom } from './net.js';
 import { SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
 import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
-import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor } from './rules.js';
+import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor, BOT_LEVELS, botLevelFor } from './rules.js';
 
 const $app = document.getElementById('app');
 const $toasts = document.getElementById('toasts');
@@ -541,6 +541,14 @@ function optionRow(label, key, choices, opts, isHost) {
     .join('')}</select>`;
 }
 
+// Only shown once a computer player is seated.
+function botOptionsHTML(o, isHost) {
+  const level = BOT_LEVELS.find(([k]) => k === botLevelFor(o));
+  return `${optionRow('Computer skill', 'botLevel', BOT_LEVELS.map(([k, label]) => [k, label]), { ...o, botLevel: level[0] }, isHost)}
+      <span class="muted opt-note">${esc(level[2])}</span>
+      ${optionRow('Computer speed', 'botSpeed', [[0.5, 'Fast'], [1, 'Normal'], [2, 'Slow']], o, isHost)}`;
+}
+
 function lobbyHTML(snap) {
   const { lobby, isHost, seat, solo } = snap;
   const o = lobby.options;
@@ -573,7 +581,7 @@ function lobbyHTML(snap) {
       ${optionRow('2♣ wild', 'twoClubsWild', [[false, 'No (jokers only)'], [true, 'Yes']], o, isHost)}
       ${optionRow('Shanghai penalty', 'shanghaiPenalty', [[2, '2 cards'], [3, '3 cards'], [4, '4 cards']], o, isHost)}
       ${optionRow('Wrong Shanghai call', 'falseCallPenalty', [[0, 'No penalty'], [1, '1 card'], [2, '2 cards'], [3, '3 cards']], o, isHost)}
-      ${optionRow('Computer speed', 'botSpeed', [[0.5, 'Fast'], [1, 'Normal'], [2, 'Slow']], o, isHost)}
+      ${lobby.seats.some((s) => s.bot) ? botOptionsHTML(o, isHost) : ''}
     </div>
     ${
       isHost
@@ -582,7 +590,7 @@ function lobbyHTML(snap) {
     }
     <button class="ghost small" data-act="rules">How to play</button>
     <button class="ghost small" data-act="leave">Leave</button>
-  </div></div>${ui.modal === 'rules' ? rulesModal(o) : ''}`;
+  </div></div>${ui.modal === 'rules' ? rulesModal(o, lobby.seats.some((s) => s.bot)) : ''}`;
 }
 
 function inviteLink(code) {
@@ -924,7 +932,7 @@ function modalHTML(snap) {
     case 'scores':
       return wrapModal('Scores', scoresTable(v));
     case 'rules':
-      return rulesModal(v.options);
+      return rulesModal(v.options, v.players.some((p) => p.bot));
     case 'log':
       return wrapModal(
         'Game log',
@@ -1194,7 +1202,8 @@ async function sendFeedback(button) {
   }
 }
 
-function rulesModal(o) {
+function rulesModal(o, bots = false) {
+  const level = BOT_LEVELS.find(([k]) => k === botLevelFor(o));
   const rounds = ROUNDS.map((r, i) => `<li>Round ${i + 1}: ${contractText(i)} (${r.deal} cards)</li>`).join('');
   return wrapModal(
     'How to play',
@@ -1203,7 +1212,9 @@ function rulesModal(o) {
     <ul>${rounds}</ul>
     <h3>Around the table</h3>
     <ul><li><span class="dealer-badge inline">D</span> marks the dealer. The deal moves one seat each round, and the player after the dealer goes first.</li>
-    <li><b class="buys-left">${'$'.repeat(o.buyLimit)}</b> next to a name shows how many buys that player has left this round. They go away once the player lays down.</li></ul>
+    <li><b class="buys-left">${'$'.repeat(o.buyLimit)}</b> next to a name shows how many buys that player has left this round. They go away once the player lays down.</li>${
+      bots ? `<li>Computer players are set to ${level[1]}. ${level[2]}</li>` : ''
+    }</ul>
     <h3>Sets &amp; runs</h3>
     <ul><li>Set: 3 or more of the same rank.</li><li>Run: 4 or more in a row, same suit. Aces are high only (J-Q-K-A, never A-2-3-4).</li>
     <li>Jokers are wild${o.twoClubsWild ? ', and so is the 2♣' : '. The 2♣ is NOT wild'}. Every set or run needs more real cards than wild cards (a 4-card run needs 3 real cards), and a run can't have two wild cards next to each other.</li>

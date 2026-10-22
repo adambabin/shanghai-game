@@ -29,8 +29,20 @@ export const DEFAULT_OPTIONS = {
   shanghaiPenalty: 2, // cards the discarder picks up when Shanghai is called on them
   falseCallPenalty: 0, // cards picked up for calling Shanghai when there isn't one (0 = no penalty)
   botSpeed: 1, // 0.5 = fast, 1 = normal, 2 = slow
+  botLevel: 'normal', // computer skill: 'easy', 'normal' or 'hard'
   decks: 3, // standard decks shuffled together, each with its 2 jokers; 3 to 6
 };
+
+export const BOT_LEVELS = [
+  ['easy', 'Easy', 'Makes slips. Often leaves you a card to Shanghai.'],
+  ['normal', 'Normal', 'Plays well, but now and then leaves an opening.'],
+  ['hard', 'Hard', 'Plays to win. Rarely gives you a Shanghai.'],
+];
+
+// The computer skill a game uses. Older saved games have no setting and get Normal.
+export function botLevelFor(options = {}) {
+  return BOT_LEVELS.some(([k]) => k === options.botLevel) ? options.botLevel : DEFAULT_OPTIONS.botLevel;
+}
 
 export const MIN_DECKS = 3;
 export const MAX_DECKS = 6;

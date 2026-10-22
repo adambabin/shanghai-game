@@ -39,6 +39,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 - `js/bot.js` contains the computer players. They decide from the same `viewFor` view a human gets. `HostSession.scheduleBots` drives them with timers:
   - The turn timer resets on every change.
   - Reaction timers (Shanghai calls, buy answers) re-check validity when they fire.
+  - Skill (`botLevel` option: easy / normal / hard, lobby row "Computer skill", only shown with a computer seated) comes from `LEVELS` in `bot.js`: how often a computer says Shanghai on its own playable discard (so people can catch it), how often it keeps playing onto piles, buy mistakes vs smarter buys, and how often and fast it calls Shanghai on others (`shanghaiReaction`). Bot functions take an optional `rng` so the sim and `tests/bot.test.js` stay deterministic.
 - `js/main.js` is the whole UI. It re-renders by setting `innerHTML` on every snapshot and uses one delegated click handler keyed on `data-act`.
   - Purely local UI state lives in the `ui` object and never reaches the engine: hand order and sort mode, selection, staged lay-down groups, the armed Shanghai declaration, dock collapse.
   - Games other people host that you've joined are remembered in `store` (`joinedGames`: room code, host, other names, round as last seen) and listed in "Your games" too. One drops off when you see it finish, are removed from it, or tap ✕.
@@ -116,7 +117,8 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 - `tests/engine.test.js` builds `rigged()` games with hand-crafted hands. Its `deckDraw()` helper allows a buy and times out the window before drawing, because a plain `drawDeck` is refused while a live discard is undecided.
 - `tests/saves.test.js` checks the per-game save slots with an in-memory `localStorage`.
 - `tests/stamp.test.js` stamps a copy of the site and checks the references, the imports and that the modules still load.
-- `tests/sim.test.js` plays many full bot-only games and asserts most rounds end with someone going out. Bot or rule changes that cause stalls show up here.
+- `tests/sim.test.js` plays many full bot-only games at each skill level and asserts most rounds end with someone going out, and that easier computers leave more catchable discards. Bot or rule changes that cause stalls show up here.
+- `tests/bot.test.js` checks each skill level's choices on hand-built views.
 - UI changes have been checked with ad-hoc Playwright scripts (Chromium is preinstalled; use the `?debug` hook), not with committed tests.
 
 ## UI gotchas

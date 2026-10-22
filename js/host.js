@@ -2,7 +2,7 @@
 // player their own view of the game.
 
 import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, buyTimeout, buyAsking, beginPlay } from './engine.js';
-import { chooseDraw, choosePlay, wantsToBuy, seesShanghai } from './bot.js';
+import { chooseDraw, choosePlay, wantsToBuy, seesShanghai, shanghaiReaction } from './bot.js';
 import { DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
 import { openRoom, randomCode } from './net.js';
 
@@ -372,8 +372,9 @@ export class HostSession {
         const v = viewFor(g, seat);
         if (!seesShanghai(v)) continue;
         this.reacted.add(key + ':' + seat);
-        if (Math.random() < 0.75)
-          this.later(1200 + Math.random() * 2500, () => this.game === g && seesShanghai(viewFor(g, seat)) && this.act(seat, { type: 'shanghai' }));
+        const { calls, delay } = shanghaiReaction(g.options);
+        if (calls)
+          this.later(delay, () => this.game === g && seesShanghai(viewFor(g, seat)) && this.act(seat, { type: 'shanghai' }));
       }
       if (this.reacted.size > 500) this.reacted.clear();
     }
