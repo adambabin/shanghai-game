@@ -509,7 +509,7 @@ label.field {
 .dealer-badge.inline {
   position: static;
   display: inline-grid;
-  vertical-align: -4px;
+  vertical-align: middle; /* centered on the text beside it */
   margin-right: 2px;
 }
 .dealer-badge {
@@ -939,7 +939,6 @@ label.field {
   width: 18px;
   height: 18px;
   font-size: 10px;
-  vertical-align: -2px;
 }
 #guide .guide-bubble::after {
   content: '';
