@@ -1307,11 +1307,11 @@ body.cards-lifted .spots-float.fixed .new-group:not(.misfit),
 .spots-float.fixed.tap .new-group.fits {
   visibility: visible;
 }
-/* once groups are staged, only the spots showing take room */
+/* once groups are staged, only the spots showing take room (a misfit one is left out) */
 .spots-float:not(.fixed) .new-group {
   display: none;
 }
-body.cards-lifted .spots-float:not(.fixed) .new-group,
+body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
 .spots-float.tap:not(.fixed) .new-group.fits {
   display: flex;
 }

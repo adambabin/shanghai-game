@@ -873,7 +873,7 @@ function newGroupSpotsHTML(v) {
   // (taking the place of the old Make set / Make run buttons); one selected card shows nothing
   const isWild = wildTest(v.options);
   const sel = selectedCards(v);
-  const fits = (type) => sel.length >= 2 && !ui.dockCollapsed && (type === 'set' ? couldBeSet(sel, isWild) : couldBeRun(sel, isWild));
+  const fits = (type) => sel.length >= 2 && !ui.dockCollapsed && spotKinds(sel, isWild).includes(type);
   const spot = (type) =>
     `<div class="new-group ${fits(type) ? 'fits' : ''}" data-drop="newGroup" data-type="${type}" ${fits(type) ? `data-act="stage"` : ''}><span class="plus">+</span>New ${type}</div>`;
   const types = ['set', 'run'].filter((type) => count(type) < cfg[`${type}s`]);
@@ -1770,19 +1770,23 @@ function placeSpots(hand) {
   place(box.left + 12, end - box.left - 12, r.top + 2 - 40, 40);
 }
 
-// Before anything is staged, two or more lifted cards hide the spots they couldn't start (J Q A only shows New run).
-// The hidden spot keeps its place, so set stays on the left and run on the right, and nothing jumps when a drag starts.
-// Once a group is staged every spot shows while dragging, as before.
+// Which new groups some cards could be meant for: real cards of one number make a set, two different numbers can only
+// be a run (even in mixed suits; tapping it then says why it can't), and one real card plus wilds could be either
+function spotKinds(cards, isWild) {
+  const naturals = cards.filter((c) => !isWild(c));
+  if (naturals.length < 2) return ['set', 'run'];
+  return naturals.every((c) => c.r === naturals[0].r) ? ['set'] : ['run'];
+}
+
+// Two or more lifted cards hide the spots they aren't meant for (9 10 only shows New run), the same ones a tap shows,
+// so nothing jumps when a drag starts. Before anything is staged the hidden spot keeps its place (set left, run right).
 function markMisfits(ids) {
   const v = ui.snap && ui.snap.view;
   if (!v) return;
-  if (ui.staged.length) ids = [];
   const isWild = wildTest(v.options);
   const cards = ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
-  $app.querySelectorAll('.spots-float .new-group').forEach((el) => {
-    const fits = el.dataset.type === 'set' ? couldBeSet(cards, isWild) : couldBeRun(cards, isWild);
-    el.classList.toggle('misfit', cards.length >= 2 && !fits);
-  });
+  const kinds = cards.length >= 2 ? spotKinds(cards, isWild) : ['set', 'run'];
+  $app.querySelectorAll('.spots-float .new-group').forEach((el) => el.classList.toggle('misfit', !kinds.includes(el.dataset.type)));
 }
 
 // Spots shown for tapping (cards selected, no drag) are placed after each render
