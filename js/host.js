@@ -334,8 +334,33 @@ export class HostSession {
     this.timers.clear();
   }
 
+  // With one person playing against the computer, opening a pop-up (the menu, Settings, Scores…) pauses the game:
+  // the computers wait and the buy countdown stops, then picks up where it was
+  canPause() {
+    return this.lobby.seats.filter((s) => !s.bot).length === 1;
+  }
+
+  setPaused(on) {
+    on = on && this.canPause();
+    if (on === !!this.pausedAt) return;
+    if (on) {
+      this.pausedAt = Date.now();
+      this.clearTimers();
+      clearTimeout(this.turnTimer);
+      return;
+    }
+    const g = this.game;
+    if (g && g.buyWindow) g.buyWindow.deadline += Date.now() - this.pausedAt;
+    this.pausedAt = null;
+    // the cleared timers are set up again: buy answers, and the computers' Shanghai calls on this discard
+    this.askArmed = null;
+    this.reacted.clear();
+    this.changed();
+  }
+
   scheduleBots() {
     const g = this.game;
+    if (this.pausedAt) return;
     // reaction timers re-check themselves when they fire; only the turn timer is reset on every change
     clearTimeout(this.turnTimer);
     this.timers.delete(this.turnTimer);

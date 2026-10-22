@@ -353,6 +353,22 @@ function syncHand(v) {
   if (v.you != null && v.players[v.you].laid) ui.staged = [];
 }
 
+// Playing alone against the computer, these pop-ups pause the game (HostSession.setPaused): the computers wait and the
+// buy countdown stops, so changing a setting can't cost you a buy. Games with other people never pause.
+const PAUSING_MODALS = ['menu', 'settings', 'scores', 'rules', 'log', 'feedback', 'cropPhoto', 'install'];
+function gamePaused() {
+  const s = ui.session;
+  const v = ui.snap && ui.snap.view;
+  return !!(s && s.setPaused && s.canPause() && v && (v.phase === 'draw' || v.phase === 'play') && PAUSING_MODALS.includes(ui.modal));
+}
+function syncPause() {
+  const s = ui.session;
+  if (!s || !s.setPaused) return;
+  const on = gamePaused();
+  // after this render: resuming sends a new snapshot, which renders again
+  if (on !== !!s.pausedAt) queueMicrotask(() => ui.session === s && s.setPaused(gamePaused()));
+}
+
 // Your hand order and staged groups are kept on this device for each game (the host's game id, or the room code of a
 // game someone else hosts), so leaving and coming back, or the phone closing the page, doesn't undo them
 const HANDS_KEPT = 10;
@@ -420,6 +436,7 @@ function render() {
   syncFeedbackSheet();
   syncCropSheet();
   saveHand();
+  syncPause();
   layoutHand();
   markTableOverflow();
   fitHomeGames();
@@ -879,7 +896,9 @@ function stagingHTML(v, isWild) {
       const min = g.type === 'set' ? SET_MIN : RUN_MIN;
       // complete, still short of cards, or enough cards that don't work yet (e.g. too many jokers)
       const status = built ? '✓' : cards.length < min ? `${cards.length}/${min}` : '!';
-      const shown = built ? built.cards : cards;
+      // a run reads in your Sort cards order (high to low too); its cards keep their places, only the reading turns round
+      const ordered = built ? built.cards : cards;
+      const shown = g.type === 'run' && ui.sortDesc ? [...ordered].reverse() : ordered;
       return `<div class="staged ${built ? 'done' : ''} ${adding ? 'target' : ''}" data-act="addToStaged" data-drop="staged" data-i="${i}" title="Select cards and tap to add them">
         <div class="staged-head"><span class="kind">${g.type.toUpperCase()} ${status}</span>
         <button class="unstage" data-act="unstage" data-i="${i}" title="Put these cards back">✕</button></div>
@@ -1103,7 +1122,8 @@ function menuModal(snap) {
     if (v.phase === 'draw' || v.phase === 'play') items.push('<button class="danger" data-act="endRound">End this round (nobody can go out)</button>');
   }
   items.push(`<button class="danger" data-act="leave">${snap.isHost && !snap.solo ? 'Leave (game pauses for everyone)' : 'Leave game'}</button>`);
-  return wrapModal('Menu', `<div class="menu-list">${items.join('')}</div>`);
+  const paused = gamePaused() ? '<p class="muted">The game is paused while this is open.</p>' : '';
+  return wrapModal('Menu', `${paused}<div class="menu-list">${items.join('')}</div>`);
 }
 
 // Your own preferences. They're saved in this browser, so they come back next time on this device.
