@@ -52,6 +52,16 @@
   --back-a: #333338;
   --back-b: #222226;
 }
+/* your own photo (--back-photo is set on <html>, or on the Settings swatch); the dark color shows while it loads */
+[data-back='photo'] {
+  --back: #3a3a3e;
+}
+[data-back='photo'] .card-back:not([data-back]),
+.card-back[data-back='photo'] {
+  background-image: var(--back-photo);
+  background-size: cover;
+  background-position: center;
+}
 @media (min-width: 760px) {
   :root {
     --cw: 78px;
@@ -1581,6 +1591,85 @@ body.cards-lifted .spots-float {
   height: 50px;
   border-width: 2px;
   border-radius: 6px;
+}
+.new-photo {
+  font-weight: 600;
+  text-align: center;
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+}
+.card-back-add {
+  width: 36px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card-back-add svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.settings .back-note {
+  margin: 6px 0 0;
+}
+
+/* fitting your photo to the card back: the photo moves under a card-shaped window, everything outside it dimmed */
+.crop-modal .modal-head {
+  padding-right: 20px;
+}
+.crop-modal .modal-body p {
+  margin: 0 0 10px;
+}
+.crop-stage {
+  position: relative;
+  height: min(52dvh, 440px);
+  border-radius: 12px;
+  overflow: hidden;
+  background-color: #000;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.crop-img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.crop-window {
+  position: absolute;
+  border: 3px solid var(--card);
+  border-radius: 12px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.crop-zoom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 22px;
+  font-weight: 600;
+}
+.crop-zoom input {
+  flex: 1;
+  height: 44px;
+  accent-color: var(--gold);
+}
+.label-btn {
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 600;
+  background-color: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+  cursor: pointer;
 }
 
 /* ---------- phones held sideways ----------

@@ -63,6 +63,7 @@ const ui = {
   tour: null, // the step of the first-game tour being shown
   tip: null, // the one-time tip being shown (a key of TIPS)
   fbPhotos: [], // feedback photos, shrunk to JPEG data URLs
+  crop: null, // the photo being fitted to the card back: { src, w, h, s, x, y } (see cropSheet)
   swallowClick: false, // set when a drag ends, so the click the browser sends after it isn't taken as a tap
   drawTo: null, // where in the hand a card being drawn by dragging should go
   afterDraw: null, // a discard dragged onto a group or pile, to play once it's in your hand
@@ -77,8 +78,12 @@ const CARD_BACKS = [
   ['yellow', 'Yellow'],
   ['black', 'Black'],
 ];
+// 'photo' is your own picture (Settings › New photo), kept on this device only and never sent to other players
 function applyCardBack() {
-  document.documentElement.dataset.back = ui.cardBack;
+  const photo = ui.cardBack === 'photo' && store.get('cardPhoto');
+  document.documentElement.dataset.back = photo ? 'photo' : ui.cardBack === 'photo' ? 'purple' : ui.cardBack;
+  if (photo) document.documentElement.style.setProperty('--back-photo', `url("${photo}")`);
+  else document.documentElement.style.removeProperty('--back-photo');
 }
 applyCardBack();
 
@@ -374,6 +379,7 @@ function render() {
   else if (!snap.lobby.started || !snap.view) $app.innerHTML = lobbyHTML(snap);
   else $app.innerHTML = gameHTML(snap);
   syncFeedbackSheet();
+  syncCropSheet();
   layoutHand();
   placeTapSpots();
   markTableOverflow();
@@ -926,7 +932,7 @@ function gameHTML(snap) {
 function modalHTML(snap) {
   const v = snap.view;
   if (v.phase === 'roundOver' || v.phase === 'gameOver') {
-    if (!['scores', 'menu', 'rules', 'log', 'settings', 'install', 'feedback'].includes(ui.modal)) return resultModal(snap);
+    if (!['scores', 'menu', 'rules', 'log', 'settings', 'install', 'feedback', 'cropPhoto'].includes(ui.modal)) return resultModal(snap);
   }
   switch (ui.modal) {
     case 'scores':
@@ -1052,16 +1058,186 @@ function settingsModal() {
     ([key, label]) =>
       `<button class="back-swatch ${ui.cardBack === key ? 'on' : ''}" data-act="setCardBack" data-val="${key}" title="${label}"><span class="card-back" data-back="${key}"></span>${label}</button>`
   ).join('');
+  const photo = store.get('cardPhoto');
+  const photoSwatch = photo
+    ? `<button class="back-swatch ${ui.cardBack === 'photo' ? 'on' : ''}" data-act="setCardBack" data-val="photo" title="Your photo"><span class="card-back" data-back="photo" style="--back-photo: url('${photo}')"></span>Photo</button>`
+    : '';
+  const newPhoto = `<label class="back-swatch new-photo" title="New photo"><span class="card-back-add"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>New photo<input type="file" accept="image/*" data-field="cardPhoto" hidden></label>`;
   return wrapModal(
     'Settings',
     `<div class="settings">
-      <h3>Card color</h3><div class="swatches">${backs}</div>
+      <h3>Card back</h3><div class="swatches">${backs}${photoSwatch}${newPhoto}</div>
+      <p class="muted back-note">Only you see your card back.</p>
       <h3>Sort cards</h3><div class="seg">${choice('setSortDesc', 0, !ui.sortDesc, 'Low to high')}${choice('setSortDesc', 1, ui.sortDesc, 'High to low')}</div>
       <h3>Sound</h3><div class="seg">${choice('setSound', 1, ui.sound, 'On')}${choice('setSound', 0, !ui.sound, 'Off')}</div>
       <p class="muted">Saved on this device.${canAddToHome() ? ' Phones can clear them if you don\'t play for a while, unless you add the game to your home screen.' : ''}</p>
       ${canAddToHome() ? '<button class="ghost small" data-act="addToHome">Add to your home screen</button>' : ''}
     </div>`
   );
+}
+
+// ---------- your photo as the card back ----------
+// The photo is fitted in its own sheet outside #app, like the feedback form, so game updates can't reset a drag or pinch
+// halfway through. Drag moves it, pinching (or the slider) zooms, and it always covers the card-shaped window.
+const BACK_W = 330; // saved size: sharp at the biggest card on a 3x screen, and small (about 30-50 KB) to keep
+const BACK_H = 462;
+async function startCardPhoto(input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    const src = await shrinkPhoto(file);
+    const img = new Image();
+    img.src = src;
+    await img.decode();
+    ui.crop = { src, w: img.naturalWidth, h: img.naturalHeight, zoom: 1, x: null, y: null };
+    ui.modal = 'cropPhoto';
+    render();
+  } catch {
+    toast("That photo couldn't be opened. Try a different one.");
+  }
+}
+
+function syncCropSheet() {
+  let sheet = document.getElementById('crop-sheet');
+  if (ui.modal !== 'cropPhoto' || !ui.crop) {
+    if (sheet) sheet.remove();
+    return;
+  }
+  if (sheet && sheet.crop === ui.crop) return;
+  if (sheet) sheet.remove(); // "Choose another" picked a new photo
+  sheet = document.createElement('div');
+  sheet.id = 'crop-sheet';
+  sheet.crop = ui.crop;
+  sheet.innerHTML = `<div class="overlay"><div class="modal framed crop-modal" data-stop>
+    <div class="modal-head"><h2>Your card back</h2><button class="ghost small" data-act="cancelCrop">Cancel</button></div>
+    <div class="modal-body">
+      <p class="muted">Drag the photo to move it. Pinch or use the slider to zoom.</p>
+      <div class="crop-stage"><img class="crop-img" src="${ui.crop.src}" alt="" draggable="false"><div class="crop-window"></div></div>
+      <label class="crop-zoom"><span aria-hidden="true">−</span><input type="range" min="1" max="4" step="0.01" value="${ui.crop.zoom}" data-field="cropZoom" aria-label="Zoom"><span aria-hidden="true">+</span></label>
+    </div>
+    <div class="actions"><label class="label-btn">Choose another<input type="file" accept="image/*" data-field="cardPhoto" hidden></label><button class="primary" data-act="saveCrop">Use this photo</button></div>
+  </div></div>`;
+  sheet.addEventListener('click', onClick);
+  sheet.addEventListener('change', onChange);
+  sheet.addEventListener('input', (e) => {
+    if (e.target.dataset.field === 'cropZoom') zoomCrop(Number(e.target.value));
+  });
+  document.body.appendChild(sheet);
+  setupCropStage(sheet.querySelector('.crop-stage'));
+}
+
+// the card-shaped window, centered in the stage, in stage pixels
+function cropWindow(stage) {
+  const sw = stage.clientWidth;
+  const sh = stage.clientHeight;
+  const h = Math.min(sh * 0.84, ((sw * 0.7) * BACK_H) / BACK_W);
+  const w = (h * BACK_W) / BACK_H;
+  return { x: (sw - w) / 2, y: (sh - h) / 2, w, h };
+}
+
+// the smallest scale that still covers the window; zoom multiplies it
+const cropBaseScale = (c, win) => Math.max(win.w / c.w, win.h / c.h);
+
+// keep the photo covering the window, then draw it
+function placeCrop(stage) {
+  const c = ui.crop;
+  const win = cropWindow(stage);
+  const s = cropBaseScale(c, win) * c.zoom;
+  if (c.x == null) {
+    c.x = win.x + (win.w - c.w * s) / 2;
+    c.y = win.y + (win.h - c.h * s) / 2;
+  }
+  c.x = Math.min(win.x, Math.max(win.x + win.w - c.w * s, c.x));
+  c.y = Math.min(win.y, Math.max(win.y + win.h - c.h * s, c.y));
+  const img = stage.querySelector('.crop-img');
+  img.style.width = `${c.w * s}px`;
+  img.style.height = `${c.h * s}px`;
+  img.style.transform = `translate(${c.x}px, ${c.y}px)`;
+  const box = stage.querySelector('.crop-window');
+  Object.assign(box.style, { left: `${win.x}px`, top: `${win.y}px`, width: `${win.w}px`, height: `${win.h}px` });
+}
+
+// zoom about a point in the stage (the middle of the window unless pinching)
+function zoomCrop(zoom, at) {
+  const stage = document.querySelector('.crop-stage');
+  if (!stage || !ui.crop) return;
+  const c = ui.crop;
+  const win = cropWindow(stage);
+  const p = at || { x: win.x + win.w / 2, y: win.y + win.h / 2 };
+  const next = Math.min(4, Math.max(1, zoom));
+  const k = next / c.zoom;
+  c.x = p.x - (p.x - c.x) * k;
+  c.y = p.y - (p.y - c.y) * k;
+  c.zoom = next;
+  placeCrop(stage);
+  const slider = document.querySelector('[data-field="cropZoom"]');
+  if (slider && at) slider.value = String(c.zoom); // a pinch moves the slider along
+}
+
+function setupCropStage(stage) {
+  const pts = new Map();
+  let pinch = null;
+  const local = (e) => {
+    const r = stage.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  stage.addEventListener('pointerdown', (e) => {
+    stage.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, local(e));
+    pinch = null;
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!pts.has(e.pointerId) || !ui.crop) return;
+    const prev = pts.get(e.pointerId);
+    const p = local(e);
+    pts.set(e.pointerId, p);
+    if (pts.size === 1) {
+      ui.crop.x += p.x - prev.x;
+      ui.crop.y += p.y - prev.y;
+      placeCrop(stage);
+    } else if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      if (pinch && pinch.dist > 0) {
+        ui.crop.x += mid.x - pinch.mid.x;
+        ui.crop.y += mid.y - pinch.mid.y;
+        zoomCrop(ui.crop.zoom * (dist / pinch.dist), mid);
+      }
+      pinch = { dist, mid };
+    }
+  });
+  const up = (e) => {
+    pts.delete(e.pointerId);
+    pinch = null;
+  };
+  stage.addEventListener('pointerup', up);
+  stage.addEventListener('pointercancel', up);
+  placeCrop(stage);
+}
+
+// cut the window's part of the photo out at card size and keep it
+function saveCrop() {
+  const stage = document.querySelector('.crop-stage');
+  const c = ui.crop;
+  if (!stage || !c) return;
+  const win = cropWindow(stage);
+  const s = cropBaseScale(c, win) * c.zoom;
+  const img = stage.querySelector('.crop-img');
+  const canvas = document.createElement('canvas');
+  canvas.width = BACK_W;
+  canvas.height = BACK_H;
+  canvas.getContext('2d').drawImage(img, (win.x - c.x) / s, (win.y - c.y) / s, win.w / s, win.h / s, 0, 0, BACK_W, BACK_H);
+  const photo = canvas.toDataURL('image/jpeg', 0.85);
+  store.set('cardPhoto', photo);
+  if (store.get('cardPhoto') !== photo) return toast("Your photo couldn't be saved on this phone.");
+  ui.cardBack = 'photo';
+  store.set('cardBack', 'photo');
+  applyCardBack();
+  ui.crop = null;
+  ui.modal = 'settings';
+  render();
 }
 
 // ---------- feedback ----------
@@ -2310,7 +2486,14 @@ function onClick(e) {
     case 'removeFbPhoto':
       ui.fbPhotos.splice(Number(t.dataset.i), 1);
       return showFeedbackPhotos();
+    case 'saveCrop':
+      return saveCrop();
+    case 'cancelCrop':
+      ui.crop = null;
+      ui.modal = 'settings';
+      return render();
     case 'closeModal':
+      ui.crop = null;
       ui.modal = null;
       ui.wildPrompt = null;
       return render();
@@ -2434,6 +2617,7 @@ function onInput(e) {
 
 function onChange(e) {
   if (e.target.dataset.field === 'fbPhotos') return addFeedbackPhotos(e.target);
+  if (e.target.dataset.field === 'cardPhoto') return startCardPhoto(e.target);
   const key = e.target.dataset.opt;
   if (key) send({ type: 'setOption', key, value: JSON.parse(e.target.value) });
 }
@@ -2494,7 +2678,7 @@ async function checkForUpdate() {
 }
 
 function reloadIfIdle() {
-  if (!ui.updateReady || ui.session || ui.modal === 'feedback') return;
+  if (!ui.updateReady || ui.session || ui.modal === 'feedback' || ui.modal === 'cropPhoto') return;
   const el = document.activeElement;
   if (el && el.matches('input, textarea')) return;
   // once per release: if the reload still brought the old page, wait for the next time the game is opened rather
