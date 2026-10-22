@@ -98,3 +98,20 @@ test('easy computers call Shanghai on you less often and later', () => {
   assert.equal(hard.calls, true);
   assert.ok(easy.delay > hard.delay);
 });
+
+test('with 2 cards left, a computer only plays one if the last card can go out after it (not just swap for a wild)', () => {
+  // the 6♠ fits the end of 7-J♠, and the 5♦ could only take the joker's place in 3♦ 4♦ ★ 6♦: playing the 6♠ would
+  // leave a card that can't go out, so the computer used to play it, take it back, play it again, forever
+  const spades = buildRun([7, 8, 9, 10, 11].map((r) => card(r, 'S')), isWild);
+  const diamonds = buildRun([card(3, 'D'), card(4, 'D'), card(0, 'J'), card(6, 'D')], isWild);
+  const six = card(6, 'S');
+  const five = card(5, 'D');
+  for (const level of ['easy', 'normal', 'hard']) {
+    const a = choosePlay(view(level, { hand: [six, five], melds: [spades, diamonds], laid: true }), always);
+    assert.equal(a.type, 'discard', level);
+  }
+  // but when the last card does fit an end, it plays and goes out
+  const queen = card(12, 'S');
+  const a = choosePlay(view('normal', { hand: [six, queen], melds: [spades, diamonds], laid: true }), always);
+  assert.equal(a.type, 'addToMeld');
+});

@@ -276,7 +276,7 @@ export function choosePlay(view, rng = Math.random) {
         const after = addCards(p.m, [p.c], isWild);
         const rest = hand.find((c) => c.id !== p.c.id);
         const melds = view.melds.map((m) => (m.id === p.m.id ? after : m));
-        if (fitsAnyMeld(rest, melds, isWild)) return { type: 'addToMeld', meldId: p.m.id, ids: [p.c.id] };
+        if (canPlayLast(rest, melds, isWild)) return { type: 'addToMeld', meldId: p.m.id, ids: [p.c.id] };
       }
     }
   }
@@ -295,5 +295,11 @@ function canFinishAfter(leftover, view, groups, isWild) {
     const cards = g.ids.map((id) => view.hand.find((c) => c.id === id));
     return g.type === 'set' ? buildSet(cards, isWild) : buildRun(cards, isWild);
   });
-  return fitsAnyMeld(leftover[0], [...built, ...view.melds], isWild);
+  return canPlayLast(leftover[0], [...built, ...view.melds], isWild);
+}
+
+// Can our last card go out on a pile? Only onto an end or a set: swapping it for a wild would leave the wild in our
+// hand, and going out on that turns into play, undo, play, undo (fitsAnyMeld counts swaps, which is right for Shanghai)
+function canPlayLast(card, melds, isWild) {
+  return melds.some((m) => placements(m, card, isWild).length > 0);
 }
