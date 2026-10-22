@@ -792,7 +792,13 @@ label.field {
 /* cards are selected: tap a group to add them */
 .staged.target {
   border-color: var(--gold);
-  animation: glow 1.4s infinite;
+  animation: staged-glow 1.4s infinite;
+}
+/* tighter than the table's glow, so it fits in the staged row */
+@keyframes staged-glow {
+  50% {
+    box-shadow: 0 0 6px 1px rgba(242, 193, 78, 0.75);
+  }
 }
 /* a complete group lit up to take more cards shows only the gold glow: the glow animates box-shadow, so the green
    "complete" ring would blink in and out under it */
@@ -1294,7 +1300,10 @@ table.scores td.zero {
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
-  padding: 4px 0; /* room for the gold glow on staged groups */
+  /* room for the gold glow on staged groups, which the row would otherwise cut off in a hard line; the negative margin
+     keeps the groups where they were (the side room comes out of .staging's padding) */
+  padding: 7px 8px;
+  margin: -3px -8px;
 }
 .staged-row::-webkit-scrollbar {
   display: none;
@@ -1564,6 +1573,37 @@ body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
   right: -8px;
   padding: 2px 7px;
   background-color: var(--panel-strong);
+}
+/* a moving bar while feedback sends */
+.fb-progress {
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  overflow: hidden;
+  background-color: rgba(255, 255, 255, 0.15);
+}
+.fb-progress span {
+  display: block;
+  width: 35%;
+  height: 100%;
+  border-radius: 2px;
+  background-color: var(--gold);
+  animation: fb-progress 1.2s ease-in-out infinite;
+}
+@keyframes fb-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fb-progress span {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
 }
 .fb-add {
   align-self: flex-start;

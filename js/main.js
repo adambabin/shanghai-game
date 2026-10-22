@@ -577,21 +577,26 @@ function messageHTML(text) {
 }
 
 function connectingHTML(snap) {
-  const msg =
-    snap.status === 'no-host'
-      ? `Can't find game ${esc(snap.code || ui.joinCode)} yet. Check the code; the host has to keep their page open. Still trying…`
+  const code = snap.code || ui.joinCode;
+  // a game you've played in before isn't a wrong code: the host just hasn't opened it again yet
+  const known = joinedGames().find((g) => g.code === code);
+  const waitingForHost = snap.status === 'no-host' && known;
+  const msg = waitingForHost
+    ? `${esc(known.host)} needs to open this game. You'll join as soon as they do.`
+    : snap.status === 'no-host'
+      ? `Can't find game ${esc(code)} yet. Check the code; the host has to keep their page open. Still trying…`
       : snap.status === 'error'
         ? `Connection problem: ${esc(snap.error || '')}. Retrying…`
         : snap.status === 'slow'
           ? `Can't reach the host yet. If you're on mobile data, try Wi-Fi, or ask the host to check their connection. Still trying…`
           : 'Connecting to the game…';
-  const code = snap.code || ui.joinCode;
   const stuck = snap.status === 'no-host' || snap.status === 'slow';
   const remove =
-    stuck && joinedGames().some((g) => g.code === code)
+    stuck && known
       ? `<button class="ghost" data-act="forgetJoined" data-code="${esc(code)}">Remove from your games</button>`
       : '';
-  return `<div class="center-screen"><div class="panel"><div class="title" style="font-size:30px">Joining…</div><p class="muted">${msg}</p>${remove}<button class="ghost" data-act="leave">Cancel</button></div></div>`;
+  const title = waitingForHost ? `Waiting for ${esc(known.host)}…` : 'Joining…';
+  return `<div class="center-screen"><div class="panel"><div class="title" style="font-size:30px">${title}</div><p class="muted">${msg}</p>${remove}<button class="ghost" data-act="leave">Cancel</button></div></div>`;
 }
 
 function optionRow(label, key, choices, opts, isHost) {
@@ -1346,7 +1351,7 @@ function feedbackModal() {
       <input class="fb-website" data-field="fbWebsite" tabindex="-1" autocomplete="off" aria-hidden="true">
       <div class="fb-photos"></div>
       <label class="fb-add">Add photos (up to ${FEEDBACK_PHOTOS})<input type="file" accept="image/*" multiple data-field="fbPhotos" hidden></label>
-      <p class="muted">Goes to the person who runs this game, with ${who} and your phone type.</p>
+      <p class="muted">Goes to the developer, with ${who} and your phone type.</p>
       <div class="fb-status"></div>
     </div>`,
     '<button class="primary" data-act="sendFeedback">Send</button>',
@@ -1364,9 +1369,14 @@ function showFeedbackPhotos() {
   if (add) add.hidden = ui.fbPhotos.length >= FEEDBACK_PHOTOS;
 }
 
-function feedbackStatus(text, bad = false) {
+// busy shows a moving bar under the text while the message is on its way (it can take several seconds with photos;
+// a real percentage would need upload progress, which makes the browser ask the relay first and it doesn't answer)
+function feedbackStatus(text, bad = false, busy = false) {
   const el = document.querySelector('.fb-status');
-  if (el) el.innerHTML = text ? `<span class="${bad ? 'err' : 'muted'}">${esc(text)}</span>` : '';
+  if (el)
+    el.innerHTML = text
+      ? `<span class="${bad ? 'err' : 'muted'}">${esc(text)}</span>${busy ? '<div class="fb-progress" role="progressbar" aria-label="Sending"><span></span></div>' : ''}`
+      : '';
 }
 
 // Phones take big photos; shrink to at most 1600px on the long side as a JPEG before sending
@@ -1428,7 +1438,8 @@ async function sendFeedback(button) {
     return;
   }
   button.disabled = true;
-  feedbackStatus('Sending…');
+  feedbackStatus('Sending…', false, true);
+  const slow = ui.fbPhotos.length && setTimeout(() => feedbackStatus('Sending… photos take a moment.', false, true), 3000);
   const payload = {
     message,
     name: ui.name.trim(),
@@ -1440,6 +1451,7 @@ async function sendFeedback(button) {
     // no Content-Type header: a plain-text POST goes straight through without a CORS preflight
     const res = await fetch(FEEDBACK_URL, { method: 'POST', body: JSON.stringify(payload) });
     const out = await res.json();
+    clearTimeout(slow);
     if (!out.ok) {
       button.disabled = false;
       feedbackStatus(out.error || "Couldn't send. Try again later.", true);
@@ -1450,6 +1462,7 @@ async function sendFeedback(button) {
     if (body) body.innerHTML = '<p><b>Thanks!</b> Your message is on its way.</p>';
     button.remove();
   } catch {
+    clearTimeout(slow);
     button.disabled = false;
     feedbackStatus("Couldn't send. Check your connection and try again.", true);
   }
@@ -1821,20 +1834,21 @@ function placeSpots(hand) {
     if (n === 1) return place(left, a.left - 8 - left, bottom - height, height);
     return place(left, box.width - 24, bottom - height, height, a.width + 16);
   }
-  const r = row.getBoundingClientRect();
+  // the row's inside edge: its side padding is only there for the groups' glow
+  const right = row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight);
   const groups = [...row.querySelectorAll('.staged')];
   const need = n * 92 + (n - 1) * 8;
   // no room after the last group: an empty space the spots' width goes at the end of the row, and the row scrolls just
   // enough to show it. The space goes when the cards are put back or the page redraws, and the row slides back by itself.
   let room = row.querySelector('.spot-room');
-  if (!room && r.right - (groups[groups.length - 1].getBoundingClientRect().right + 8) < need) {
+  if (!room && right - (groups[groups.length - 1].getBoundingClientRect().right + 8) < need) {
     room = Object.assign(document.createElement('div'), { className: 'spot-room' });
     row.appendChild(room);
   }
   if (room) {
     room.style.width = `${need}px`;
     const end = room.getBoundingClientRect().right;
-    if (end > r.right) row.scrollLeft += end - r.right;
+    if (end > right) row.scrollLeft += end - right;
     markEdgeFade(row);
   }
   const last = groups[groups.length - 1].getBoundingClientRect();
