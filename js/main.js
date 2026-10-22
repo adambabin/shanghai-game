@@ -686,8 +686,15 @@ function logHTML(e, v) {
   const name = e.seat != null ? v.players[e.seat].name : '';
   let html = esc(e.text.replace(/\.$/, ''));
   if (name && e.text.startsWith(name)) html = `<b>${e.seat === v.you ? 'You' : esc(name)}</b>` + html.slice(esc(name).length);
-  // "discarded the A♥" reads fine as "discarded A♥" and keeps the line short
-  return html.replace(/\bthe (?=(10|[2-9AJQK])[♠♥♦♣]|Joker)/g, '').replace(/(10|[2-9AJQK])([♠♥♦♣])|Joker/g, (m, rank, suit) => `<span class="mini-card ${suit === '♥' || suit === '♦' ? 'red' : ''}">${m}</span>`);
+  return miniCards(html);
+}
+
+// every card named in the activity box and the game log is drawn as a little card
+// ("discarded the A♥" reads fine as "discarded A♥" and keeps the line short)
+function miniCards(html) {
+  return html
+    .replace(/\b[Tt]he (?=(10|[2-9AJQK])[♠♥♦♣]|Joker)/g, '')
+    .replace(/(10|[2-9AJQK])([♠♥♦♣])|Joker/g, (m, rank, suit) => `<span class="mini-card ${suit === '♥' || suit === '♦' ? 'red' : ''}">${m}</span>`);
 }
 
 function statusText(v) {
@@ -764,8 +771,8 @@ function activityHTML(v) {
   let main = buyBarHTML(v);
   const log = 'data-act="modal" data-m="log" title="Tap for the game log"';
   // a mistake of yours (like a Shanghai call that missed) shows above a prompt instead of hiding behind it
-  if (main && f && f.bad) main = `<div class="buy-bar flash bad"><span>${esc(f.text)}</span></div>${main}`;
-  if (!main && showFlash) main = `<div class="buy-bar flash tappable ${f.bad ? 'bad' : ''}" ${log}><span>${esc(f.text)}</span></div>`;
+  if (main && f && f.bad) main = `<div class="buy-bar flash bad"><span>${miniCards(esc(f.text))}</span></div>${main}`;
+  if (!main && showFlash) main = `<div class="buy-bar flash tappable ${f.bad ? 'bad' : ''}" ${log}><span>${miniCards(esc(f.text))}</span></div>`;
   if (!main) {
     const warn = mine && v.phase === 'play' && (v.hand.length === 1 || v.mustPlay.some((id) => v.hand.some((c) => c.id === id)));
     main = `<div class="buy-bar tappable ${mine ? 'ask' : ''} ${warn ? 'warn' : ''}" ${log}><span>${statusText(v)}</span></div>`;
@@ -800,16 +807,16 @@ function buyBarHTML(v) {
     if (w.asking !== me) {
       const ahead = w.order.indexOf(me) - w.order.indexOf(w.asking);
       const next = ahead === 1 ? " You're next." : ahead > 1 ? ` You're up after ${esc(v.players[w.order[ahead - 1 + w.order.indexOf(w.asking)]].name)}.` : '';
-      return `<div class="buy-bar"><span><b>${esc(v.players[w.asking].name)}</b> is deciding whether to buy the ${esc(cardLabel(top))}…${next}</span> ${timer}</div>`;
+      return `<div class="buy-bar"><span><b>${esc(v.players[w.asking].name)}</b> is deciding whether to buy ${miniCards(esc(cardLabel(top)))}…${next}</span> ${timer}</div>`;
     }
     const left = v.options.buyLimit - v.players[me].buysUsed;
     const extra = v.options.buyPenalty;
     const cost = extra ? `It costs ${extra} card${extra === 1 ? '' : 's'}.` : 'No extra cards.';
-    return `<div class="buy-bar ask"><span>Buy <b>${esc(cardLabel(top))}</b>? ${cost} ${left} buy${left === 1 ? '' : 's'} left.</span>
+    return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${cost} ${left} buy${left === 1 ? '' : 's'} left.</span>
       <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span> ${timer}</div>`;
   }
   if (v.turn === me && v.mustDecide) {
-    return `<div class="buy-bar ask"><span>Take the <b>${esc(cardLabel(top))}</b> or let others buy it?</span>
+    return `<div class="buy-bar ask"><span>Take ${miniCards(esc(cardLabel(top)))} or let others buy it?</span>
       <span class="buy-actions"><button class="primary" data-act="allowBuy">Allow buy</button><button class="ghost" data-act="drawDiscard">Take it</button></span></div>`;
   }
   return '';
@@ -946,7 +953,7 @@ function modalHTML(snap) {
         'Game log',
         `<div class="log">${[...v.log]
           .reverse()
-          .map((e) => `<div class="${e.kind}">${esc(e.text)}</div>`)
+          .map((e) => `<div class="${e.kind}">${miniCards(esc(e.text))}</div>`)
           .join('')}</div>`
       );
     case 'menu':
