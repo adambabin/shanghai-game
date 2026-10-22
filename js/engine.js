@@ -150,8 +150,8 @@ function askNext(state) {
   const w = state.buyWindow;
   w.idx++;
   if (w.idx >= w.order.length) {
+    // everyone passed; nothing to log (each "passed on buying" already says so)
     state.buyWindow = null;
-    log(state, `Nobody bought the ${cardLabel(topCard(state))}.`, 'nobuy');
     return;
   }
   w.deadline = Date.now() + BUY_WINDOW_MS;
