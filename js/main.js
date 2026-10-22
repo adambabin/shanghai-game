@@ -860,9 +860,9 @@ function stagingHTML(v, isWild) {
     <div class="staged-row hscroll">${groups}</div></div>`;
 }
 
-// "New set" / "New run" spots for the groups the round still needs, always set first and run second. They show
-// while cards are lifted out of the hand (minus any the cards can't start, see markMisfits), or to tap for 2 or more
-// selected cards. placeSpots() floats them next to your staged groups (or just above the hand), so showing them
+// "New set" / "New run" spots for the groups the round still needs, set first and run second. They show while cards
+// are lifted out of the hand (before anything is staged, minus any the cards can't start, see markMisfits), or to
+// tap for 2 or more selected cards. placeSpots() floats them next to your staged groups (or just above the hand), so showing them
 // never moves anything mid-drag.
 function newGroupSpotsHTML(v) {
   const me = v.you;
@@ -878,7 +878,8 @@ function newGroupSpotsHTML(v) {
     `<div class="new-group ${fits(type) ? 'fits' : ''}" data-drop="newGroup" data-type="${type}" ${fits(type) ? `data-act="stage"` : ''}><span class="plus">+</span>New ${type}</div>`;
   const types = ['set', 'run'].filter((type) => count(type) < cfg[`${type}s`]);
   if (!types.length) return '';
-  return `<div class="spots-float ${types.some(fits) ? 'tap' : ''}">${types.map(spot).join('')}</div>`;
+  // before anything is staged the spots keep fixed places (set left, run right); after that only the ones showing take room
+  return `<div class="spots-float ${types.some(fits) ? 'tap' : ''} ${ui.staged.length ? '' : 'fixed'}">${types.map(spot).join('')}</div>`;
 }
 
 function handHTML(v, isWild) {
@@ -1769,11 +1770,13 @@ function placeSpots(hand) {
   place(box.left + 12, end - box.left - 12, r.top + 2 - 40, 40);
 }
 
-// Two or more lifted cards hide the spots they couldn't start (J Q A only shows New run). The hidden spot keeps its
-// place, so set stays on the left and run on the right, and nothing jumps when a drag starts.
+// Before anything is staged, two or more lifted cards hide the spots they couldn't start (J Q A only shows New run).
+// The hidden spot keeps its place, so set stays on the left and run on the right, and nothing jumps when a drag starts.
+// Once a group is staged every spot shows while dragging, as before.
 function markMisfits(ids) {
   const v = ui.snap && ui.snap.view;
   if (!v) return;
+  if (ui.staged.length) ids = [];
   const isWild = wildTest(v.options);
   const cards = ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
   $app.querySelectorAll('.spots-float .new-group').forEach((el) => {

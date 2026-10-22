@@ -1290,8 +1290,7 @@ table.scores td.zero {
   display: none;
 }
 /* spots to start a new staged group: while cards are lifted out of the hand, or with 2 or more cards selected,
-   the spots they could start, to tap. A spot that isn't showing is only invisible, so it keeps its place: set on
-   the left, run on the right, and nothing jumps when a drag starts. */
+   the spots they could start, to tap */
 .spots-float {
   display: none;
 }
@@ -1299,12 +1298,22 @@ body.cards-lifted .spots-float,
 .spots-float.tap {
   display: flex;
 }
-.spots-float .new-group {
+/* before anything is staged (.fixed), a spot that isn't showing is only invisible, so it keeps its place: set on
+   the left, run on the right, and nothing jumps when a drag starts */
+.spots-float.fixed .new-group {
   visibility: hidden;
 }
-body.cards-lifted .spots-float .new-group:not(.misfit),
-.spots-float.tap .new-group.fits {
+body.cards-lifted .spots-float.fixed .new-group:not(.misfit),
+.spots-float.fixed.tap .new-group.fits {
   visibility: visible;
+}
+/* once groups are staged, only the spots showing take room */
+.spots-float:not(.fixed) .new-group {
+  display: none;
+}
+body.cards-lifted .spots-float:not(.fixed) .new-group,
+.spots-float.tap:not(.fixed) .new-group.fits {
+  display: flex;
 }
 .new-group[data-act] {
   cursor: pointer;
