@@ -311,11 +311,20 @@ function syncHand(v) {
   const idSet = new Set(ids);
   if (ui.handRound !== v.round) {
     ui.handRound = v.round;
+    ui.selected.clear();
+    ui.fresh.clear();
+    // back in a round you left (or the phone closed the page): your hand order and staged groups as you left them
+    const saved = savedHand(v.round);
+    if (saved) {
+      ui.sortMode = saved.sortMode || 'rank';
+      const order = saved.order.filter((id) => idSet.has(id));
+      ui.order = ui.sortMode === 'manual' ? order.concat(ids.filter((id) => !order.includes(id))) : sortIds(v.hand, ui.sortMode);
+      ui.staged = v.you != null && v.players[v.you].laid ? [] : saved.staged.map((g) => ({ ...g, ids: g.ids.filter((id) => idSet.has(id)) })).filter((g) => g.ids.length);
+      return;
+    }
     ui.sortMode = ui.sortMode || 'rank';
     ui.order = sortIds(v.hand, ui.sortMode === 'manual' ? 'rank' : ui.sortMode);
     ui.staged = [];
-    ui.selected.clear();
-    ui.fresh.clear();
     return;
   }
   const known = new Set(ui.order);
@@ -342,6 +351,31 @@ function syncHand(v) {
   for (const id of [...ui.selected]) if (!idSet.has(id)) ui.selected.delete(id);
   ui.staged = ui.staged.map((g) => ({ ...g, ids: g.ids.filter((id) => idSet.has(id)) })).filter((g) => g.ids.length);
   if (v.you != null && v.players[v.you].laid) ui.staged = [];
+}
+
+// Your hand order and staged groups are kept on this device for each game (the host's game id, or the room code of a
+// game someone else hosts), so leaving and coming back, or the phone closing the page, doesn't undo them
+const HANDS_KEPT = 10;
+function handGameKey() {
+  return ui.session && (ui.session.gameId || ui.session.code);
+}
+function savedHand(round) {
+  const h = store.get('hands', {})[handGameKey()];
+  return h && h.round === round ? h : null;
+}
+function saveHand() {
+  const key = handGameKey();
+  const v = ui.snap && ui.snap.view;
+  if (!key || !v || v.you == null || ui.handRound !== v.round) return;
+  const h = { round: v.round, order: ui.order, staged: ui.staged, sortMode: ui.sortMode };
+  const json = JSON.stringify(h);
+  if (json === ui.savedHandJson) return;
+  ui.savedHandJson = json;
+  const hands = store.get('hands', {});
+  hands[key] = { ...h, at: Date.now() };
+  // only the most recent games
+  const keep = Object.entries(hands).sort((a, b) => b[1].at - a[1].at).slice(0, HANDS_KEPT);
+  store.set('hands', Object.fromEntries(keep));
 }
 
 function sortIds(hand, how) {
@@ -385,6 +419,7 @@ function render() {
   else $app.innerHTML = gameHTML(snap);
   syncFeedbackSheet();
   syncCropSheet();
+  saveHand();
   layoutHand();
   placeTapSpots();
   markTableOverflow();
