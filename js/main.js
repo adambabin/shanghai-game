@@ -803,7 +803,9 @@ function buyBarHTML(v) {
       return `<div class="buy-bar"><span><b>${esc(v.players[w.asking].name)}</b> is deciding whether to buy the ${esc(cardLabel(top))}…${next}</span> ${timer}</div>`;
     }
     const left = v.options.buyLimit - v.players[me].buysUsed;
-    return `<div class="buy-bar ask"><span>Buy the <b>${esc(cardLabel(top))}</b>? +${v.options.buyPenalty} from the deck. ${left} buy${left === 1 ? '' : 's'} left.</span>
+    const extra = v.options.buyPenalty;
+    const cost = extra ? `It costs ${extra} card${extra === 1 ? '' : 's'}.` : 'No extra cards.';
+    return `<div class="buy-bar ask"><span>Buy <b>${esc(cardLabel(top))}</b>? ${cost} ${left} buy${left === 1 ? '' : 's'} left.</span>
       <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span> ${timer}</div>`;
   }
   if (v.turn === me && v.mustDecide) {
