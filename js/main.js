@@ -1006,8 +1006,11 @@ function scoresTable(v) {
     });
     return `<tr><td>${r + 1}. ${contractText(r)}</td>${cells.join('')}</tr>`;
   }).join('');
+  // a crown on the lowest total (on each, if tied) once a round has been scored
+  const best = v.scores.some((s) => s.some((x) => x != null)) ? Math.min(...totals) : null;
+  const crown = '<span class="crown" role="img" aria-label="in the lead">👑</span>';
   return `<div style="overflow-x:auto"><table class="scores"><tr><th>Round</th>${head}</tr>${rows}<tr class="total"><td>Total</td>${totals
-    .map((t) => `<td>${t}</td>`)
+    .map((t) => `<td>${t}${t === best ? crown : ''}</td>`)
     .join('')}</tr></table></div><p class="muted">Lowest total after ${ROUNDS.length} rounds wins.</p>`;
 }
 

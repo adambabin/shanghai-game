@@ -1069,6 +1069,12 @@ table.scores tr.total td {
   color: var(--gold);
   border-bottom: none;
 }
+/* takes no room, so the total stays centered under the name */
+table.scores .crown {
+  position: absolute;
+  margin-left: 3px;
+  font-size: 0.9em;
+}
 table.scores td.zero {
   color: #9be29b;
   font-weight: 700;
