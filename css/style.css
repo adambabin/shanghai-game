@@ -1294,6 +1294,10 @@ table.scores td.zero {
 .staged-row::-webkit-scrollbar {
   display: none;
 }
+/* made at the end of the staged row while the New set / New run tiles need room there (placeSpots) */
+.spot-room {
+  flex: none;
+}
 /* spots to start a new staged group: while cards are lifted out of the hand, or with 2 or more cards selected,
    the spots they could start, to tap */
 .spots-float {

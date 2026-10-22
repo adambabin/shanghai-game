@@ -421,7 +421,6 @@ function render() {
   syncCropSheet();
   saveHand();
   layoutHand();
-  placeTapSpots();
   markTableOverflow();
   fitHomeGames();
   flyDiscard();
@@ -440,6 +439,8 @@ function render() {
     markEdgeFade(staged);
   }
   ui.revealStaged = false;
+  // after the staged row's scroll is back, since the tap spots may scroll it to make room
+  placeTapSpots();
   const modalBody = $app.querySelector('.modal-body');
   if (modalBody && modalTop != null) modalBody.scrollTop = modalTop;
   const table = $app.querySelector('.table');
@@ -1770,8 +1771,7 @@ function liftOutOfHand(d) {
 
 // The New set / New run spots go where a new group will show, on top of the page so nothing moves:
 // - nothing staged yet: a bar in the space between the deck row and your hand
-// - groups staged with room after them: tiles at the end of the row, beside the groups
-// - the row is full: a bar over the "Your lay down" line above it, so they never cover a group
+// - groups staged: tiles at the end of the row, beside the groups; if they don't fit, the row scrolls to make room
 function placeSpots(hand) {
   const spots = $app.querySelector('.spots-float');
   const dock = hand && hand.closest('.dock');
@@ -1801,16 +1801,23 @@ function placeSpots(hand) {
   }
   const r = row.getBoundingClientRect();
   const groups = [...row.querySelectorAll('.staged')];
-  const last = groups[groups.length - 1].getBoundingClientRect();
   const need = n * 92 + (n - 1) * 8;
-  if (r.right - (last.right + 8) >= need) {
-    spots.classList.add('tiles');
-    return place(last.right + 8, need, last.top, last.height);
+  // no room after the last group: an empty space the spots' width goes at the end of the row, and the row scrolls just
+  // enough to show it. The space goes when the cards are put back or the page redraws, and the row slides back by itself.
+  let room = row.querySelector('.spot-room');
+  if (!room && r.right - (groups[groups.length - 1].getBoundingClientRect().right + 8) < need) {
+    room = Object.assign(document.createElement('div'), { className: 'spot-room' });
+    row.appendChild(room);
   }
-  // the row is full: over the "Your lay down" line, short of the Lay down button
-  const lay = $app.querySelector('.staging-head button');
-  const end = lay ? lay.getBoundingClientRect().left - 8 : box.right - 12;
-  place(box.left + 12, end - box.left - 12, r.top + 2 - 40, 40);
+  if (room) {
+    room.style.width = `${need}px`;
+    const end = room.getBoundingClientRect().right;
+    if (end > r.right) row.scrollLeft += end - r.right;
+    markEdgeFade(row);
+  }
+  const last = groups[groups.length - 1].getBoundingClientRect();
+  spots.classList.add('tiles');
+  place(last.right + 8, need, last.top, last.height);
 }
 
 // Which new groups some cards could be meant for: real cards of one number make a set, two different numbers can only
@@ -1840,6 +1847,7 @@ function placeTapSpots() {
 function putBackInHand(d) {
   d.out = false;
   document.body.classList.remove('cards-lifted');
+  $app.querySelectorAll('.spot-room').forEach((el) => el.remove());
   placeTapSpots();
   d.group.forEach((el) => (el.style.visibility = ''));
   d.ghost.remove();
