@@ -46,6 +46,7 @@ const ui = {
   selected: new Set(),
   order: [],
   fresh: new Set(),
+  myTurn: false, // whether it was your turn at the last snapshot
   staged: [],
   armed: false,
   modal: null,
@@ -331,6 +332,10 @@ function syncHand(v) {
   if (added.length) ui.drawTo = null;
   // keep the hand in the chosen order as cards come and go (unless you've arranged it by hand)
   if (ui.sortMode !== 'manual') ui.order = sortIds(v.hand, ui.sortMode);
+  // the outline on the card you just got goes once your turn ends (or when you tap a card)
+  const myTurn = v.you != null && v.turn === v.you && (v.phase === 'draw' || v.phase === 'play');
+  if (ui.myTurn && !myTurn) ui.fresh.clear();
+  ui.myTurn = myTurn;
   if (added.length) {
     ui.fresh = new Set(added);
   }
