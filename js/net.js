@@ -164,14 +164,16 @@ export function joinRoom(code, { onOpen, onMessage, onStatus }) {
     if (closed) return;
     status('connecting');
     if (!peer || peer.destroyed) {
-      peer = new window.Peer(peerOptions());
-      peer.on('open', dial);
-      peer.on('error', (e) => {
+      // events from a line we've since replaced (freshPeer) are ignored
+      const p = (peer = new window.Peer(peerOptions()));
+      p.on('open', () => p === peer && dial());
+      p.on('error', (e) => {
+        if (p !== peer) return;
         if (e.type === 'peer-unavailable') status('no-host');
         else status('error', e.message || String(e));
         retry();
       });
-      peer.on('disconnected', () => !closed && !peer.destroyed && peer.reconnect());
+      p.on('disconnected', () => p === peer && !closed && !p.destroyed && p.reconnect());
     } else dial();
   };
 
@@ -179,7 +181,9 @@ export function joinRoom(code, { onOpen, onMessage, onStatus }) {
     if (closed) return;
     const c = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' });
     conn = c;
-    // a link that never opens doesn't always report an error, so give up on it and dial again
+    // a link that never opens doesn't always report an error, so give up on it and dial again. Our own line to the
+    // signalling server may be the dead part (a phone left waiting, locked or switched away can lose it without a
+    // word), and every later dial would go nowhere, so start over with a fresh one.
     clearTimeout(dialTimer);
     dialTimer = setTimeout(() => {
       if (conn !== c || c.open) return;
@@ -187,6 +191,7 @@ export function joinRoom(code, { onOpen, onMessage, onStatus }) {
       try {
         c.close();
       } catch {}
+      freshPeer();
       retry();
     }, SLOW_MS);
     c.on('open', () => {
@@ -215,6 +220,26 @@ export function joinRoom(code, { onOpen, onMessage, onStatus }) {
     retryTimer = setTimeout(connect, 2500);
   };
 
+  // drops our line to the signalling server; the next connect() makes a new one
+  const freshPeer = () => {
+    const old = peer;
+    peer = null;
+    try {
+      old && old.destroy();
+    } catch {}
+  };
+
+  // coming back to the app while still waiting: try again now, on a fresh line, instead of after the next timeout
+  const onVisible = () => {
+    if (document.visibilityState !== 'visible' || closed || connected) return;
+    clearTimeout(dialTimer);
+    conn = null;
+    freshPeer();
+    clearTimeout(retryTimer);
+    connect();
+  };
+  document.addEventListener('visibilitychange', onVisible);
+
   connect();
 
   return {
@@ -227,6 +252,7 @@ export function joinRoom(code, { onOpen, onMessage, onStatus }) {
       clearInterval(slowCheck);
       clearTimeout(retryTimer);
       clearTimeout(dialTimer);
+      document.removeEventListener('visibilitychange', onVisible);
       peer && peer.destroy();
     },
   };
