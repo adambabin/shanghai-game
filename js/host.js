@@ -1,7 +1,7 @@
 // Runs in the host's browser: owns the lobby and the game, drives the bots, and sends each
 // player their own view of the game.
 
-import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, buyTimeout, buyAsking, beginPlay } from './engine.js';
+import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, buyTimeout, buyAsking, beginPlay, sittingOut } from './engine.js';
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai, shanghaiReaction } from './bot.js';
 import { DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
 import { openRoom, randomCode } from './net.js';
@@ -393,7 +393,7 @@ export class HostSession {
     if (g.phase === 'draw') {
       const key = `${g.round}:${g.discard.length}:${g.discard[g.discard.length - 1]?.id}`;
       for (const seat of bots) {
-        if (seat === g.turn || this.reacted.has(key + ':' + seat)) continue;
+        if (seat === g.turn || sittingOut(g, seat) || this.reacted.has(key + ':' + seat)) continue;
         const v = viewFor(g, seat);
         if (!seesShanghai(v)) continue;
         this.reacted.add(key + ':' + seat);

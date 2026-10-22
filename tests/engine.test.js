@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSet, buildRun, addCards, fitsAnyMeld, runHi, placements, couldBeSet, couldBeRun, arrangeRun } from '../js/melds.js';
 import { wildTest } from '../js/cards.js';
-import { createGame, applyAction, viewFor, totals, nextRound, buyTimeout, buyAsking, mustDecideOnDiscard } from '../js/engine.js';
+import { createGame, applyAction, viewFor, totals, nextRound, buyTimeout, buyAsking, mustDecideOnDiscard, startRound, endRoundNoWinner, buyEligible } from '../js/engine.js';
 
 const isWild = wildTest({ twoClubsWild: false });
 let nid = 1000;
@@ -392,4 +392,74 @@ test('laying down at the wrong time or with the wrong groups says what is wrong'
   const bad = { type: 'set', ids: [p0[3].id, p0[4].id, p0[7].id] };
   assert.match(applyAction(g, 0, { type: 'layDown', groups: [set1, bad] }).error, /^That isn't a valid set/);
   assert.ok(applyAction(g, 0, { type: 'layDown', groups: [set1, set2] }).ok);
+});
+
+// The last round, ended with everyone holding nothing, so the totals are just the earlier scores given here
+function finalRound(players, earlier) {
+  const g = createGame(players, {}, () => 0.3);
+  g.round = 9;
+  startRound(g);
+  g.scores = earlier.map((t) => [t]);
+  g.hands = g.hands.map(() => []);
+  endRoundNoWinner(g);
+  return g;
+}
+
+test('lowest total wins the game; a tie between people goes to a vote', () => {
+  const people = [{ name: 'Adam' }, { name: 'Rebecca' }, { name: 'Lou', bot: true }];
+  const clear = finalRound(people, [30, 40, 50]);
+  assert.equal(clear.phase, 'gameOver');
+  assert.deepEqual(clear.winners, [0]);
+
+  const tie = finalRound(people, [34, 34, 50]);
+  assert.equal(tie.phase, 'tieVote');
+  assert.deepEqual(tie.tiebreak.seats, [0, 1]);
+  assert.equal(applyAction(tie, 2, { type: 'tieVote', choice: 'tiebreak' }).ok, false, 'only tied people vote');
+  // anyone choosing to share makes it a shared win
+  applyAction(tie, 0, { type: 'tieVote', choice: 'tiebreak' });
+  assert.equal(tie.phase, 'tieVote', 'still waiting on Rebecca');
+  applyAction(tie, 1, { type: 'tieVote', choice: 'share' });
+  assert.equal(tie.phase, 'gameOver');
+  assert.deepEqual(tie.winners, [0, 1]);
+
+  // computers tied with each other just share it
+  const bots = finalRound([{ name: 'Adam' }, { name: 'Lou', bot: true }, { name: 'Shark', bot: true }], [60, 20, 20]);
+  assert.equal(bots.phase, 'gameOver');
+  assert.deepEqual(bots.winners, [1, 2]);
+});
+
+test('a tiebreaker deals the last round again to just the tied players', () => {
+  const g = finalRound([{ name: 'Adam' }, { name: 'Rebecca' }, { name: 'Lou', bot: true }, { name: 'Shark', bot: true }], [34, 50, 34, 60]);
+  assert.deepEqual(g.tiebreak.seats, [0, 2], 'Adam and the computer Lou are tied; only Adam votes');
+  applyAction(g, 0, { type: 'tieVote', choice: 'tiebreak' });
+  assert.equal(g.round, 10, 'still round 11, the same contract');
+  assert.equal(g.phase, 'ready');
+  assert.equal(g.hands[1].length, 0, 'Rebecca sits out');
+  assert.equal(g.hands[3].length, 0, 'Shark sits out');
+  assert.ok(g.hands[0].length > 0 && g.hands[2].length > 0);
+  assert.equal(viewFor(g, 1).players[1].out, true);
+  applyAction(g, 0, { type: 'ready' });
+  assert.equal(g.phase, 'draw');
+  assert.ok([0, 2].includes(g.turn), 'the turn only goes to players in the tiebreaker');
+  assert.equal(applyAction(g, 1, { type: 'shanghai' }).ok, false, 'sitting out means no Shanghai calls either');
+  assert.ok(buyEligible(g).every((i) => i === 0 || i === 2));
+  // scores stay as they were; the tiebreaker has its own
+  g.hands[0] = [c(5, 'H')];
+  g.hands[2] = [c(13, 'S'), c(12, 'S')];
+  endRoundNoWinner(g);
+  assert.equal(g.phase, 'gameOver');
+  assert.deepEqual(g.winners, [0], 'lowest in the tiebreaker wins');
+  assert.deepEqual(g.tiebreak.points, [5, null, 20, null]);
+  assert.deepEqual(totals(g), [34, 50, 34, 60]);
+});
+
+test('a tiebreaker that ties again is a shared win', () => {
+  const g = finalRound([{ name: 'Adam' }, { name: 'Rebecca' }], [34, 34]);
+  applyAction(g, 0, { type: 'tieVote', choice: 'tiebreak' });
+  applyAction(g, 1, { type: 'tieVote', choice: 'tiebreak' });
+  g.hands[0] = [c(5, 'H')];
+  g.hands[1] = [c(5, 'S')];
+  endRoundNoWinner(g);
+  assert.equal(g.phase, 'gameOver');
+  assert.deepEqual(g.winners, [0, 1]);
 });

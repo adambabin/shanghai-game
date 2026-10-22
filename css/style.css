@@ -1101,6 +1101,39 @@ table.scores td.zero {
   background: var(--panel);
   border-radius: 10px;
 }
+.result-row.winner {
+  outline: 2px solid var(--gold);
+}
+.result-sub {
+  margin: -6px 0 2px;
+}
+.tie-votes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tie-votes span {
+  font-size: 13px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background-color: var(--panel);
+  color: var(--ink-dim);
+}
+.tie-votes span.voted {
+  color: var(--ink);
+}
+.scores tr.tiebreak td {
+  border-top: 1px solid rgba(242, 193, 78, 0.4);
+}
+/* the winner's card shower: over everything, never in the way of a tap */
+canvas.confetti {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 60;
+}
 .result-row .top {
   display: flex;
   justify-content: space-between;

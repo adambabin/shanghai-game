@@ -300,7 +300,7 @@ function processLog(v) {
       beep([523, 659, 784]);
     } else if (e.kind === 'notshanghai') {
       if (e.seat === v.you) toast(e.note, false, 5000);
-    } else if (['buy', 'buyreq', 'laydown', 'dead', 'swap', 'buywindow'].includes(e.kind)) {
+    } else if (['buy', 'buyreq', 'laydown', 'dead', 'swap', 'buywindow', 'tievote'].includes(e.kind)) {
       // you already know what you just did
       if (e.seat === v.you) continue;
       // who bought what stays up a little longer
@@ -446,6 +446,7 @@ function render() {
   fitHomeGames();
   flyDiscard();
   flyBuy();
+  celebrateWin();
   const players = $app.querySelector('.players');
   if (players) {
     if (playersLeft != null) players.scrollLeft = playersLeft;
@@ -692,7 +693,7 @@ function playerChips(v) {
       const short = p.name.length > 15 ? p.name.slice(0, 14).trimEnd() + '…' : p.name;
       return `<div class="chip ${i === v.turn ? 'turn' : ''} ${i === v.you ? 'me' : ''} ${dealer ? 'dealer' : ''}">
         ${dealer ? '<span class="dealer-badge" title="Dealer">D</span>' : ''}<span class="pname" title="${esc(p.name)}">${esc(short)}</span>
-        <span class="pstats"><span>${p.cards} card${p.cards === 1 ? '' : 's'}</span>${buys}</span>
+        <span class="pstats">${p.out ? '<span>sitting out</span>' : `<span>${p.cards} card${p.cards === 1 ? '' : 's'}</span>${buys}`}</span>
         <span class="ptags">${tags.join('')}</span></div>`;
     })
     .join('');
@@ -709,7 +710,7 @@ function canPlayOn(v) {
 
 function tableHTML(v, isWild) {
   if (!v.melds.length)
-    return `<div class="table-empty"><span class="table-round">Round ${v.round + 1} of ${ROUNDS.length}</span><b class="table-contract">${contractText(v.round)}</b></div>`;
+    return `<div class="table-empty"><span class="table-round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1} of ${ROUNDS.length}`}</span><b class="table-contract">${contractText(v.round)}</b></div>`;
   const playable = canPlayOn(v);
   // piles take dragged cards whenever you could play on them, selected or not
   const laid = v.you != null && v.players[v.you].laid;
@@ -769,6 +770,7 @@ function statusText(v) {
   const me = v.you;
   const turnName = esc(v.players[v.turn].name);
   if (me == null) return `You're watching. It's <b>${turnName}</b>'s turn.`;
+  if (v.players[me].out) return `${namesOf(v, v.tiebreak.seats)} are playing a tiebreaker. It's <b>${turnName}</b>'s turn.`;
   const myTurn = v.turn === me;
   if (v.phase === 'ready') return `Sort and plan your hand. <b>${turnName}</b> goes first once everyone is ready.`;
   if (!myTurn) {
@@ -815,7 +817,7 @@ function centerHTML(v, isWild) {
   }</div><span>${pileLabel}</span></div>`;
 
   const actions = [];
-  if (p) {
+  if (p && !p.out) {
     if (myTurn && v.phase === 'play')
       actions.push(
         `<button class="shanghai-btn ${ui.armed ? 'armed' : ''}" data-act="arm">${ui.armed ? 'SHANGHAI! ✓' : 'SHANGHAI!'}</button>`
@@ -858,7 +860,7 @@ function readyBarHTML(v, isHost) {
   const waiting = v.players.filter((p) => !p.ready).map((p) => esc(p.name));
   const startNow = isHost ? '<button class="ghost" data-act="startNow">Start now</button>' : '';
   if (me != null && !v.players[me].ready)
-    return `<div class="buy-bar ask"><span>Look over your cards. Round ${v.round + 1}: <b>${contractText(v.round)}</b></span>
+    return `<div class="buy-bar ask"><span>Look over your cards. ${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}`}: <b>${contractText(v.round)}</b></span>
       <span class="buy-actions"><button class="primary" data-act="ready">I'm ready</button>${startNow}</span></div>`;
   return `<div class="buy-bar"><span>Waiting for ${waiting.join(', ')} to be ready…</span>${startNow ? `<span class="buy-actions">${startNow}</span>` : ''}</div>`;
 }
@@ -995,7 +997,7 @@ function gameHTML(snap) {
   return `<div class="game">
     ${banner}
     <div class="topbar">
-      <span class="round">Round ${v.round + 1}/${ROUNDS.length}</span>
+      <span class="round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}/${ROUNDS.length}`}</span>
       <span class="contract">${contractText(v.round)}</span>
       <span class="spacer"></span>
       ${snap.lobby.code ? `<span class="muted" style="font-size:12px">${snap.lobby.code}</span>` : ''}
@@ -1012,8 +1014,9 @@ function gameHTML(snap) {
 // ---------- modals ----------
 function modalHTML(snap) {
   const v = snap.view;
-  if (v.phase === 'roundOver' || v.phase === 'gameOver') {
-    if (!['scores', 'menu', 'rules', 'log', 'settings', 'install', 'feedback', 'cropPhoto'].includes(ui.modal)) return resultModal(snap);
+  if (v.phase === 'roundOver' || v.phase === 'gameOver' || v.phase === 'tieVote') {
+    if (!['scores', 'menu', 'rules', 'log', 'settings', 'install', 'feedback', 'cropPhoto'].includes(ui.modal))
+      return v.phase === 'tieVote' ? tieModal(snap) : resultModal(snap);
   }
   switch (ui.modal) {
     case 'scores':
@@ -1068,6 +1071,21 @@ function totalsOf(v) {
   return v.scores.map((s) => s.reduce((a, b) => a + b, 0));
 }
 
+// A tie for the win at the end of the game is settled by a vote, then maybe a tiebreaker: the last round's contract
+// again, dealt only to the tied players (see tieVote in engine.js)
+const inTiebreaker = (v) => !!(v.tiebreak && v.tiebreak.playing);
+function namesOf(v, seats, you = true) {
+  const names = seats.map((i) => (you && i === v.you ? 'You' : esc(v.players[i].name)));
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+}
+// who won: the engine's winners, or the lowest total for games that ended before it kept them
+function winnersOf(v) {
+  if (v.winners) return v.winners;
+  const t = totalsOf(v);
+  const best = Math.min(...t);
+  return t.map((_, i) => i).filter((i) => t[i] === best);
+}
+
 function scoresTable(v) {
   const totals = totalsOf(v);
   const head = v.players.map((p) => `<th>${esc(p.name)}</th>`).join('');
@@ -1078,12 +1096,21 @@ function scoresTable(v) {
     });
     return `<tr><td>${r + 1}. ${contractText(r)}</td>${cells.join('')}</tr>`;
   }).join('');
-  // a crown on the lowest total (on each, if tied) once a round has been scored
-  const best = v.scores.some((s) => s.some((x) => x != null)) ? Math.min(...totals) : null;
+  // a tie for the win played off: its own row, under the totals it doesn't change
+  const tb = v.tiebreak && (v.tiebreak.playing || v.tiebreak.points) ? v.tiebreak : null;
+  const tbRow = tb
+    ? `<tr class="tiebreak"><td>Tiebreaker · ${contractText(ROUNDS.length - 1)}</td>${v.players
+        .map((_, i) => (tb.points && tb.points[i] != null ? `<td class="${tb.points[i] === 0 ? 'zero' : ''}">${tb.points[i]}</td>` : '<td></td>'))
+        .join('')}</tr>`
+    : '';
+  // a crown on the lowest total (on each, if tied) once a round has been scored; at the end, on the winners
+  const scored = v.scores.some((s) => s.some((x) => x != null));
+  const best = scored ? Math.min(...totals) : null;
+  const crowned = (t, i) => (v.phase === 'gameOver' ? winnersOf(v).includes(i) : t === best);
   const crown = '<span class="crown" role="img" aria-label="in the lead">👑</span>';
   return `<div style="overflow-x:auto"><table class="scores"><tr><th>Round</th>${head}</tr>${rows}<tr class="total"><td>Total</td>${totals
-    .map((t) => `<td>${t}${t === best ? crown : ''}</td>`)
-    .join('')}</tr></table></div><p class="muted">Lowest total after ${ROUNDS.length} rounds wins.</p>`;
+    .map((t, i) => `<td>${t}${scored && crowned(t, i) ? crown : ''}</td>`)
+    .join('')}</tr>${tbRow}</table></div><p class="muted">Lowest total after ${ROUNDS.length} rounds wins. A tie for the win can be shared or played off in a tiebreaker.</p>`;
 }
 
 function resultModal(snap) {
@@ -1092,27 +1119,95 @@ function resultModal(snap) {
   const isWild = wildTest(v.options);
   const totals = totalsOf(v);
   const over = v.phase === 'gameOver';
-  const order = v.players.map((_, i) => i).sort((a, b) => (over ? totals[a] - totals[b] : rr.points[a] - rr.points[b]));
+  const winners = over ? winnersOf(v) : [];
+  const tb = over && v.tiebreak && v.tiebreak.points ? v.tiebreak : null;
+  // at the end, winners first, then by total
+  const order = v.players
+    .map((_, i) => i)
+    .sort((a, b) => (over ? winners.includes(b) - winners.includes(a) || totals[a] - totals[b] : rr.points[a] - rr.points[b]));
   const rows = order
-    .map((i, rank) => {
+    .map((i) => {
       const hand = rr.hands ? rr.hands[i] : [];
-      return `<div class="result-row"><div class="top"><span>${over && rank === 0 ? '🏆 ' : ''}${esc(v.players[i].name)}${
+      // after a tiebreaker its score is the one that counted for the tied players
+      const pts = !tb ? `+${rr.points[i]} · total ${totals[i]}` : tb.points[i] != null ? `tiebreaker ${tb.points[i]} · total ${totals[i]}` : `total ${totals[i]}`;
+      return `<div class="result-row ${winners.includes(i) ? 'winner' : ''}"><div class="top"><span>${winners.includes(i) ? '🏆 ' : ''}${esc(v.players[i].name)}${
         rr.winner === i ? ' went out!' : ''
-      }</span><span>+${rr.points[i]} · total ${totals[i]}</span></div>
+      }</span><span>${pts}</span></div>
       ${hand.length ? `<div class="mini-hand">${hand.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>` : ''}</div>`;
     })
     .join('');
-  const title = over ? `Game over! ${esc(v.players[order[0]].name)} wins` : `Round ${v.round + 1} done`;
+  let title = `Round ${v.round + 1} done`;
+  let sub = '';
+  if (over) {
+    const me = v.you;
+    const won = me != null && winners.includes(me);
+    if (won) title = winners.length > 1 ? `👑 ${namesOf(v, winners)} win!` : '👑 You win!';
+    else title = `${namesOf(v, winners)} win${winners.length > 1 ? '' : 's'}!`;
+    if (won && winners.length > 1) sub = "It's a shared win.";
+    else if (won && tb) sub = 'You won the tiebreaker.';
+    else if (won) sub = `Lowest total after ${ROUNDS.length} rounds.`;
+    else if (me != null && tb && tb.seats.includes(me)) sub = 'You lost the tiebreaker.';
+    else if (me != null) {
+      // your place counts everyone with a lower total ahead of you (the winners always count)
+      const place = 1 + v.players.filter((_, i) => i !== me && (winners.includes(i) || totals[i] < totals[me])).length;
+      const behind = totals[me] - Math.min(...winners.map((i) => totals[i]));
+      sub = `You came ${ordinal(place)}${behind > 0 ? ` · ${behind} behind` : ''}.`;
+    }
+  }
   let actions = '';
   if (snap.isHost) actions = over ? '<button class="primary" data-act="playAgain">Play again</button>' : `<button class="primary" data-act="nextRound">Deal round ${v.round + 2}: ${contractText(v.round + 1)}</button>`;
   else actions = `<span class="muted">Waiting for the host to ${over ? 'start a new game' : 'deal'}…</span>`;
-  return `<div class="overlay"><div class="modal">
+  return `<div class="overlay"><div class="modal ${over ? 'game-over' : ''}">
     <h2>${title}</h2>
-    ${rr.winner == null ? '<p class="muted">Nobody went out this round.</p>' : ''}
+    ${sub ? `<p class="muted result-sub">${sub}</p>` : ''}
+    ${rr.winner == null ? `<p class="muted">Nobody went out this ${tb ? 'tiebreaker' : 'round'}.</p>` : ''}
     ${rows}
     <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${
       over ? '<button class="ghost" data-act="leave">Home</button>' : snap.isHost ? '' : '<button class="ghost" data-act="leave">Leave game</button>'
     }${actions}</div>
+  </div></div>`;
+}
+
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+// A tie for the win: the tied people each pick "Share the win" or "Play a tiebreaker" (everyone tied has to want the
+// tiebreaker; anyone sharing makes it shared). Computers don't vote; one person against the computer decides alone.
+function tieModal(snap) {
+  const v = snap.view;
+  const tb = v.tiebreak;
+  const totals = totalsOf(v);
+  const me = v.you;
+  const voters = tb.seats.filter((i) => !v.players[i].bot);
+  const iVote = me != null && voters.includes(me);
+  const just = tb.seats.length === 2 && voters.length === 2 && iVote ? 'just the two of you' : `just ${namesOf(v, tb.seats)}`;
+  const votes = voters.length > 1
+    ? `<div class="tie-votes">${voters
+        .map((i) => {
+          const c = tb.votes[i];
+          return `<span class="${c ? 'voted' : ''}">${i === me ? 'You' : esc(v.players[i].name)}: ${c === 'tiebreak' ? 'Tiebreaker' : c === 'share' ? 'Share' : 'deciding…'}</span>`;
+        })
+        .join('')}</div>`
+    : '';
+  let actions;
+  if (iVote && !tb.votes[me])
+    actions = '<button class="ghost" data-act="tieVote" data-choice="share">Share the win</button><button class="primary" data-act="tieVote" data-choice="tiebreak">Play a tiebreaker</button>';
+  else {
+    const waiting = voters.filter((i) => !tb.votes[i]);
+    actions = `<span class="muted">Waiting for ${namesOf(v, waiting)} to decide…</span>`;
+  }
+  return `<div class="overlay"><div class="modal">
+    <h2>It's a tie!</h2>
+    <p class="muted result-sub">${namesOf(v, tb.seats)} ${tb.seats.length > 2 ? 'all' : 'both'} have ${totals[tb.seats[0]]}.</p>
+    <p>${iVote ? 'Call it a shared win, or play a <b>tiebreaker</b>' : 'They can share the win or play a <b>tiebreaker</b>'}: round ${ROUNDS.length} (${contractText(
+      ROUNDS.length - 1
+    )}) again, ${just}. Lowest score in it wins.</p>
+    ${voters.length > 1 ? `<p class="muted">Everyone tied has to pick the tiebreaker to play it.</p>` : ''}
+    ${votes}
+    <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${actions}</div>
   </div></div>`;
 }
 
@@ -1480,7 +1575,8 @@ function rulesModal(o, bots = false) {
   return wrapModal(
     'How to play',
     `<div class="rules">
-    <p>Lowest score after ${ROUNDS.length} rounds wins. Each round has a contract you must lay down before you can play on any piles.</p>
+    <p>Lowest score after ${ROUNDS.length} rounds wins. Each round has a contract you must lay down before you can play on any piles.
+    If players tie for the win, they can share it or play a tiebreaker: round ${ROUNDS.length} again, just them.</p>
     <ul>${rounds}</ul>
     <h3>Around the table</h3>
     <ul><li><span class="dealer-badge inline">D</span> marks the dealer. The deal moves one seat each round, and the player after the dealer goes first.</li>
@@ -2346,6 +2442,83 @@ function flyBuy() {
   }, () => {});
 }
 
+// ---------- the winner's card shower ----------
+// When a game ends, little ♠ ♥ ♦ ♣ cards and paper confetti fall over the screen: the full shower on the winner's phone,
+// a lighter one for everyone else. Once per game on this page, on its own canvas over everything, gone when it's done.
+const CONFETTI_COLORS = ['#f2c14e', '#d63b3b', '#fffdf7', '#2e7d4f', '#6b3fa0'];
+const SUIT_BITS = [['♠', '#1d1d1f'], ['♥', '#c62828'], ['♦', '#c62828'], ['♣', '#1d1d1f']];
+function celebrateWin() {
+  const v = ui.snap && ui.snap.view;
+  if (!v || v.phase !== 'gameOver') return;
+  const key = `${handGameKey()}:${v.seq}`;
+  if (ui.celebrated === key || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  ui.celebrated = key;
+  confettiShower(v.you != null && winnersOf(v).includes(v.you) ? 1 : 0.35);
+}
+
+function confettiShower(amount) {
+  const canvas = document.createElement('canvas');
+  canvas.className = 'confetti';
+  canvas.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  const w = innerWidth;
+  const h = innerHeight;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const bits = [];
+  for (let i = 0; i < Math.round(46 * amount); i++) {
+    const [suit, color] = SUIT_BITS[i % 4];
+    bits.push({ card: true, suit, color, x: rand(0, w), y: rand(-h * 0.6, -30), vx: rand(-0.6, 0.6), vy: rand(2.2, 4), rot: rand(-0.6, 0.6), vr: rand(-0.04, 0.04), sway: rand(0, 6.28) });
+  }
+  for (let i = 0; i < Math.round(90 * amount); i++) {
+    const color = CONFETTI_COLORS[(Math.random() * CONFETTI_COLORS.length) | 0];
+    bits.push({ color, x: rand(0, w), y: rand(-h * 0.7, -10), vx: rand(-0.5, 0.5), vy: rand(1.6, 3.2), bw: rand(5, 9), bh: rand(7, 12), rot: rand(0, 6.28), vr: rand(-0.15, 0.15), sway: rand(0, 6.28), t: 0 });
+  }
+  const step = () => {
+    ctx.clearRect(0, 0, w, h);
+    let left = 0;
+    for (const b of bits) {
+      if (b.y > h + 40) continue;
+      left++;
+      b.sway += b.card ? 0.05 : 0.06;
+      b.x += b.vx + Math.sin(b.sway) * (b.card ? 0.8 : 1.1);
+      b.y += b.vy;
+      b.rot += b.vr;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(b.rot);
+      if (b.card) {
+        ctx.fillStyle = '#fffdf7';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(-11, -15, 22, 30, 3);
+        else ctx.rect(-11, -15, 22, 30);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = b.color;
+        ctx.font = '16px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(b.suit, 0, 1);
+      } else {
+        // a flat piece of paper turning over as it falls
+        b.t++;
+        ctx.scale(1, Math.cos(b.t * 0.18));
+        ctx.fillStyle = b.color;
+        ctx.fillRect(-b.bw / 2, -b.bh / 2, b.bw, b.bh);
+      }
+      ctx.restore();
+    }
+    if (left) requestAnimationFrame(step);
+    else canvas.remove();
+  };
+  requestAnimationFrame(step);
+}
+
 // ---------- tour & tips ----------
 // A short tour for someone's first game on this phone (during round 1's "look over your cards" pause, so nothing is
 // happening yet), then a few one-time tips the first time certain moments come up. The tour blocks the game and can
@@ -2715,6 +2888,9 @@ function onClick(e) {
       return render();
     case 'buyAnswer':
       send({ type: 'buyAnswer', buy: t.dataset.buy === '1' });
+      return render();
+    case 'tieVote':
+      send({ type: 'tieVote', choice: t.dataset.choice });
       return render();
     case 'swapOrAdd': {
       const wp = ui.wildPrompt;

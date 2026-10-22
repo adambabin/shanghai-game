@@ -39,13 +39,28 @@ function rngOf(state) {
   return state.rng || Math.random;
 }
 
-export function startRound(state) {
-  state.round++;
+// Is this seat out of the current deal? Only during a tiebreaker, for everyone who isn't tied.
+export function sittingOut(state, seat) {
+  return !!(state.tiebreak && state.tiebreak.playing && !state.tiebreak.seats.includes(seat));
+}
+
+// The next seat round the table that's playing this deal
+function nextSeat(state, seat) {
   const n = state.players.length;
-  if (state.round > 0) state.dealer = (state.dealer + 1) % n;
+  for (let i = 1; i <= n; i++) {
+    const s = (seat + i) % n;
+    if (!sittingOut(state, s)) return s;
+  }
+  return seat;
+}
+
+// A tiebreaker deals the last round's contract again (state.round stays put) to the tied players only
+export function startRound(state, { tiebreaker = false } = {}) {
+  if (!tiebreaker) state.round++;
+  if (state.round > 0 || tiebreaker) state.dealer = nextSeat(state, state.dealer);
   const cfg = ROUNDS[state.round];
   state.deck = shuffle(makeDecks(decksFor(state.options)), rngOf(state));
-  state.hands = state.players.map(() => state.deck.splice(0, cfg.deal));
+  state.hands = state.players.map((_, i) => (sittingOut(state, i) ? [] : state.deck.splice(0, cfg.deal)));
   state.discard = [state.deck.pop()];
   state.topDead = false;
   state.melds = [];
@@ -53,16 +68,23 @@ export function startRound(state) {
   state.buysUsed = state.players.map(() => 0);
   state.blocked = state.players.map(() => false);
   state.lastDiscard = null;
-  state.turn = (state.dealer + 1) % n;
+  state.turn = nextSeat(state, state.dealer);
   resetDraw(state);
   state.turnPlays = 0;
   state.history = [];
   state.mustPlay = [];
   // everyone gets to look over their cards first; computers are always ready
   state.phase = 'ready';
-  state.ready = state.players.map((p) => p.bot);
+  state.ready = state.players.map((p, i) => p.bot || sittingOut(state, i));
   state.roundResult = null;
-  log(state, `Round ${state.round + 1}: ${contractText(state.round)}. ${state.players[state.dealer].name} deals.`, 'round');
+  if (tiebreaker)
+    log(state, `Tiebreaker: ${contractText(state.round)}, just ${listNames(state, state.tiebreak.seats)}. ${state.players[state.dealer].name} deals.`, 'round');
+  else log(state, `Round ${state.round + 1}: ${contractText(state.round)}. ${state.players[state.dealer].name} deals.`, 'round');
+}
+
+function listNames(state, seats) {
+  const names = seats.map((i) => state.players[i].name);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
 }
 
 function reshuffle(state) {
@@ -128,6 +150,7 @@ export function buyEligible(state) {
     .filter(
       (i) =>
         i !== state.turn &&
+        !sittingOut(state, i) &&
         !state.laid[i] &&
         state.buysUsed[i] < state.options.buyLimit &&
         !(ld && ld.by === i && ld.card.id === top.id)
@@ -185,13 +208,66 @@ function completeBuy(state, buyer) {
 function finishRound(state, winner) {
   const isWild = isWildFn(state);
   const points = state.hands.map((h) => h.reduce((sum, c) => sum + cardPoints(c, isWild), 0));
-  points.forEach((p, i) => state.scores[i].push(p));
+  // a tiebreaker's points go in its own row (state.tiebreak.points), not the 11 rounds' totals
+  if (!(state.tiebreak && state.tiebreak.playing)) points.forEach((p, i) => state.scores[i].push(p));
   state.roundResult = { winner, points };
   state.buyWindow = null;
   closeShanghaiWindow(state);
-  if (winner != null) log(state, `${state.players[winner].name} went out and won round ${state.round + 1}!`, 'win', { seat: winner });
-  else log(state, `Round ${state.round + 1} ended with nobody going out.`, 'win');
-  state.phase = state.round >= ROUNDS.length - 1 ? 'gameOver' : 'roundOver';
+  const what = state.tiebreak && state.tiebreak.playing ? 'the tiebreaker' : `round ${state.round + 1}`;
+  if (winner != null) log(state, `${state.players[winner].name} went out and won ${what}!`, 'win', { seat: winner });
+  else log(state, `${what[0].toUpperCase() + what.slice(1)} ended with nobody going out.`, 'win');
+  if (state.round < ROUNDS.length - 1) {
+    state.phase = 'roundOver';
+    return;
+  }
+  // the tiebreaker: lowest score in it wins; tied again is a shared win
+  if (state.tiebreak && state.tiebreak.playing) {
+    const tb = state.tiebreak;
+    tb.points = state.players.map((_, i) => (tb.seats.includes(i) ? points[i] : null));
+    tb.playing = false;
+    const best = Math.min(...tb.seats.map((i) => points[i]));
+    return endGame(state, tb.seats.filter((i) => points[i] === best));
+  }
+  // lowest total wins; a tie for it goes to a vote among the tied people (all computers: shared)
+  const t = totals(state);
+  const best = Math.min(...t);
+  const tied = t.map((_, i) => i).filter((i) => t[i] === best);
+  if (tied.length > 1 && tied.some((i) => !state.players[i].bot)) {
+    state.tiebreak = { seats: tied, votes: {}, playing: false, points: null };
+    state.phase = 'tieVote';
+    log(state, `It's a tie! ${listNames(state, tied)} both have ${best}. Share the win, or play a tiebreaker?`, 'tie');
+    return;
+  }
+  endGame(state, tied);
+}
+
+function endGame(state, winners) {
+  state.winners = winners;
+  state.phase = 'gameOver';
+  log(state, winners.length > 1 ? `${listNames(state, winners)} share the win!` : `${state.players[winners[0]].name} wins the game!`, 'gameover');
+}
+
+// After a tie for the win, each tied person votes: everyone picking the tiebreaker plays round 11 again (just them);
+// anyone picking "share" makes it a shared win. Computers don't vote.
+function tieVote(state, seat, choice) {
+  const tb = state.tiebreak;
+  if (state.phase !== 'tieVote' || !tb) return err('There is no tie to settle.');
+  if (!tb.seats.includes(seat) || state.players[seat].bot) return err('Only the tied players choose.');
+  if (choice !== 'share' && choice !== 'tiebreak') return err('Unknown choice.');
+  tb.votes[seat] = choice;
+  const name = state.players[seat].name;
+  if (choice === 'share') {
+    log(state, `${name} chose to share the win.`, 'tievote', { seat });
+    endGame(state, tb.seats);
+    return { ok: true };
+  }
+  log(state, `${name} wants a tiebreaker.`, 'tievote', { seat });
+  const voters = tb.seats.filter((i) => !state.players[i].bot);
+  if (voters.every((i) => tb.votes[i] === 'tiebreak')) {
+    tb.playing = true;
+    startRound(state, { tiebreaker: true });
+  }
+  return { ok: true };
 }
 
 export function totals(state) {
@@ -229,6 +305,8 @@ export function applyAction(state, seat, action) {
   const name = state.players[seat].name;
   const myTurn = state.turn === seat;
   const inRound = state.phase === 'draw' || state.phase === 'play';
+  if (action.type === 'tieVote') return tieVote(state, seat, action.choice);
+  if (sittingOut(state, seat)) return err("You're sitting out the tiebreaker.");
 
   switch (action.type) {
     case 'drawDeck': {
@@ -394,7 +472,7 @@ export function applyAction(state, seat, action) {
           note: `That wasn't a Shanghai: the ${cardLabel(card)} doesn't fit on any pile, so it stays live.`,
         });
       else log(state, `${name} discarded the ${cardLabel(card)}.`, 'discard', { seat });
-      state.turn = (state.turn + 1) % n;
+      state.turn = nextSeat(state, state.turn);
       state.turnPlays = 0;
       state.blocked[state.turn] = false;
       resetDraw(state);
@@ -494,6 +572,7 @@ export function viewFor(state, seat) {
     options: state.options,
     players: state.players.map((p, i) => ({
       ...p,
+      out: sittingOut(state, i),
       cards: state.hands[i].length,
       laid: state.laid[i],
       buysUsed: state.buysUsed[i],
@@ -523,9 +602,12 @@ export function viewFor(state, seat) {
       ? { asking: buyAsking(state), order: state.buyWindow.order, msLeft: Math.max(0, state.buyWindow.deadline - Date.now()) }
       : null,
     roundResult: state.roundResult
-      ? { ...state.roundResult, hands: state.phase === 'roundOver' || state.phase === 'gameOver' ? state.hands : null }
+      ? { ...state.roundResult, hands: ['roundOver', 'gameOver', 'tieVote'].includes(state.phase) ? state.hands : null }
       : null,
     log: state.log.slice(-40),
     seq: state.seq,
+    // a tie for the win: who's tied, how they've voted, and the tiebreaker's scores once it's played
+    tiebreak: state.tiebreak || null,
+    winners: state.winners || null,
   };
 }
