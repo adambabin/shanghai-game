@@ -978,6 +978,8 @@ function handHTML(v, isWild) {
 function dockHTML(v, isWild) {
   const me = v.you;
   if (me == null) return '';
+  // sitting out a tiebreaker: no cards to show, just say so
+  if (v.players[me].out) return `<div class="dock"><p class="muted sitting-out">You're sitting out the tiebreaker. Lowest score in it wins.</p></div>`;
   const body = stagingHTML(v, isWild) + handHTML(v, isWild);
   if (ui.dockCollapsed)
     return `<div class="dock collapsed"><button class="dock-toggle" data-act="toggleDock">Show my cards (${v.hand.length}) ▴</button></div>`;

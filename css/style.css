@@ -1126,6 +1126,11 @@ table.scores td.zero {
   border-top: 1px solid rgba(242, 193, 78, 0.4);
 }
 /* the winner's card shower: over everything, never in the way of a tap */
+.dock .sitting-out {
+  margin: 0;
+  padding: 24px 16px;
+  text-align: center;
+}
 canvas.confetti {
   position: fixed;
   inset: 0;
