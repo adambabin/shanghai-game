@@ -175,7 +175,11 @@ function completeBuy(state, buyer) {
   state.topDead = false;
   state.buyOffered = false;
   closeShanghaiWindow(state);
-  log(state, `${state.players[buyer].name} bought the ${cardLabel(card)} (+${extra.length} from the deck).`, 'buy', { seat: buyer });
+  log(state, `${state.players[buyer].name} bought the ${cardLabel(card)} (+${extra.length} from the deck).`, 'buy', {
+    seat: buyer,
+    card, // the card everyone saw on the pile, so other players can watch it go to the buyer
+    extra: extra.length,
+  });
 }
 
 function finishRound(state, winner) {

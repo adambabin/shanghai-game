@@ -151,9 +151,10 @@ function beep(freqs, dur = 0.12) {
 
 // ---------- toasts ----------
 // During a game, messages show briefly in the activity box under the deck; elsewhere they float.
-function toast(text, bad = false, ms = 3000) {
+// loud: shown even over "Your turn" (like who just bought the card you let go)
+function toast(text, bad = false, ms = 3000, loud = false) {
   if (ui.snap && ui.snap.view) {
-    ui.flash = { text, bad, until: Date.now() + ms };
+    ui.flash = { text, bad, loud, until: Date.now() + ms };
     clearTimeout(ui.flashTimer);
     ui.flashTimer = setTimeout(render, ms + 30);
     render();
@@ -285,6 +286,8 @@ function processLog(v) {
     if (e.seq <= ui.lastSeq) continue;
     // someone else's discard flies from their tile to the pile (yours you just put there yourself)
     if (DISCARD_KINDS.includes(e.kind) && e.seat !== v.you) ui.flyFrom = e.seat;
+    // someone else's buy flies the other way: the card from the pile, then the extra cards from the deck, to their tile
+    if (e.kind === 'buy' && e.seat !== v.you && e.card) ui.flyBuy = { seat: e.seat, card: e.card, extra: e.extra || 0 };
     if (e.kind === 'shanghai') {
       shout('SHANGHAI!');
       toast(e.text, true, 5000);
@@ -300,7 +303,8 @@ function processLog(v) {
     } else if (['buy', 'buyreq', 'laydown', 'dead', 'swap', 'buywindow'].includes(e.kind)) {
       // you already know what you just did
       if (e.seat === v.you) continue;
-      toast(e.text, false);
+      // who bought what stays up a little longer
+      toast(e.text, false, e.kind === 'buy' ? 5000 : 3000, e.kind === 'buy');
     }
   }
   ui.lastSeq = v.seq;
@@ -441,6 +445,7 @@ function render() {
   markTableOverflow();
   fitHomeGames();
   flyDiscard();
+  flyBuy();
   const players = $app.querySelector('.players');
   if (players) {
     if (playersLeft != null) players.scrollLeft = playersLeft;
@@ -829,7 +834,7 @@ function activityHTML(v) {
   const mine = me != null && v.turn === me && (v.phase === 'draw' || v.phase === 'play');
   const f = ui.flash && ui.flash.until > Date.now() ? ui.flash : null;
   // your own turn beats other people's news (it stays on the line below), but not your own mistakes
-  const showFlash = f && (!mine || f.bad);
+  const showFlash = f && (!mine || f.bad || f.loud);
   // prompts keep their own buttons; any other message opens the game log when tapped
   let main = buyBarHTML(v);
   const log = 'data-act="modal" data-m="log" title="Tap for the game log"';
@@ -2293,6 +2298,51 @@ function flyDiscard() {
     const pile = $app.querySelector('.discard-pile.landing');
     if (pile) pile.classList.remove('landing');
   };
+}
+
+// Someone else bought the discard: it flies from the pile to their tile, the extra cards they take follow from the
+// deck as card backs, and the tile pulses as they land
+function flyBuy() {
+  const buy = ui.flyBuy;
+  ui.flyBuy = null;
+  if (!buy || ui.modal || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const v = ui.snap && ui.snap.view;
+  const row = $app.querySelector('.players');
+  const chip = row && row.children[buy.seat];
+  const pile = $app.querySelector('.discard-pile .stack');
+  const deck = $app.querySelector('.center .pile:not(.discard-pile) .stack');
+  if (!v || !chip || !pile) return;
+  const box = row.getBoundingClientRect();
+  const c = chip.getBoundingClientRect();
+  // a tile scrolled out of sight takes its cards at the edge of the row
+  const tx = Math.min(Math.max(c.left + c.width / 2, box.left + 20), box.right - 20);
+  const ty = c.top + c.height / 2;
+  const fly = (html, from, delay) => {
+    const r = from.getBoundingClientRect();
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    const ghost = wrap.firstElementChild;
+    ghost.classList.add('flying-card');
+    Object.assign(ghost.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    document.body.appendChild(ghost);
+    const dx = tx - (r.left + r.width / 2);
+    const dy = ty - (r.top + r.height / 2);
+    const a = ghost.animate(
+      [
+        { transform: 'none', opacity: 1 },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.35)`, opacity: 0.4 },
+      ],
+      { duration: FLY_MS, delay, easing: 'cubic-bezier(0.5, 0, 0.75, 0.4)', fill: 'backwards' }
+    );
+    a.onfinish = () => ghost.remove();
+    return a;
+  };
+  let last = fly(cardHTML(buy.card, { isWild: wildTest(v.options) }), pile, 0);
+  if (deck) for (let i = 0; i < buy.extra; i++) last = fly('<div class="card-back"></div>', deck, 220 + i * 140);
+  last.finished.then(() => {
+    const tile = $app.querySelector('.players') && $app.querySelector('.players').children[buy.seat];
+    if (tile) tile.animate([{ boxShadow: '0 0 0 0 rgba(242, 193, 78, 0)' }, { boxShadow: '0 0 0 4px rgba(242, 193, 78, 0.8)' }, { boxShadow: '0 0 0 0 rgba(242, 193, 78, 0)' }], { duration: 700 });
+  }, () => {});
 }
 
 // ---------- tour & tips ----------
