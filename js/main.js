@@ -1057,8 +1057,10 @@ function modalHTML(snap) {
 function wrapModal(title, body, actions = '', { closeFirst = false, headAction = '' } = {}) {
   const close = '<button class="ghost" data-act="closeModal">Close</button>';
   const head = headAction ? `<div class="modal-head"><h2>${title}</h2>${headAction}</div>` : `<h2>${title}</h2>`;
+  // playing alone against the computer, these pop-ups pause the game (see gamePaused); say so
+  const paused = gamePaused() ? '<p class="muted paused-note">The game is paused while this is open.</p>' : '';
   return `<div class="overlay" data-act="closeModal"><div class="modal framed" data-stop>
-    ${head}<div class="modal-body">${body}</div>
+    ${head}<div class="modal-body">${paused}${body}</div>
     <div class="actions">${closeFirst ? close + actions : actions + close}</div></div></div>`;
 }
 
@@ -1134,8 +1136,7 @@ function menuModal(snap) {
     if (v.phase === 'draw' || v.phase === 'play') items.push('<button class="danger" data-act="endRound">End this round (nobody can go out)</button>');
   }
   items.push(`<button class="danger" data-act="leave">${snap.isHost && !snap.solo ? 'Leave (game pauses for everyone)' : 'Leave game'}</button>`);
-  const paused = gamePaused() ? '<p class="muted">The game is paused while this is open.</p>' : '';
-  return wrapModal('Menu', `${paused}<div class="menu-list">${items.join('')}</div>`);
+  return wrapModal('Menu', `<div class="menu-list">${items.join('')}</div>`);
 }
 
 // Your own preferences. They're saved in this browser, so they come back next time on this device.

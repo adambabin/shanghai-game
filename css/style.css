@@ -1030,6 +1030,9 @@ label.field {
   flex: none;
   margin-top: 8px; /* level with the title text, which sits below the h2's top padding */
 }
+.modal-body .paused-note {
+  margin: 0 0 10px;
+}
 .modal.framed .modal-body {
   flex: 1;
   min-height: 0;
