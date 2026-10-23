@@ -13,6 +13,7 @@ function playGame(players, seed, botLevel = 'normal') {
   const stats = { stalled: 0, buys: 0, shanghais: 0, rounds: 0, steps: 0, discards: 0, catchable: 0 };
   while (g.phase !== 'gameOver') {
     let steps = 0;
+    const memos = Array.from({ length: players }, () => ({}));
     if (g.phase === 'ready') beginPlay(g);
     while (g.phase === 'draw' || g.phase === 'play') {
       // a round can genuinely deadlock when nobody can go out without discarding; the host can end it
@@ -37,13 +38,13 @@ function playGame(players, seed, botLevel = 'normal') {
           continue;
         }
         const before = g.buysUsed.reduce((a, b) => a + b, 0);
-        const a = chooseDraw(viewFor(g, g.turn));
+        const a = chooseDraw(viewFor(g, g.turn), memos[g.turn]);
         const r = applyAction(g, g.turn, a);
         assert.ok(r.ok, `${a.type}: ${r.error}`);
         stats.buys += g.buysUsed.reduce((a, b) => a + b, 0) - before;
       } else {
         const seat = g.turn;
-        const a = choosePlay(viewFor(g, seat), rng);
+        const a = choosePlay(viewFor(g, seat), rng, memos[seat]);
         const r = applyAction(g, seat, a);
         assert.ok(r.ok, `${a.type}: ${r.error}`);
         if (a.type === 'discard') {
