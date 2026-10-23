@@ -78,6 +78,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
     - A card in a staged group (`[data-staged-card]`, `startStagedDrag`) drags back out, at hand size: into the hand (where the space opens, not selected), onto another group or a New set / New run spot, or onto the discard pile (`takeOutOfStaged`). A group left short stays to fill again; an empty one goes away. A swipe that starts sideways scrolls the staged row instead (by hand, since the cards are `touch-action: none`).
     - `[data-drag]` piles (deck, discard) drag into the hand to draw. `ui.drawTo` makes `syncHand()` put the new card where it was dropped.
     - The discard can also be dragged straight onto a staged group, a New set / New run spot or (once you've laid down) a pile on the table (`.meld[data-meld]`), all in one go. `takeDiscardTo()` checks the card fits first, so a card that can't go there stays on the discard pile with the usual message. Then it sends `drawDiscard`, and `ui.afterDraw` has `onSnapshot()` call `finishTake()` once the card is in your hand (at once for the host, after the reply for players who joined).
+- `js/telemetry.js` sends anonymous usage stats to Umami Cloud (`UMAMI_SITE`; empty sends nothing). What gets counted is the "usage stats" section of `main.js` (`trackSnapshot()`, `trackRefused()` from `toast()`, `game_left` in `leave()` and on `pagehide`, the tour and tips). Never send names, room codes, cards or typed text. Off on a local copy, with `?debug`, and on devices that opened `?notrack`. Setup and the event list: `TELEMETRY.md`; keep its table current when adding an event.
 - `js/melds.js` validates sets and runs. A run is stored as `{ suit, lo, cards }`, where `cards[i]` sits at value `lo + i`. Wild cards occupy real slots, which is what makes joker swaps and order-preserving runs possible.
 - `js/rules.js` holds the round contracts and deal sizes (`ROUNDS`), plus the lobby-adjustable `DEFAULT_OPTIONS`. The host picks 3 to 6 decks (`decks`, default 3), each adding 2 jokers; `decksFor()` clamps it and fills the default for older saves.
 
@@ -126,6 +127,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 - `tests/saves.test.js` checks the per-game save slots with an in-memory `localStorage`.
 - `tests/stamp.test.js` stamps a copy of the site and checks the references, the imports and that the modules still load.
 - `tests/sim.test.js` plays many full bot-only games at each skill level and asserts most rounds end with someone going out, and that easier computers leave more catchable discards. Bot or rule changes that cause stalls show up here.
+- `tests/telemetry.test.js` checks the Umami payload, that nothing goes out when it's off, and the error-text cleanup.
 - `tests/bot.test.js` checks each skill level's choices on hand-built views.
 - UI changes have been checked with ad-hoc Playwright scripts (Chromium is preinstalled; use the `?debug` hook), not with committed tests.
 

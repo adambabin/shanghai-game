@@ -2,6 +2,7 @@ import { HostSession, ClientSession } from './host.js';
 import { joinRoom } from './net.js';
 import { SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
 import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
+import { browserTracker, plainError } from './telemetry.js';
 import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor, BOT_LEVELS, botLevelFor } from './rules.js';
 
 const $app = document.getElementById('app');
@@ -37,6 +38,15 @@ const store = {
 };
 let clientId = store.get('clientId');
 if (!clientId) store.set('clientId', (clientId = Math.random().toString(36).slice(2) + Date.now().toString(36)));
+
+// Anonymous usage stats (js/telemetry.js, TELEMETRY.md). ?notrack on the address turns them off on this device for
+// good (the owner's own phones), ?track turns them back on. Never sent from a local copy or with ?debug.
+{
+  const q = new URLSearchParams(location.search);
+  if (q.has('notrack')) store.set('noTrack', true);
+  if (q.has('track')) store.set('noTrack', false);
+}
+const stats = browserTracker({ version: APP_VERSION, off: store.get('noTrack', false) || new URLSearchParams(location.search).has('debug') });
 
 const ui = {
   session: null,
@@ -154,6 +164,7 @@ function beep(freqs, dur = 0.12) {
 // loud: shown even over "Your turn" (like who just bought the card you let go)
 function toast(text, bad = false, ms = 3000, loud = false) {
   if (ui.snap && ui.snap.view) {
+    if (bad) trackRefused(text);
     ui.flash = { text, bad, loud, until: Date.now() + ms };
     clearTimeout(ui.flashTimer);
     ui.flashTimer = setTimeout(render, ms + 30);
@@ -235,6 +246,7 @@ function onSnapshot(snap) {
     ui.lastErrSeq = snap.errSeq;
     toast(snap.toastError, true);
   }
+  trackSnapshot(snap);
   const v = snap.view;
   if (v) {
     syncHand(v);
@@ -1560,6 +1572,7 @@ async function sendFeedback(button) {
       feedbackStatus(out.error || "Couldn't send. Try again later.", true);
       return;
     }
+    stats.track('feedback', { photos: ui.fbPhotos.length });
     ui.fbPhotos = [];
     const body = document.querySelector('.feedback');
     if (body) body.innerHTML = '<p><b>Thanks!</b> Your message is on its way.</p>';
@@ -2606,6 +2619,7 @@ function placeGuide() {
     if (key) {
       ui.tip = key;
       store.set('tipsSeen', [...seen, key]);
+      stats.track('tip', { tip: key });
     }
   }
   const showing = ui.tour != null ? `tour:${ui.tour}` : ui.tip ? `tip:${ui.tip}` : null;
@@ -2670,6 +2684,9 @@ function placeGuide() {
 
 function onGuideClick(e) {
   const act = e.target.closest('[data-guide]')?.dataset.guide;
+  if (act === 'skip') stats.track('tour', { finished: false, step: ui.tour + 1 });
+  if (act === 'next' && ui.tour + 1 >= TOUR.length) stats.track('tour', { finished: true, step: TOUR.length });
+  if (act === 'tipsOff') stats.track('tips_off', { tip: ui.tip });
   if (act === 'next') ui.tour = ui.tour + 1 < TOUR.length ? ui.tour + 1 : null;
   if (act === 'skip' || (act === 'next' && ui.tour == null)) {
     ui.tour = null;
@@ -2721,6 +2738,9 @@ function startJoin() {
 
 function leave() {
   const snap = ui.snap;
+  if (snap && snap.view && snap.view.phase !== 'gameOver') stats.track('game_left', { ...whereInGame(snap), how: 'went home' });
+  clearTimeout(gameStats.idleTimer);
+  gameStats.key = null;
   if (snap && snap.isHost && snap.view && snap.view.phase !== 'gameOver' && !snap.solo) {
     if (!confirm("Everyone's game will pause until you come back to it from Your games. Leave anyway?")) return;
   }
@@ -3010,6 +3030,131 @@ setInterval(() => {
   document.querySelectorAll('[data-countdown]').forEach((el) => (el.textContent = secondsLeft()));
 }, 250);
 
+// ---------- usage stats ----------
+// What gets counted, from this player's side of the game (TELEMETRY.md has the list). Rounds and games are counted on
+// every device in the game; `role` tells the host's count (solo or host) from the players who joined.
+const IDLE_MS = 90 * 1000;
+const gameStats = { key: null, phase: null, status: null, since: 0, roundSince: 0, refused: new Set(), idleTimer: null, idleSent: null, input: 0 };
+
+function statsRole(snap) {
+  return snap.solo ? 'vs computer' : snap.isHost ? 'host' : 'joined';
+}
+
+function whereInGame(snap) {
+  const v = snap.view;
+  const people = v.players.filter((p) => !p.bot).length;
+  return {
+    role: statsRole(snap),
+    round: v.round + 1,
+    phase: v.phase,
+    minutes: Math.round((Date.now() - gameStats.since) / 60000),
+    people,
+    computers: v.players.length - people,
+  };
+}
+
+function trackOpen() {
+  stats.pageView();
+  stats.track('open', {
+    app: isStandalone() ? 'home screen' : 'browser',
+    device: isIOS ? 'iPhone or iPad' : isAndroid ? 'Android' : 'computer',
+    returning: !!ui.name,
+    invite: !!ui.joinCode,
+    savedGames: HostSession.savedGames().length + joinedGames().length,
+  });
+}
+
+function trackSnapshot(snap) {
+  const g = gameStats;
+  if (snap.status !== g.status) {
+    if (['slow', 'no-host', 'error'].includes(snap.status)) stats.track('connect_trouble', { status: snap.status });
+    if (snap.status === 'kicked' && g.key) stats.track('game_left', { role: 'joined', how: 'removed' });
+    g.status = snap.status;
+  }
+  const v = snap.view;
+  if (!v || v.you == null) return;
+  const key = handGameKey();
+  if (key !== g.key) {
+    Object.assign(g, { key, phase: null, since: Date.now(), roundSince: Date.now(), refused: new Set() });
+    const fresh = v.round === 0 && v.phase === 'ready';
+    const o = v.options || {};
+    const where = whereInGame(snap);
+    stats.track(fresh ? 'game_start' : 'game_resumed', {
+      ...where,
+      ...(where.computers ? { skill: botLevelFor(o) } : {}),
+      decks: decksFor(o),
+    });
+  }
+  const done = ['roundOver', 'gameOver', 'tieVote'];
+  if (g.phase === 'ready' && v.phase !== 'ready') g.roundSince = Date.now();
+  // only rounds seen ending here: opening a saved game that's already between rounds isn't one
+  if (g.phase && !done.includes(g.phase) && done.includes(v.phase) && v.roundResult) {
+    const w = v.roundResult.winner;
+    stats.track('round_end', {
+      ...whereInGame(snap),
+      outcome: w == null ? 'nobody went out' : w === v.you ? 'you' : v.players[w].bot ? 'computer' : 'person',
+      roundMinutes: Math.round((Date.now() - g.roundSince) / 60000),
+      tiebreaker: inTiebreaker(v),
+    });
+  }
+  if (g.phase && g.phase !== 'gameOver' && v.phase === 'gameOver') {
+    const winners = v.winners || [];
+    stats.track('game_end', {
+      ...whereInGame(snap),
+      result: !winners.includes(v.you) ? 'lost' : winners.length > 1 ? 'shared the win' : 'won',
+      tiebreaker: !!v.tiebreak,
+    });
+  }
+  g.phase = v.phase;
+  watchIdle(v);
+}
+
+// A turn of yours with nothing happening for a while: maybe stuck. Touching the screen counts as something happening,
+// and a pop-up being open or the app being in the background doesn't count as stuck.
+function watchIdle(v) {
+  const g = gameStats;
+  clearTimeout(g.idleTimer);
+  const turnKey = `${g.key}:${v.round}:${v.turn}`;
+  if (v.turn !== v.you || !['draw', 'play'].includes(v.phase) || g.idleSent === turnKey) return;
+  const check = () => {
+    if (handGameKey() !== g.key) return;
+    const quiet = Date.now() - Math.max(g.input, g.lastChange);
+    if (quiet < IDLE_MS || ui.modal || document.visibilityState !== 'visible') {
+      g.idleTimer = setTimeout(check, Math.max(IDLE_MS - quiet, 5000));
+      return;
+    }
+    g.idleSent = turnKey;
+    if (ui.snap && ui.snap.view) stats.track('idle_turn', { ...whereInGame(ui.snap), laidDown: !!v.players[v.you].laid });
+  };
+  g.lastChange = Date.now();
+  g.idleTimer = setTimeout(check, IDLE_MS);
+}
+window.addEventListener('pointerdown', () => (gameStats.input = Date.now()), { capture: true, passive: true });
+
+// A move the game turned down. The same message is counted once per round, so a tap repeated ten times is one row.
+function trackRefused(text) {
+  const v = ui.snap.view;
+  const error = plainError(text);
+  const key = `${v.round}:${error}`;
+  if (!error || gameStats.refused.has(key)) return;
+  gameStats.refused.add(key);
+  stats.track('refused', { error, round: v.round + 1, phase: v.phase, role: statsRole(ui.snap) });
+}
+
+// Closing the page mid-game (a phone app swiped away may not get the chance to say so)
+window.addEventListener('pagehide', () => {
+  const snap = ui.snap;
+  if (snap && snap.view && snap.view.you != null && snap.view.phase !== 'gameOver') stats.trackNow('game_left', { ...whereInGame(snap), how: 'closed' });
+});
+
+let errorsSent = 0;
+function trackError(message, where = '') {
+  if (errorsSent++ >= 5) return;
+  stats.track('js_error', { message: String(message || 'unknown').slice(0, 200), where });
+}
+window.addEventListener('error', (e) => trackError(e.message, `${(e.filename || '').split('/').pop().split('?')[0]}:${e.lineno || 0}`));
+window.addEventListener('unhandledrejection', (e) => trackError(e.reason && (e.reason.message || e.reason), 'promise'));
+
 // ---------- updates ----------
 // Phones keep the game's files, and a home screen app is often just resumed from memory, so a new release can stay
 // out of sight for a long time. When the page opens or comes back into view, ask the site which release is live
@@ -3048,6 +3193,7 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 // Test hook: ?debug exposes UI state to automated browser tests
 if (new URLSearchParams(location.search).has('debug')) window.__shanghai = ui;
 
+trackOpen();
 // Opening an invite link with a saved name joins straight away
 if (ui.joinCode && ui.name) startJoin();
 else render();
