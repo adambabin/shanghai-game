@@ -1724,7 +1724,8 @@ function onChat(m) {
     }
     setTimeout(placeChatPops, CHAT_POP_MS + 50);
   }
-  fillChatSheet();
+  // your own message always shows, even if you'd scrolled back up to read
+  fillChatSheet(!!m && m.seat === mySeat());
   render();
 }
 
@@ -1802,9 +1803,18 @@ function syncChatSheet() {
     input.value = '';
   });
   document.body.appendChild(sheet);
+  const toMessage = ui.chatHighlight != null;
   fillChatSheet();
   fitChatSheet();
-  swipeToClose(sheet.querySelector('.chat-panel'));
+  // and once more after it slides in, in case the phone hadn't laid the list out yet
+  const panel = sheet.querySelector('.chat-panel');
+  const box = panel.querySelector('.chat-msgs');
+  if (!toMessage) panel.addEventListener('animationend', () => chatToEnd(box), { once: true });
+  // the keyboard coming up shrinks the list: keep the latest message in view if it was
+  let atEnd = chatAtEnd(box);
+  box.addEventListener('scroll', () => (atEnd = chatAtEnd(box)), { passive: true });
+  if (window.ResizeObserver) new ResizeObserver(() => atEnd && (box.scrollTop = box.scrollHeight)).observe(box);
+  swipeToClose(panel);
 }
 
 // Swiping down closes the chat, as well as Close and tapping outside it. The swipe starts on the title bar, or on the
@@ -1981,7 +1991,9 @@ function raiseHand() {
   slideHand(dock, 0, drop, HAND_SLIDE_MS);
 }
 
-function fillChatSheet() {
+// Opens on the latest messages and stays there as new ones come (unless you've scrolled back up to read), and your own
+// always brings it to the end. toEnd: scroll to the end regardless.
+function fillChatSheet(toEnd = false) {
   const box = document.querySelector('#chat-sheet .chat-msgs');
   if (!box) return;
   const list = chatList();
@@ -1989,7 +2001,7 @@ function fillChatSheet() {
     box.innerHTML = '<p class="chat-empty">No messages yet. Say hi, or tap a quick reaction below.</p>';
     return;
   }
-  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  const atEnd = chatAtEnd(box);
   box.textContent = '';
   for (const m of list) {
     const row = document.createElement('div');
@@ -2013,8 +2025,15 @@ function fillChatSheet() {
   if (hl) {
     hl.scrollIntoView({ block: 'center' });
     ui.chatHighlight = null;
-  } else if (atEnd || box.dataset.filled !== '1') box.scrollTop = box.scrollHeight;
+  } else if (toEnd || atEnd || box.dataset.filled !== '1') chatToEnd(box);
   box.dataset.filled = '1';
+}
+
+const chatAtEnd = (box) => box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+// again on the next frame: iPhones can lay the list out late (a sheet that's still sliding in, the keyboard coming up)
+function chatToEnd(box) {
+  box.scrollTop = box.scrollHeight;
+  requestAnimationFrame(() => (box.scrollTop = box.scrollHeight));
 }
 
 // with the keyboard up, iPhones don't shrink the page, so keep the sheet above the keyboard
