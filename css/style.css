@@ -2168,4 +2168,18 @@ body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
   .shanghai-btn {
     padding: 8px;
   }
+  /* the chat takes nearly the full height (60% of a sideways phone left only a sliver for the messages) */
+  #chat-sheet .chat-panel {
+    height: calc(100vh - 12px);
+    height: calc(100dvh - 12px);
+  }
+  .chat-head {
+    padding: 8px 14px 2px;
+  }
+  .chat-quick {
+    padding: 4px 12px;
+  }
+  .chat-compose {
+    padding: 4px 12px 8px;
+  }
 }
