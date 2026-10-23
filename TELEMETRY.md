@@ -4,7 +4,7 @@ The game sends anonymous counts to [Umami Cloud](https://cloud.umami.is) so the 
 they get and where they seem to get stuck. The code is `js/telemetry.js` (sending) and the "usage stats" section of
 `js/main.js` (what gets counted).
 
-- **Nothing personal:** no names, room codes, cards, hands or feedback text, and no cookies. The address is sent without
+- **Nothing personal:** no names, room codes, cards, hands, chat or feedback text, and no cookies. The address is sent without
   its query (which can hold a room code). Each device has a random id (`shanghai.statsId`) so returning players can be
   told apart from new ones.
 - **No slowdown:** each event is one small POST, sent when the browser is idle, never awaited. Failures are ignored.
@@ -42,6 +42,7 @@ Every device in a game sends its own, so count games with `role` ≠ `joined`.
 | `tour` | the first-game tour is finished or skipped | `finished`, `step` |
 | `tip` / `tips_off` | a one-time tip shows / tips are turned off | `tip` |
 | `feedback` | feedback is sent | `photos` |
+| `chat_sent` | you send a chat message (never what it says) | `kind` (emoji / saying / typed) |
 | `js_error` | a code error (5 per page load at most) | `message`, `where` |
 
 ## Useful views in the dashboard

@@ -5,6 +5,7 @@ import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, buyTimeo
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai, shanghaiReaction } from './bot.js';
 import { DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
 import { openRoom, randomCode } from './net.js';
+import { cleanChat, ChatLimit, CHAT_KEEP } from './chat.js';
 
 const BOT_NAMES = ['Lucky Lou', 'Card Shark', 'Rummy Rita', 'Jolly Joker', 'Shuffles', 'Ace', 'Sir Deals-a-Lot', 'Queenie'];
 // each game you host (or play against the computer) is saved under its own key so several can be resumed
@@ -19,6 +20,10 @@ export class HostSession {
     this.conns = new Map(); // connId -> seat (or null while in lobby without a seat yet)
     this.timers = new Set();
     this.reacted = new Set();
+    this.chatListeners = new Set();
+    this.chatLimit = new ChatLimit();
+    this.chat = Array.isArray(restore && restore.chat) ? restore.chat : [];
+    this.chatSeq = this.chat.reduce((n, m) => Math.max(n, m.id + 1), 0);
     this.solo = solo;
     this.clientId = clientId;
     this.status = solo ? 'connected' : 'starting';
@@ -116,7 +121,7 @@ export class HostSession {
   save() {
     if (!this.game) return;
     try {
-      const data = { id: this.gameId, lobby: this.lobby, game: this.game, solo: this.solo, savedAt: Date.now() };
+      const data = { id: this.gameId, lobby: this.lobby, game: this.game, chat: this.chat, solo: this.solo, savedAt: Date.now() };
       localStorage.setItem(SAVE_PREFIX + this.gameId, JSON.stringify(data));
     } catch {}
   }
@@ -167,6 +172,11 @@ export class HostSession {
       const res = this.act(seat, msg.a);
       if (res && !res.ok) this.room.send(connId, { t: 'err', msg: res.error });
     }
+    if (msg.t === 'chat') {
+      if (!this.conns.has(connId)) return;
+      const res = this.say(this.conns.get(connId), msg.text);
+      if (!res.ok) this.room.send(connId, { t: 'err', msg: res.error });
+    }
   }
 
   onHello(connId, { clientId, name }) {
@@ -204,6 +214,8 @@ export class HostSession {
     }
     this.conns.set(connId, seat);
     this.changed();
+    // the whole chat so far, so someone coming back sees what they missed
+    this.room.send(connId, { t: 'chatAll', list: this.chat });
   }
 
   onClose(connId) {
@@ -227,6 +239,37 @@ export class HostSession {
     const taken = new Set(this.lobby.seats.map((s) => s.name.toLowerCase()));
     if (!taken.has(name.toLowerCase())) return name;
     for (let i = 2; ; i++) if (!taken.has(`${name} ${i}`.toLowerCase())) return `${name} ${i}`;
+  }
+
+  // ---------- chat ----------
+
+  // A message from a seat. It never goes near the game: the sender and their name come from the seat (for players who
+  // joined, the connection it arrived on), and the text is cleaned up and kept short.
+  say(seat, text) {
+    const s = seat != null && this.lobby.seats[seat];
+    if (!s || s.bot || !this.lobby.started) return { ok: false, error: 'You can chat once the game starts.' };
+    text = cleanChat(text);
+    if (!text) return { ok: false, error: 'Type a message first.' };
+    if (!this.chatLimit.allow(seat)) return { ok: false, error: 'Hold on a second before sending another message.' };
+    const m = { id: this.chatSeq++, seat, name: s.name, text, at: Date.now() };
+    this.chat.push(m);
+    if (this.chat.length > CHAT_KEEP) this.chat.splice(0, this.chat.length - CHAT_KEEP);
+    this.save();
+    // each message goes out once, on its own: it never rides along with the game updates sent after every move
+    if (this.room) for (const connId of this.conns.keys()) this.room.send(connId, { t: 'chat', m });
+    this.chatListeners.forEach((fn) => fn(m));
+    return { ok: true };
+  }
+
+  sendChat(text) {
+    const res = this.say(this.mySeat, text);
+    return res.ok ? { ...res, sent: true } : res;
+  }
+
+  // fn(message) for each new message
+  subscribeChat(fn) {
+    this.chatListeners.add(fn);
+    return () => this.chatListeners.delete(fn);
   }
 
   // ---------- actions ----------
@@ -440,6 +483,9 @@ export class ClientSession {
     this.listeners = new Set();
     this.snap = { status: 'connecting', lobby: null, view: null, seat: null, isHost: false, code };
     this.code = code;
+    this.chatListeners = new Set();
+    // this phone's own copy of the chat, so it's there straight away after a quick reconnect
+    this.chat = loadJoinedChat(code);
     this.link = join(code, {
       onOpen: () => this.link.send({ t: 'hello', clientId, name }),
       onMessage: (msg) => {
@@ -447,12 +493,40 @@ export class ClientSession {
         else if (msg.t === 'err') this.listeners.forEach((fn) => fn({ ...this.snap, toastError: msg.msg, errSeq: Math.random() }));
         else if (msg.t === 'kicked') this.update({ ...this.snap, status: 'kicked' });
         else if (msg.t === 'bye') this.update({ ...this.snap, hostLeft: true });
+        else if (msg.t === 'chat') this.gotChat([msg.m], true);
+        else if (msg.t === 'chatAll') this.gotChat(msg.list, false, true);
       },
       onStatus: (status, detail) => {
         if (this.snap.status === 'kicked') return;
         this.update({ ...this.snap, status, error: detail });
       },
     });
+  }
+
+  // live: just sent, so it can pop up; whole: the host's full list (on joining), which replaces ours
+  gotChat(list, live, whole = false) {
+    if (!Array.isArray(list)) return;
+    const ok = list.filter((m) => m && Number.isInteger(m.id) && typeof m.text === 'string' && typeof m.name === 'string');
+    if (whole) this.chat = ok.slice(-CHAT_KEEP);
+    else {
+      const have = new Set(this.chat.map((m) => m.id));
+      ok.forEach((m) => !have.has(m.id) && this.chat.push(m));
+      this.chat = this.chat.slice(-CHAT_KEEP);
+    }
+    saveJoinedChat(this.code, this.chat);
+    this.chatListeners.forEach((fn) => fn(live ? ok[ok.length - 1] : null));
+  }
+
+  sendChat(text) {
+    text = cleanChat(text);
+    if (!text) return { ok: false, error: 'Type a message first.' };
+    this.link.send({ t: 'chat', text });
+    return { ok: true, pending: true, sent: true };
+  }
+
+  subscribeChat(fn) {
+    this.chatListeners.add(fn);
+    return () => this.chatListeners.delete(fn);
   }
 
   update(snap) {
@@ -474,4 +548,24 @@ export class ClientSession {
   close() {
     this.link.close();
   }
+}
+
+// The chat of games other people host, kept on this phone (the 5 most recent games)
+const JOINED_CHAT_KEY = 'shanghai.joinedChat';
+const JOINED_CHAT_GAMES = 5;
+function loadJoinedChat(code) {
+  try {
+    const all = JSON.parse(localStorage.getItem(JOINED_CHAT_KEY)) || {};
+    return Array.isArray(all[code] && all[code].list) ? all[code].list : [];
+  } catch {
+    return [];
+  }
+}
+function saveJoinedChat(code, list) {
+  try {
+    const all = JSON.parse(localStorage.getItem(JOINED_CHAT_KEY)) || {};
+    all[code] = { at: Date.now(), list };
+    const keep = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, JOINED_CHAT_GAMES);
+    localStorage.setItem(JOINED_CHAT_KEY, JSON.stringify(Object.fromEntries(keep)));
+  } catch {}
 }

@@ -3,6 +3,7 @@ import { joinRoom } from './net.js';
 import { SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
 import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
 import { browserTracker, plainError } from './telemetry.js';
+import { CHAT_MAX, CHAT_EMOJI, CHAT_SAYINGS, cleanChat, isEmojiOnly } from './chat.js';
 import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor, BOT_LEVELS, botLevelFor } from './rules.js';
 
 const $app = document.getElementById('app');
@@ -78,6 +79,11 @@ const ui = {
   swallowClick: false, // set when a drag ends, so the click the browser sends after it isn't taken as a tap
   drawTo: null, // where in the hand a card being drawn by dragging should go
   afterDraw: null, // a discard dragged onto a group or pile, to play once it's in your hand
+  chatOpen: false, // the chat sheet (#chat-sheet) is showing
+  chatPopups: store.get('chatPopups', true), // Settings › Chat pop-ups: messages pop up under the sender's tile
+  chatPops: [], // messages popped up right now: { m, until, open }
+  chatMore: 0, // messages that didn't fit as pop-ups (more than two at once), shown as "+3 more"
+  chatTipAt: 0, // when someone else's message last arrived, for the one-time chat tip
 };
 
 // card back colors you can pick in Settings (the CSS for each lives in style.css)
@@ -205,7 +211,11 @@ function startSession(session) {
   ui.handRound = null;
   ui.modal = null;
   ui.flash = null;
+  ui.chatOpen = false;
+  ui.chatPops = [];
+  ui.chatMore = 0;
   session.subscribe(onSnapshot);
+  session.subscribeChat(onChat);
 }
 
 // Games other people host that you've joined, so the home screen can take you back in. The host's browser has the
@@ -454,6 +464,7 @@ function render() {
   else $app.innerHTML = gameHTML(snap);
   syncFeedbackSheet();
   syncCropSheet();
+  syncChatSheet();
   saveHand();
   syncPause();
   layoutHand();
@@ -483,6 +494,7 @@ function render() {
   if (modalBody && modalTop != null) modalBody.scrollTop = modalTop;
   const table = $app.querySelector('.table');
   if (table && tableTop != null) table.scrollTop = tableTop;
+  placeChatPops();
   placeGuide();
 }
 
@@ -843,7 +855,7 @@ function centerHTML(v, isWild) {
   }
   // the activity box sits above the deck row: when a prompt makes it taller it grows upward over the table,
   // so the piles and your hand stay put
-  return `${activityHTML(v)}<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div></div>`;
+  return `${activityHTML(v)}<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div>${me != null ? chatButtonHTML() : ''}</div>`;
 }
 
 // One place for everything going on: what you need to do (a prompt), else your turn, else something that just
@@ -1298,6 +1310,8 @@ function settingsModal() {
       <p class="muted back-note">Only you see your card back.</p>
       <h3>Sort cards</h3><div class="seg">${choice('setSortDesc', 0, !ui.sortDesc, 'Low to high')}${choice('setSortDesc', 1, ui.sortDesc, 'High to low')}</div>
       <h3>Sound</h3><div class="seg">${choice('setSound', 1, ui.sound, 'On')}${choice('setSound', 0, !ui.sound, 'Off')}</div>
+      <h3>Chat pop-ups</h3><div class="seg">${choice('setChatPopups', 1, ui.chatPopups, 'On')}${choice('setChatPopups', 0, !ui.chatPopups, 'Off')}</div>
+      <p class="muted">Messages and emoji pop up under the sender's name. With this off, the chat still works: 💬 shows how many are new.</p>
       <p class="muted">Saved on this device.${canAddToHome() ? ' Phones can clear them if you don\'t play for a while, unless you add the game to your home screen.' : ''}</p>
       ${canAddToHome() ? '<button class="ghost small" data-act="addToHome">Add to your home screen</button>' : ''}
     </div>`
@@ -1471,6 +1485,268 @@ function saveCrop() {
 // ---------- feedback ----------
 // The form lives in its own element outside #app while it's open, so the redraw on every game update can't take the
 // text box (or the keyboard) away mid-sentence. The photo strip and the status line are updated in place.
+// ---------- chat ----------
+// The 💬 button beside SHANGHAI! opens the chat (#chat-sheet, outside #app like the feedback form, so a game update can't
+// wipe what you're typing). New messages pop up under the sender's tile (#chat-pops, placed after every render): two
+// at most, the rest counted in a "+3 more" button. Everything people type is shown with textContent or esc(), never as
+// markup, and always as chat (a name and a bubble), so it can't pass for a button or a game message.
+const CHAT_POP_MS = 5000;
+const CHAT_SEEN_KEPT = 10;
+
+function chatList() {
+  return (ui.session && ui.session.chat) || [];
+}
+function mySeat() {
+  return ui.snap && ui.snap.view ? ui.snap.view.you : null;
+}
+// the newest message you've seen, per game, so a count of new ones survives leaving and coming back
+function chatSeen() {
+  return store.get('chatSeen', {})[handGameKey()] ?? -1;
+}
+function markChatSeen() {
+  const list = chatList();
+  const key = handGameKey();
+  if (!list.length || !key) return;
+  const seen = store.get('chatSeen', {});
+  seen[key] = list[list.length - 1].id;
+  store.set('chatSeen', Object.fromEntries(Object.entries(seen).slice(-CHAT_SEEN_KEPT)));
+}
+function chatUnread() {
+  const seen = chatSeen();
+  return chatList().filter((m) => m.id > seen && m.seat !== mySeat()).length;
+}
+
+function chatButtonHTML() {
+  const n = ui.chatOpen ? 0 : chatUnread();
+  return `<button class="chat-btn ${ui.chatOpen ? 'on' : ''}" data-act="chat" aria-label="Chat${n ? `, ${n} new` : ''}">💬${
+    n ? `<span class="chat-count">${n > 9 ? '9+' : n}</span>` : ''
+  }</button>`;
+}
+
+// m: a message that just arrived, or null when the whole list came in (on joining or coming back)
+function onChat(m) {
+  if (m && m.seat !== mySeat()) {
+    beep([1175, 1568], 0.07);
+    ui.chatTipAt = Date.now();
+  }
+  if (ui.chatOpen) markChatSeen();
+  else if (m && ui.chatPopups) {
+    const live = ui.chatPops.filter((p) => !isEmojiOnly(p.m.text));
+    if (isEmojiOnly(m.text) || live.length < 2) ui.chatPops.push({ m, until: Date.now() + CHAT_POP_MS, open: false });
+    else {
+      ui.chatMore++;
+      ui.chatMoreUntil = Date.now() + 8000;
+    }
+    setTimeout(placeChatPops, CHAT_POP_MS + 50);
+  }
+  fillChatSheet();
+  render();
+}
+
+function sendChat(text, kind) {
+  if (!ui.session) return;
+  const res = ui.session.sendChat(text);
+  if (!res.ok) return toast(res.error, true);
+  stats.track('chat_sent', { kind, role: statsRole(ui.snap) });
+}
+
+function openChat(highlight = null) {
+  ui.chatOpen = true;
+  ui.chatPops = [];
+  ui.chatMore = 0;
+  ui.chatHighlight = highlight;
+  // found the chat already: no need for the tip about it
+  if (ui.tip === 'chat') ui.tip = null;
+  const seen = store.get('tipsSeen', []);
+  if (!seen.includes('chat')) store.set('tipsSeen', [...seen, 'chat']);
+  markChatSeen();
+  render();
+}
+function closeChat() {
+  ui.chatOpen = false;
+  ui.chatHighlight = null;
+  render();
+}
+
+function syncChatSheet() {
+  let sheet = document.getElementById('chat-sheet');
+  const show = ui.chatOpen && ui.snap && ui.snap.view && !ui.modal;
+  if (!show) {
+    if (sheet) sheet.remove();
+    if (!ui.modal) ui.chatOpen = false;
+    return;
+  }
+  if (sheet) return;
+  sheet = document.createElement('div');
+  sheet.id = 'chat-sheet';
+  const quick = [...CHAT_EMOJI.map((e) => `<button class="emo" data-chat="emoji">${e}</button>`),
+    ...CHAT_SAYINGS.map((t) => `<button class="say" data-chat="saying">${esc(t)}</button>`)].join('');
+  sheet.innerHTML = `<div class="chat-backdrop" data-chat="close"></div>
+    <div class="chat-panel" role="dialog" aria-label="Chat">
+      <div class="chat-head"><b>Chat</b><button class="ghost small" data-chat="close">Close</button></div>
+      <div class="chat-msgs"></div>
+      <div class="chat-quick">${quick}</div>
+      <form class="chat-compose"><input data-field="chatText" maxlength="${CHAT_MAX}" placeholder="Say something…" autocomplete="off" enterkeyhint="send"
+        aria-label="Message"><button class="primary">Send</button></form>
+    </div>`;
+  sheet.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-chat]');
+    if (!b) return;
+    if (b.dataset.chat === 'close') return closeChat();
+    sendChat(b.textContent, b.dataset.chat);
+  });
+  sheet.querySelector('form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = sheet.querySelector('input');
+    if (!cleanChat(input.value)) return;
+    sendChat(input.value, 'typed');
+    input.value = '';
+  });
+  document.body.appendChild(sheet);
+  fillChatSheet();
+  fitChatSheet();
+}
+
+function fillChatSheet() {
+  const box = document.querySelector('#chat-sheet .chat-msgs');
+  if (!box) return;
+  const list = chatList();
+  if (!list.length) {
+    box.innerHTML = '<p class="chat-empty">No messages yet. Say hi, or tap a quick reaction below.</p>';
+    return;
+  }
+  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.textContent = '';
+  for (const m of list) {
+    const row = document.createElement('div');
+    const mine = m.seat === mySeat();
+    row.className = `chat-msg ${mine ? 'me' : ''} ${isEmojiOnly(m.text) ? 'big' : ''} ${m.id === ui.chatHighlight ? 'hl' : ''}`;
+    row.dataset.id = m.id;
+    if (!mine) {
+      const who = document.createElement('span');
+      who.className = 'who';
+      who.style.color = chatColor(m.seat);
+      who.textContent = m.name;
+      row.append(who);
+    }
+    const text = document.createElement('span');
+    text.className = 't';
+    text.textContent = m.text;
+    row.append(text);
+    box.append(row);
+  }
+  const hl = ui.chatHighlight != null && box.querySelector(`[data-id="${ui.chatHighlight}"]`);
+  if (hl) {
+    hl.scrollIntoView({ block: 'center' });
+    ui.chatHighlight = null;
+  } else if (atEnd || box.dataset.filled !== '1') box.scrollTop = box.scrollHeight;
+  box.dataset.filled = '1';
+}
+
+// with the keyboard up, iPhones don't shrink the page, so keep the sheet above the keyboard
+function fitChatSheet() {
+  const panel = document.querySelector('#chat-sheet .chat-panel');
+  const vv = window.visualViewport;
+  if (!panel || !vv) return;
+  const hidden = Math.max(0, innerHeight - vv.height - vv.offsetTop);
+  panel.style.bottom = `${hidden}px`;
+  panel.style.maxHeight = `${Math.max(220, vv.height - 24)}px`;
+}
+window.visualViewport && visualViewport.addEventListener('resize', fitChatSheet);
+window.visualViewport && visualViewport.addEventListener('scroll', fitChatSheet);
+
+const CHAT_COLORS = ['#f2c14e', '#7fd1ff', '#ff9f80', '#c3a6ff', '#8ee59b', '#ffb3d9', '#9fe0d0', '#ffd9a0'];
+const chatColor = (seat) => CHAT_COLORS[seat % CHAT_COLORS.length];
+
+// Pop-ups under the sender's tile. Kept as the same elements from render to render (so they don't restart their
+// animation), only moved. A tile scrolled out of the row puts its pop-up at that edge, with the name.
+function placeChatPops() {
+  let layer = document.getElementById('chat-pops');
+  const now = Date.now();
+  ui.chatPops = ui.chatPops.filter((p) => p.open || p.until > now);
+  if (ui.chatMoreUntil < now) ui.chatMore = 0;
+  const players = $app.querySelector('.players');
+  const show = players && !ui.modal && !ui.chatOpen && ui.tour == null && (ui.chatPops.length || ui.chatMore);
+  if (!show) {
+    if (layer) layer.remove();
+    return;
+  }
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'chat-pops';
+    layer.addEventListener('click', onChatPopClick);
+    document.body.appendChild(layer);
+  }
+  const row = players.getBoundingClientRect();
+  const chips = players.querySelectorAll('.chip');
+  const keep = new Set();
+  let y = row.bottom + 6;
+  for (const p of ui.chatPops) {
+    const key = String(p.m.id);
+    keep.add(key);
+    const emoji = isEmojiOnly(p.m.text);
+    let el = layer.querySelector(`[data-pop="${key}"]`);
+    if (!el) {
+      el = document.createElement('div');
+      el.dataset.pop = key;
+      el.className = emoji ? 'chat-pop' : 'chat-bubble';
+      const who = document.createElement('span');
+      who.className = 'who';
+      who.textContent = p.m.name;
+      const text = document.createElement('span');
+      text.className = 't';
+      text.textContent = p.m.text;
+      el.append(who, text);
+      if (!emoji) el.insertAdjacentHTML('beforeend', '<button class="x" aria-label="Close">✕</button>');
+      layer.append(el);
+    }
+    el.classList.toggle('open', p.open);
+    const chip = chips[p.m.seat];
+    const c = chip ? chip.getBoundingClientRect() : row;
+    const mid = (c.left + c.right) / 2;
+    const side = mid > row.right - 16 ? 'right' : mid < row.left + 16 ? 'left' : null;
+    el.classList.toggle('edge', !!side);
+    el.dataset.side = side || '';
+    // kept over the row of tiles (half the screen on a phone held sideways)
+    const w = el.offsetWidth;
+    const lo = Math.max(8, row.left + 4);
+    const hi = Math.max(lo, Math.min(document.documentElement.clientWidth - 8, row.right - 4) - w);
+    if (emoji) {
+      el.style.left = `${side === 'right' ? hi : side === 'left' ? lo : Math.max(lo, Math.min(hi, mid - w / 2))}px`;
+      el.style.top = `${c.bottom + 2}px`;
+      continue;
+    }
+    const left = side === 'right' ? hi : side === 'left' ? lo : Math.max(lo, Math.min(hi, mid - 32));
+    el.style.left = `${left}px`;
+    el.style.top = `${y}px`;
+    el.style.setProperty('--tail', `${Math.max(12, Math.min(w - 28, mid - left - 8))}px`);
+    y += el.offsetHeight + 6;
+  }
+  layer.querySelectorAll('[data-pop]').forEach((el) => !keep.has(el.dataset.pop) && el.remove());
+  let more = layer.querySelector('.chat-more');
+  if (ui.chatMore) {
+    if (!more) {
+      more = document.createElement('button');
+      more.className = 'chat-more';
+      layer.append(more);
+    }
+    more.textContent = `+${ui.chatMore} more · open chat`;
+    more.style.top = `${y}px`;
+    more.style.left = `${(row.left + row.right) / 2}px`;
+  } else if (more) more.remove();
+}
+
+function onChatPopClick(e) {
+  if (e.target.closest('.chat-more')) return openChat();
+  const el = e.target.closest('.chat-bubble');
+  const p = el && ui.chatPops.find((x) => String(x.m.id) === el.dataset.pop);
+  if (!p) return;
+  if (e.target.closest('.x')) ui.chatPops = ui.chatPops.filter((x) => x !== p);
+  else if (!p.open) p.open = true;
+  else return openChat(p.m.id);
+  placeChatPops();
+}
+
 function syncFeedbackSheet() {
   let sheet = document.getElementById('feedback-sheet');
   if (ui.modal !== 'feedback') {
@@ -2628,6 +2904,12 @@ const TIPS = {
     at: ['.staging'],
     html: () => "Keep making groups until you have this round's goal, then tap <b>Lay down</b>. If something's not right, it'll say.",
   },
+  chat: {
+    when: () => Date.now() - ui.chatTipAt < 15000 && !ui.chatOpen,
+    at: ['.chat-btn'],
+    html: () => `Someone sent a message! Tap <b>💬</b> to chat or send a quick reaction. If you'd rather not see messages pop up, turn
+      off <b>Chat pop-ups</b> in Settings.`,
+  },
 };
 
 function guideTarget(selectors) {
@@ -2648,8 +2930,9 @@ function placeGuide() {
   }
   if (!inGame) ui.tour = null;
   // a tip stays up while its moment lasts, unless dismissed
-  if (ui.tip && (!inGame || ui.modal || !TIPS[ui.tip].when(v))) ui.tip = null;
-  if (inGame && ui.tour == null && !ui.tip && !ui.modal && !store.get('tipsOff', false)) {
+  // tips wait while a pop-up or the chat is open
+  if (ui.tip && (!inGame || ui.modal || ui.chatOpen || !TIPS[ui.tip].when(v))) ui.tip = null;
+  if (inGame && ui.tour == null && !ui.tip && !ui.modal && !ui.chatOpen && !store.get('tipsOff', false)) {
     const seen = store.get('tipsSeen', []);
     const key = Object.keys(TIPS).find((k) => !seen.includes(k) && TIPS[k].when(v));
     if (key) {
@@ -2785,6 +3068,8 @@ function leave() {
   ui.session = null;
   ui.snap = null;
   ui.modal = null;
+  ui.chatOpen = false;
+  ui.chatPops = [];
   ui.joinCode = '';
   const u = new URL(location.href);
   u.searchParams.delete('join');
@@ -2907,6 +3192,13 @@ function onClick(e) {
       ui.sound = t.dataset.val === '1';
       store.set('sound', ui.sound);
       return render();
+    case 'setChatPopups':
+      ui.chatPopups = t.dataset.val === '1';
+      store.set('chatPopups', ui.chatPopups);
+      if (!ui.chatPopups) ui.chatPops = [];
+      return render();
+    case 'chat':
+      return openChat();
     case 'setCardBack':
       ui.cardBack = t.dataset.val;
       store.set('cardBack', ui.cardBack);
@@ -3028,6 +3320,7 @@ function onChange(e) {
 
 function onKey(e) {
   if (e.key === 'Enter' && e.target.dataset.field === 'joinCode') startJoin();
+  if (e.key === 'Escape' && ui.chatOpen) return closeChat();
   if (e.key === 'Escape' && ui.modal) {
     ui.modal = null;
     render();
@@ -3056,6 +3349,7 @@ window.addEventListener('resize', () => {
   markTableOverflow();
   fitHomeGames();
   placeTapSpots();
+  placeChatPops();
   placeGuide();
 });
 // Keep the page at 100%: Safari ignores user-scalable=no, so block pinch gestures directly

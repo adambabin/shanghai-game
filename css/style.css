@@ -1812,6 +1812,312 @@ body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
   cursor: pointer;
 }
 
+/* ---------- chat ----------
+   The 💬 button sits beside SHANGHAI!; the chat itself is #chat-sheet on body, and new messages pop up in #chat-pops */
+.chat-btn {
+  position: relative;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  padding: 0;
+  margin-bottom: 18px; /* lines up with the cards, like .center-actions */
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.14);
+}
+.chat-btn.on {
+  background: var(--gold);
+}
+.chat-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--red);
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--felt-dark);
+}
+#chat-sheet .chat-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+}
+#chat-sheet .chat-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 56;
+  height: min(60vh, 520px);
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--felt-dark);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+  padding-bottom: env(safe-area-inset-bottom);
+  animation: chat-sheet-in 0.2s ease-out;
+}
+@keyframes chat-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 6px;
+}
+.chat-head b {
+  flex: 1;
+  font-size: 17px;
+}
+.chat-msgs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-empty {
+  margin: auto;
+  color: var(--ink-dim);
+  text-align: center;
+  font-size: 14px;
+}
+.chat-msg {
+  max-width: 80%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.chat-msg .who {
+  font-size: 11px;
+  font-weight: 800;
+}
+.chat-msg .t {
+  background: rgba(255, 255, 255, 0.12);
+  padding: 7px 11px;
+  border-radius: 14px;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.chat-msg.me {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.chat-msg.me .t {
+  background: var(--gold);
+  color: #3a2a00;
+}
+.chat-msg.big .t {
+  background: none;
+  font-size: 32px;
+  padding: 0;
+}
+.chat-msg.hl .t {
+  box-shadow: 0 0 0 2px var(--gold);
+}
+.chat-quick {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: none;
+}
+.chat-quick::-webkit-scrollbar {
+  display: none;
+}
+.chat-quick button {
+  flex: none;
+}
+.chat-quick .emo {
+  background: none;
+  font-size: 26px;
+  padding: 2px 4px;
+}
+.chat-quick .say {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--ink);
+  font-size: 14px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.chat-compose {
+  display: flex;
+  gap: 8px;
+  padding: 4px 12px 12px;
+  flex: none;
+}
+.chat-compose input {
+  flex: 1;
+  min-width: 0;
+}
+/* messages popping up under the sender's tile */
+#chat-pops > * {
+  position: fixed;
+  z-index: 45;
+}
+.chat-bubble {
+  width: max-content;
+  max-width: min(240px, calc(100vw - 16px));
+  padding: 7px 12px;
+  border-radius: 14px;
+  background-color: var(--card);
+  color: #1b1b1b;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  animation: chat-pop-in 0.2s ease-out;
+}
+.chat-bubble::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: var(--tail, 24px);
+  border: 8px solid transparent;
+  border-top: 0;
+  border-bottom-color: var(--card);
+}
+.chat-bubble .who {
+  display: none;
+  font-size: 11px;
+  color: #6b5f45;
+  font-weight: 800;
+}
+.chat-bubble .t {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* tapped: the whole message, until you close it */
+.chat-bubble.open {
+  max-width: min(300px, calc(100vw - 16px));
+  z-index: 46;
+}
+.chat-bubble.open .t {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.chat-bubble .x {
+  display: none;
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  padding: 0;
+  place-items: center;
+  font-size: 13px;
+  background: var(--felt-dark);
+  color: var(--ink);
+}
+.chat-bubble.open .x {
+  display: grid;
+}
+/* from a tile scrolled out of the row: at that edge, with the name */
+.chat-bubble.edge::before {
+  display: none;
+}
+.chat-bubble.edge .who,
+.chat-pop.edge .who {
+  display: block;
+}
+.chat-pop {
+  z-index: 47 !important; /* its name (from a tile out of view) stays readable over a bubble */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  animation: chat-emoji 2.8s ease-out forwards;
+}
+.chat-pop .t {
+  font-size: 40px;
+  line-height: 1;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.4));
+}
+.chat-pop .who {
+  display: none;
+  order: 2;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.chat-more {
+  transform: translateX(-50%);
+  background: var(--gold);
+  color: #3a2a00;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 6px 14px;
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+@keyframes chat-pop-in {
+  from {
+    transform: translateY(-6px) scale(0.85);
+    opacity: 0;
+  }
+}
+@keyframes chat-emoji {
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  12% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  20% {
+    transform: scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(26px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #chat-sheet .chat-panel,
+  .chat-bubble {
+    animation: none;
+  }
+  .chat-pop {
+    animation: chat-emoji-still 2.8s step-end forwards;
+  }
+  @keyframes chat-emoji-still {
+    to {
+      opacity: 0;
+    }
+  }
+}
+
 /* ---------- phones held sideways ----------
    Two halves: the round, players and table fill the left; the activity box, deck row and your hand stack on the right,
    so the table gets the full height instead of a sliver between the players and your cards. */
