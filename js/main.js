@@ -929,8 +929,13 @@ function buyCostText(v) {
   const left = v.options.buyLimit - v.players[v.you].buysUsed;
   const extra = v.options.buyPenalty;
   const cost = extra ? `It costs ${extra} card${extra === 1 ? '' : 's'}.` : 'No extra cards.';
-  // right after a buy the question starts with who bought, so the cost (which never changes) is left out to keep it short
-  return `${recentBuy() ? '' : `${cost} `}${left} buy${left === 1 ? '' : 's'} left.`;
+  const buys = `${left} buy${left === 1 ? '' : 's'} left.`;
+  // right after a buy the question starts with who bought, so the cost (which never changes) is left out to keep it
+  // short, if you'd already seen it in this game before that buy
+  const game = handGameKey();
+  if (!ui.costSeen || ui.costSeen.game !== game) ui.costSeen = { game, at: Date.now() };
+  if (recentBuy() && ui.costSeen.at < ui.recentBuy.until - RECENT_BUY_MS) return buys;
+  return `${cost} ${buys}`;
 }
 
 // Where you'd be in line to buy the card on top if everyone ahead of you said Buy too (seating order only, no answers)
