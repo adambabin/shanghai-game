@@ -1122,6 +1122,11 @@ table.scores td.zero {
 .result-row.winner {
   outline: 2px solid var(--gold);
 }
+.result-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .result-sub {
   margin: -6px 0 2px;
 }

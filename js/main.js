@@ -1245,11 +1245,14 @@ function resultModal(snap) {
   let actions = '';
   if (snap.isHost) actions = over ? '<button class="primary" data-act="playAgain">Play again</button>' : `<button class="primary" data-act="nextRound">Deal round ${v.round + 2}: ${contractText(v.round + 1)}</button>`;
   else actions = `<span class="muted">Waiting for the host to ${over ? 'start a new game' : 'deal'}…</span>`;
-  return `<div class="overlay"><div class="modal ${over ? 'game-over' : ''}">
+  // framed like the other pop-ups: with lots of players only the results scroll, and the buttons stay in view
+  return `<div class="overlay"><div class="modal framed ${over ? 'game-over' : ''}">
     <h2>${title}</h2>
+    <div class="modal-body result-body">
     ${sub ? `<p class="muted result-sub">${sub}</p>` : ''}
     ${rr.winner == null ? `<p class="muted">Nobody went out this ${tb ? 'tiebreaker' : 'round'}.</p>` : ''}
     ${rows}
+    </div>
     <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${
       over ? '<button class="ghost" data-act="leave">Home</button>' : snap.isHost ? '' : '<button class="ghost" data-act="leave">Leave game</button>'
     }${actions}</div>
@@ -1287,14 +1290,16 @@ function tieModal(snap) {
     const waiting = voters.filter((i) => !tb.votes[i]);
     actions = `<span class="muted">Waiting for ${namesOf(v, waiting)} to decide…</span>`;
   }
-  return `<div class="overlay"><div class="modal">
+  return `<div class="overlay"><div class="modal framed">
     <h2>It's a tie!</h2>
+    <div class="modal-body result-body">
     <p class="muted result-sub">${namesOf(v, tb.seats)} ${tb.seats.length > 2 ? 'all' : 'both'} have ${totals[tb.seats[0]]}.</p>
     <p>${iVote ? 'Call it a shared win, or play a <b>tiebreaker</b>' : 'They can share the win or play a <b>tiebreaker</b>'}: round ${ROUNDS.length} (${contractText(
       ROUNDS.length - 1
     )}) again, ${just}. Lowest score in it wins.</p>
     ${voters.length > 1 ? `<p class="muted">Everyone tied has to pick the tiebreaker to play it.</p>` : ''}
     ${votes}
+    </div>
     <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${actions}</div>
   </div></div>`;
 }
