@@ -228,6 +228,16 @@ function loaderHTML(label = 'Waiting…') {
   return `<div class="loader" role="img" aria-label="${esc(label)}"><div class="loader-flip"><div class="card-back loader-side"></div>${loaderFaceHTML(loaderCard())}</div></div>`;
 }
 
+// Screens redraw often while they wait (every retry), so a loader still on screen keeps the card it had, mid-flip,
+// instead of starting over (and loading a photo back again).
+function keepLoaders(old) {
+  $app.querySelectorAll('.loader').forEach((el, i) => {
+    if (!old[i]) return;
+    old[i].setAttribute('aria-label', el.getAttribute('aria-label'));
+    el.replaceWith(old[i]);
+  });
+}
+
 document.addEventListener('animationiteration', (e) => {
   if (e.animationName !== 'loader-flip') return;
   const face = e.target.querySelector('.loader-face');
@@ -503,12 +513,14 @@ function render() {
   const oldModalBody = $app.querySelector('.modal-body');
   const modalTop = oldModalBody && ui.renderedModal === ui.modal ? oldModalBody.scrollTop : null;
   ui.renderedModal = ui.modal;
+  const oldLoaders = [...$app.querySelectorAll('.loader')];
   const snap = ui.snap;
   if (!ui.session || !snap) $app.innerHTML = ui.allGames ? allGamesHTML() : homeHTML();
   else if (snap.status === 'kicked') $app.innerHTML = messageHTML('The host removed you from the game.');
   else if (!snap.lobby) $app.innerHTML = connectingHTML(snap);
   else if (!snap.lobby.started || !snap.view) $app.innerHTML = lobbyHTML(snap);
   else $app.innerHTML = gameHTML(snap);
+  keepLoaders(oldLoaders);
   syncFeedbackSheet();
   syncCropSheet();
   syncChatSheet();
