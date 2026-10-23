@@ -870,7 +870,7 @@ function secondsLeft() {
   return ui.windowDeadline ? Math.max(0, Math.ceil((ui.windowDeadline - Date.now()) / 1000)) : 0;
 }
 
-// The buying conversation: the current player decides whether to let others buy, then it goes around the table one at a time.
+// The buying conversation: the current player decides whether to let others buy, then everyone who can buy is asked at once.
 function readyBarHTML(v, isHost) {
   const me = v.you;
   const waiting = v.players.filter((p) => !p.ready).map((p) => esc(p.name));
@@ -889,11 +889,10 @@ function buyBarHTML(v) {
   const w = v.buyWindow;
   const timer = `<span class="countdown" data-countdown>${secondsLeft()}</span>`;
   if (w) {
-    // one player at a time, in turn order: only the person being asked gets the buttons
-    if (w.asking !== me) {
-      const ahead = w.order.indexOf(me) - w.order.indexOf(w.asking);
-      const next = ahead === 1 ? " You're next." : ahead > 1 ? ` You're up after ${esc(v.players[w.order[ahead - 1 + w.order.indexOf(w.asking)]].name)}.` : '';
-      return `<div class="buy-bar"><span><b>${esc(v.players[w.asking].name)}</b> is deciding whether to buy ${miniCards(esc(cardLabel(top)))}…${next}</span> ${timer}</div>`;
+    // everyone who can buy is asked at once; others just see the countdown
+    if (!w.order.includes(me)) return `<div class="buy-bar"><span>Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}…</span> ${timer}</div>`;
+    if (w.mine !== undefined) {
+      return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. Waiting for the others…</span> ${timer}</div>`;
     }
     const left = v.options.buyLimit - v.players[me].buysUsed;
     const extra = v.options.buyPenalty;
@@ -1625,7 +1624,7 @@ function rulesModal(o, bots = false) {
     <li>End your turn by discarding one card.</li></ul>
     <h3>Buying</h3>
     <ul><li>At the start of your turn you choose: <b>Take it</b> (you take the discard) or <b>Allow buy</b>. You can only draw from the deck after allowing others to buy.</li>
-    <li>If you allow it, the offer goes around the table in order, starting with the player after you. Each player gets 10 seconds to say Buy or No; the first to buy gets the card plus ${o.buyPenalty} from the deck.</li>
+    <li>If you allow it, everyone who can buy gets 10 seconds to say Buy or No. If more than one says Buy, the card goes to whoever plays soonest after you. The buyer gets the card plus ${o.buyPenalty} from the deck.</li>
     <li>When a card is bought, the card underneath is live again (even if it had been Shanghai'd), and you choose again: take it, or allow buying.</li>
     <li>If nobody buys it, you can still take it, or draw from the deck.</li>
     <li>${o.buyLimit} buys per round. Once you've laid down you can't buy.</li></ul>
