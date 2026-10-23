@@ -224,18 +224,13 @@ function loaderFaceHTML(c) {
   return cardHTML(c, { cls: 'loader-side loader-face', attrs: `data-card="${c.r}${c.s}"` });
 }
 
-function loaderHTML(label = 'Waiting…') {
-  return `<div class="loader" role="img" aria-label="${esc(label)}"><div class="loader-flip"><div class="card-back loader-side"></div>${loaderFaceHTML(loaderCard())}</div></div>`;
-}
+// Every loader flips in step with the clock, so one that's drawn again picks up where the last one was.
+const LOADER_FLIP_MS = 1800;
+const LOADER_RE = /<!--loader-->.*?<!--\/loader-->/g;
 
-// Screens redraw often while they wait (every retry), so a loader still on screen keeps the card it had, mid-flip,
-// instead of starting over (and loading a photo back again).
-function keepLoaders(old) {
-  $app.querySelectorAll('.loader').forEach((el, i) => {
-    if (!old[i]) return;
-    old[i].setAttribute('aria-label', el.getAttribute('aria-label'));
-    el.replaceWith(old[i]);
-  });
+function loaderHTML(label = 'Waiting…') {
+  const delay = -(Date.now() % LOADER_FLIP_MS);
+  return `<!--loader--><div class="loader" role="img" aria-label="${esc(label)}"><div class="loader-flip" style="animation-delay:${delay}ms"><div class="card-back loader-side"></div>${loaderFaceHTML(loaderCard())}</div></div><!--/loader-->`;
 }
 
 document.addEventListener('animationiteration', (e) => {
@@ -513,14 +508,18 @@ function render() {
   const oldModalBody = $app.querySelector('.modal-body');
   const modalTop = oldModalBody && ui.renderedModal === ui.modal ? oldModalBody.scrollTop : null;
   ui.renderedModal = ui.modal;
-  const oldLoaders = [...$app.querySelectorAll('.loader')];
   const snap = ui.snap;
-  if (!ui.session || !snap) $app.innerHTML = ui.allGames ? allGamesHTML() : homeHTML();
-  else if (snap.status === 'kicked') $app.innerHTML = messageHTML('The host removed you from the game.');
-  else if (!snap.lobby) $app.innerHTML = connectingHTML(snap);
-  else if (!snap.lobby.started || !snap.view) $app.innerHTML = lobbyHTML(snap);
-  else $app.innerHTML = gameHTML(snap);
-  keepLoaders(oldLoaders);
+  let html;
+  if (!ui.session || !snap) html = ui.allGames ? allGamesHTML() : homeHTML();
+  else if (snap.status === 'kicked') html = messageHTML('The host removed you from the game.');
+  else if (!snap.lobby) html = connectingHTML(snap);
+  else if (!snap.lobby.started || !snap.view) html = lobbyHTML(snap);
+  else html = gameHTML(snap);
+  // a screen with a loader redraws on every retry while it waits; when only the loader would change, leave it be so the
+  // card keeps flipping (and dealing new cards) instead of starting over
+  const still = html.includes('<!--loader-->') ? html.replace(LOADER_RE, '') : null;
+  if (still == null || still !== ui.loaderScreen || !$app.querySelector('.loader')) $app.innerHTML = html;
+  ui.loaderScreen = still;
   syncFeedbackSheet();
   syncCropSheet();
   syncChatSheet();
