@@ -1937,15 +1937,48 @@ body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
 .quick-saying {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 4px 4px 12px;
+  gap: 2px;
+  padding: 0 4px 0 0;
   border-radius: 10px;
   background-color: var(--panel);
 }
-.quick-saying span {
+/* moving one: it lifts and follows the finger, the others slide out of its way */
+.quick-saying.lifted {
+  position: relative;
+  z-index: 2;
+  background-color: var(--felt-light);
+  box-shadow: 0 0 0 2px var(--gold), 0 8px 18px rgba(0, 0, 0, 0.45);
+}
+.quick-grip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 44px;
+  color: var(--ink-dim);
+  cursor: grab;
+  touch-action: none;
+}
+.grip-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+button.quick-text {
   flex: 1;
   min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  text-align: left;
   overflow-wrap: anywhere;
+  background-color: transparent;
+  color: var(--ink);
+  font-weight: inherit;
+}
+.modal .actions button.quick-delete {
+  margin: 0 auto 0 0;
+  color: #f6a3a3;
 }
 .quick-sayings > p {
   margin: 0;
