@@ -2073,9 +2073,28 @@ button.link-btn {
   border-radius: 999px;
   white-space: nowrap;
 }
-button.quick-edit {
-  background-color: transparent;
-  border: 1px dashed rgba(255, 255, 255, 0.4);
+/* the chat's ⚙ and ✕, drawn to sit like the ☰ menu button's character */
+.chat-head .icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 33px; /* the ☰ button's size */
+  height: 31px;
+  padding: 0;
+}
+.line-icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tip-icon .line-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
 }
 .chat-tip {
   margin: 0 12px;
