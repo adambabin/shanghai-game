@@ -325,8 +325,11 @@ function processLog(v) {
       beep([523, 659, 784]);
     } else if (e.kind === 'notshanghai') {
       if (e.seat === v.you) toast(e.note, false, 5000);
-    } else if (['buy', 'buyreq', 'laydown', 'dead', 'swap', 'buywindow', 'tievote'].includes(e.kind)) {
-      // you already know what you just did
+    } else if (e.kind === 'buy' && e.seat === v.you) {
+      // an early Buy can win the card the moment buying is allowed, so say so
+      toast(e.text.replace(v.players[v.you].name, 'You'), false, 5000, true);
+    } else if (['buy', 'buyreq', 'laydown', 'dead', 'swap', 'tievote'].includes(e.kind)) {
+      // you already know what you just did (and "letting others buy" isn't news: the buy question or countdown says it)
       if (e.seat === v.you) continue;
       // who bought what stays up a little longer
       toast(e.text, false, e.kind === 'buy' ? 5000 : 3000, e.kind === 'buy');
@@ -804,8 +807,16 @@ function statusText(v) {
   if (v.phase === 'ready') return `Sort and plan your hand. <b>${turnName}</b> goes first once everyone is ready.`;
   if (!myTurn) {
     if (v.phase === 'draw') {
-      const d = lastLog(v, (e) => DISCARD_KINDS.includes(e.kind));
-      return d ? `${logHTML(d, v)} · <b>${turnName}</b> to draw` : `Waiting for <b>${turnName}</b> to draw…`;
+      // what happened to the card on top: discarded, bought (the one under it is showing now), or nobody bought it
+      const d = lastLog(v, (e) => [...DISCARD_KINDS, 'buy', 'buywindow'].includes(e.kind));
+      if (!d) return `Waiting for <b>${turnName}</b> to draw…`;
+      const what =
+        d.kind === 'buywindow'
+          ? miniCards(`Nobody bought ${esc(cardLabel(v.discardTop))}`)
+          : d.kind === 'buy'
+            ? logHTML({ ...d, text: d.text.replace(/ \(.*\)\.$/, '') }, v)
+            : logHTML(d, v);
+      return `${what} · <b>${turnName}</b> to draw`;
     }
     // what they've done so far this turn (drew, took the discard, laid down, played on a pile…)
     const did = lastLog(v, (e) => e.seat === v.turn && TURN_KINDS.includes(e.kind));
@@ -869,8 +880,9 @@ function activityHTML(v) {
   // prompts keep their own buttons; any other message opens the game log when tapped
   let main = buyBarHTML(v);
   const log = 'data-act="modal" data-m="log" title="Tap for the game log"';
-  // a mistake of yours (like a Shanghai call that missed) shows above a prompt instead of hiding behind it
-  if (main && f && f.bad) main = `<div class="buy-bar flash bad"><span>${miniCards(esc(f.text))}</span></div>${main}`;
+  // a mistake of yours (like a Shanghai call that missed), or who just bought the card, shows above a prompt instead of
+  // hiding behind it (the next card's buy question comes straight after a buy)
+  if (main && f && (f.bad || f.loud)) main = `<div class="buy-bar flash ${f.bad ? 'bad' : ''}"><span>${miniCards(esc(f.text))}</span></div>${main}`;
   if (!main && showFlash) main = `<div class="buy-bar flash tappable ${f.bad ? 'bad' : ''}" ${log}><span>${miniCards(esc(f.text))}</span></div>`;
   if (!main) {
     const warn = mine && v.phase === 'play' && (v.hand.length === 1 || v.mustPlay.some((id) => v.hand.some((c) => c.id === id)));
@@ -901,6 +913,16 @@ function buyCostText(v) {
   return `${cost} ${left} buy${left === 1 ? '' : 's'} left.`;
 }
 
+// Where you'd be in line to buy the card on top if everyone ahead of you said Buy too (seating order only, no answers)
+function placeInLine(v) {
+  const n = v.players.length;
+  const after = (s) => (s - v.turn + n) % n;
+  const ahead = v.buyEligible.filter((s) => after(s) < after(v.you));
+  if (!ahead.length) return "You're first in line.";
+  if (ahead.length === 1) return `<b>${esc(v.players[ahead[0]].name)}</b> is ahead of you.`;
+  return `${ahead.length} players are ahead of you.`;
+}
+
 function buyBarHTML(v) {
   const me = v.you;
   if (v.phase === 'ready') return readyBarHTML(v, ui.snap.isHost);
@@ -912,7 +934,14 @@ function buyBarHTML(v) {
     // everyone who can buy is asked at once; others just see the countdown
     if (!w.order.includes(me)) return `<div class="buy-bar"><span>Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}…</span> ${timer}</div>`;
     if (w.mine !== undefined) {
-      return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. Waiting for the others…</span> ${timer}</div>`;
+      // a Buy still open means someone ahead of you hasn't answered (the first Buy in line gets it)
+      const ahead = w.order.slice(0, w.order.indexOf(me));
+      const wait = !w.mine
+        ? 'Waiting for the others…'
+        : ahead.length === 1
+          ? `Waiting on <b>${esc(v.players[ahead[0]].name)}</b>, who's ahead of you…`
+          : `${ahead.length} players are ahead of you. Waiting for them…`;
+      return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait}</span> ${timer}</div>`;
     }
     return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
       <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span> ${timer}</div>`;
@@ -921,7 +950,9 @@ function buyBarHTML(v) {
   if (v.earlyBuy) {
     const who = `<b>${esc(v.players[v.turn].name)}</b>`;
     if (v.earlyBuy.mine !== undefined) {
-      return `<div class="buy-bar"><span>You said <b>${v.earlyBuy.mine ? 'Buy' : 'No'}</b> if ${who} lets others buy ${miniCards(esc(cardLabel(top)))}.</span>
+      const line = v.earlyBuy.mine ? ` ${placeInLine(v)}` : '';
+      return `<div class="buy-bar"><span>You said <b>${v.earlyBuy.mine ? 'Buy' : 'No'}</b> if ${who} lets others buy ${miniCards(esc(cardLabel(top)))}.${line}
+        You can change it until they decide.</span>
         <span class="buy-actions"><button class="ghost" data-act="buyAnswer" data-buy="clear">Change</button></span></div>`;
     }
     return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))} if ${who} lets others buy it? ${buyCostText(v)}</span>
@@ -2892,7 +2923,8 @@ const TIPS = {
   buyEarly: {
     when: (v) => !!v.earlyBuy && v.earlyBuy.mine === undefined,
     at: ['.activity'],
-    html: () => "You can say <b>Buy</b> or <b>No</b> now. It only counts if they let others buy.",
+    html: () => `You can say <b>Buy</b> or <b>No</b> now. It only counts if they let others buy. If more than one person says
+      Buy, the first in line gets it. You can change your answer until they decide.`,
   },
   shanghai: {
     when: (v) => v.phase === 'draw' && v.melds.length > 0 && lastLog(v, (e) => DISCARD_KINDS.includes(e.kind))?.seat !== v.you,
