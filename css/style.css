@@ -384,7 +384,6 @@ label.field {
   justify-content: center;
   font-size: calc(var(--cw) * 0.52);
   padding-top: calc(var(--ch) * 0.2);
-  padding-left: calc(var(--cw) * 0.18);
 }
 .card.joker {
   background-color: #ffeaa6;
@@ -419,14 +418,12 @@ label.field {
 .card.sm .mid {
   font-size: calc(var(--sw) * 0.45);
   padding-top: calc(var(--sh) * 0.32);
-  padding-left: calc(var(--sw) * 0.3);
 }
 .card.sm.joker .tl {
   font-size: calc(var(--sw) * 0.3);
 }
 .card.sm.joker .mid {
   font-size: calc(var(--sw) * 0.22);
-  padding-left: calc(var(--sw) * 0.2);
 }
 .card-back {
   width: var(--cw);
