@@ -565,6 +565,17 @@ label.field {
   white-space: nowrap;
   min-width: 0;
 }
+/* just bought the discard: the tile says what for a few seconds */
+.chip.just-bought {
+  box-shadow: 0 0 0 2px rgba(242, 193, 78, 0.85), 0 0 12px rgba(242, 193, 78, 0.45);
+}
+.chip .bought {
+  color: var(--gold);
+  font-weight: 700;
+}
+.chip .bought .mini-card {
+  line-height: 1.2;
+}
 .buys-left {
   color: var(--gold);
   font-weight: 800;
