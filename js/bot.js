@@ -9,11 +9,16 @@ import { ROUNDS, SET_MIN, RUN_MIN, botLevelFor } from './rules.js';
 // playChance: chance it plays another card onto a pile rather than stopping there (going out is always taken).
 // buyMistake: chance it gets a buy answer backwards. smartBuys: weighs the extra cards, buys left and hand size.
 // call, callDelay: how often and how fast (ms, base + random) it calls Shanghai on someone else.
+// stump: chance, once a round, that it holds a ready lay down to catch others out ("stumping"), for at most stumpTurns
+// turns. It lays down once it would be left with STUMP_LEFT cards or fewer, once someone else lays down, or when the
+// cards it would lay down are worth STUMP_POINTS or more.
 const LEVELS = {
-  easy: { declare: 0.35, playChance: 0.7, buyMistake: 0.25, smartBuys: false, call: 0.5, callDelay: [3000, 3000] },
-  normal: { declare: 0.6, playChance: 1, buyMistake: 0, smartBuys: false, call: 0.75, callDelay: [1200, 2500] },
-  hard: { declare: 1, playChance: 1, buyMistake: 0, smartBuys: true, call: 0.95, callDelay: [900, 1800] },
+  easy: { declare: 0.35, playChance: 0.7, buyMistake: 0.25, smartBuys: false, call: 0.5, callDelay: [3000, 3000], stump: 0 },
+  normal: { declare: 0.6, playChance: 1, buyMistake: 0, smartBuys: false, call: 0.75, callDelay: [1200, 2500], stump: 0.25, stumpTurns: 1 },
+  hard: { declare: 1, playChance: 1, buyMistake: 0, smartBuys: true, call: 0.95, callDelay: [900, 1800], stump: 0.5, stumpTurns: Infinity },
 };
+const STUMP_LEFT = 2;
+const STUMP_POINTS = 100;
 
 export function botLevel(options) {
   return LEVELS[botLevelFor(options)];
@@ -155,12 +160,17 @@ function worstCard(hand, view, isWild) {
 
 // ---------- Decisions ----------
 
-function wantsDiscard(view, isWild) {
+function wantsDiscard(view, isWild, memo) {
   const top = view.discardTop;
   const me = view.players[view.you];
   const hand = view.hand;
   if (me.laid) return fitsAnyMeld(top, view.melds, isWild);
   if (isWild(top)) return true;
+  // waiting to stump: anything that would go on a pile once we lay down gets us closer
+  if (memo.stump && memo.held) {
+    const groups = findContract(hand, view.round, isWild);
+    if (groups && leftAfterLayDown([...hand, top], view, groups, isWild) < leftAfterLayDown(hand, view, groups, isWild)) return true;
+  }
   if (!findContract(hand, view.round, isWild) && findContract([...hand, top], view.round, isWild)) return true;
   const u = usefulness(top, [...hand, top], view.round, isWild);
   const worst = worstCard(hand, view, isWild);
@@ -168,12 +178,13 @@ function wantsDiscard(view, isWild) {
 }
 
 // Draw-phase decision on the bot's own turn. Returns null while others are deciding whether to buy.
-export function chooseDraw(view) {
+// memo is this computer's own notes for the round (see choosePlay).
+export function chooseDraw(view, memo = {}) {
   const isWild = wildTest(view.options);
   if (view.buyWindow) return null;
   const top = view.discardTop;
   if (!top || view.topDead) return { type: 'drawDeck' };
-  if (wantsDiscard(view, isWild)) return { type: 'drawDiscard' };
+  if (wantsDiscard(view, isWild, memo)) return { type: 'drawDiscard' };
   // not interested: give everyone else a chance to buy it first
   if (!view.buyOffered && view.buyEligible.length) return { type: 'allowBuy' };
   return { type: 'drawDeck' };
@@ -228,8 +239,9 @@ export function seesShanghai(view) {
   return fitsAnyMeld(top, view.melds, wildTest(view.options));
 }
 
-// One action for the play phase (call repeatedly until it discards).
-export function choosePlay(view, rng = Math.random) {
+// One action for the play phase (call repeatedly until it discards). memo is an object kept for this computer for the
+// round (a fresh one each round): whether it's stumping and how many turns it has held.
+export function choosePlay(view, rng = Math.random, memo = {}) {
   const isWild = wildTest(view.options);
   const lvl = botLevel(view.options);
   const me = view.players[view.you];
@@ -248,8 +260,20 @@ export function choosePlay(view, rng = Math.random) {
     if (groups) {
       const used = new Set(groups.flatMap((g) => g.ids));
       // laying down everything but one card would leave us stuck; extensions are tried right after
-      if (hand.length - used.size !== 1 || canFinishAfter(hand.filter((c) => !used.has(c.id)), view, groups, isWild))
-        return { type: 'layDown', groups };
+      const ok = hand.length - used.size !== 1 || canFinishAfter(hand.filter((c) => !used.has(c.id)), view, groups, isWild);
+      if (ok && !holdsToStump(view, groups, lvl, rng, memo, isWild)) return { type: 'layDown', groups };
+      if (ok) {
+        // keep what will go on the piles once we lay down; let go of the rest
+        memo.held = (memo.held || 0) + 1;
+        // (a card that fits a pile already would be a Shanghai, so that's kept too)
+        const melds = [...builtGroups(groups, hand, isWild), ...view.melds];
+        const keep = (c) => used.has(c.id) || isWild(c) || canPlayLast(c, melds, isWild) || fitsAnyMeld(c, view.melds, isWild);
+        const spare = hand.filter((c) => !keep(c));
+        if (spare.length) {
+          const c = spare.reduce((a, b) => (cardPoints(b, isWild) > cardPoints(a, isWild) ? b : a));
+          return { type: 'discard', id: c.id, declare: false };
+        }
+      }
     }
   } else {
     // swap a natural card for a wild in a run (only with cards to spare, so the wild can be played and we can still discard)
@@ -289,13 +313,58 @@ export function choosePlay(view, rng = Math.random) {
   return { type: 'discard', id: worst.c.id, declare: !!worst.fits && rng() < lvl.declare };
 }
 
-function canFinishAfter(leftover, view, groups, isWild) {
-  // leftover is a single card: can it go on one of the new melds or anything already on the table?
-  const built = groups.map((g) => {
-    const cards = g.ids.map((id) => view.hand.find((c) => c.id === id));
+function builtGroups(groups, hand, isWild) {
+  return groups.map((g) => {
+    const cards = g.ids.map((id) => hand.find((c) => c.id === id));
     return g.type === 'set' ? buildSet(cards, isWild) : buildRun(cards, isWild);
   });
-  return canPlayLast(leftover[0], [...built, ...view.melds], isWild);
+}
+
+function canFinishAfter(leftover, view, groups, isWild) {
+  // leftover is a single card: can it go on one of the new melds or anything already on the table?
+  return canPlayLast(leftover[0], [...builtGroups(groups, view.hand, isWild), ...view.melds], isWild);
+}
+
+// How many cards would still be in hand after laying down these groups and playing everything we can onto piles.
+function leftAfterLayDown(hand, view, groups, isWild) {
+  const used = new Set(groups.flatMap((g) => g.ids));
+  const melds = [...builtGroups(groups, hand, isWild), ...view.melds];
+  // naturals first, so wilds only fill what they need to
+  let rest = hand.filter((c) => !used.has(c.id)).sort((a, b) => Number(isWild(a)) - Number(isWild(b)));
+  for (let played = true; played && rest.length; ) {
+    played = false;
+    for (const c of rest) {
+      const i = melds.findIndex((m) => placements(m, c, isWild).length);
+      if (i < 0) continue;
+      melds[i] = addCards(melds[i], [c], isWild);
+      rest = rest.filter((o) => o !== c);
+      played = true;
+      break;
+    }
+  }
+  return rest.length;
+}
+
+// Points we'd be stuck with by holding these groups back instead of laying them down, if someone goes out first.
+function atStake(hand, groups, isWild) {
+  const used = new Set(groups.flatMap((g) => g.ids));
+  return hand.reduce((t, c) => t + (used.has(c.id) ? cardPoints(c, isWild) : 0), 0);
+}
+
+// Stumping: with the contract in hand, keep it hidden until laying down would leave us nearly out, so anyone not down
+// yet gets caught with a full hand. Decided once a round; given up when someone else lays down (they're racing to go
+// out now), when the cards we're holding back would cost a lot if we got caught, or after the level's turn limit.
+function holdsToStump(view, groups, lvl, rng, memo, isWild) {
+  if (!lvl.stump) return false;
+  if (memo.stump === undefined) memo.stump = rng() < lvl.stump;
+  if (!memo.stump) return false;
+  const hand = view.hand;
+  const giveUp = (memo.held || 0) >= lvl.stumpTurns
+    || view.players.some((p, i) => i !== view.you && p.laid)
+    || atStake(hand, groups, isWild) >= STUMP_POINTS
+    || leftAfterLayDown(hand, view, groups, isWild) <= STUMP_LEFT;
+  if (giveUp) memo.stump = false;
+  return !giveUp;
 }
 
 // Can our last card go out on a pile? Only onto an end or a set: swapping it for a wild would leave the wild in our

@@ -480,12 +480,12 @@ export class HostSession {
       const callable = g.lastDiscard && g.lastDiscard.open && !g.buyOffered && g.melds.length > 0;
       const wait = callable ? 6000 : g.buyOffered ? 800 : 1500;
       this.turnTimer = this.later(wait, () => {
-        const a = chooseDraw(viewFor(g, seat));
+        const a = chooseDraw(viewFor(g, seat), this.botMemo(g, seat));
         if (a) this.act(seat, a);
       });
     } else {
       this.turnTimer = this.later(900, () => {
-        const res = this.act(seat, choosePlay(viewFor(g, seat)));
+        const res = this.act(seat, choosePlay(viewFor(g, seat), Math.random, this.botMemo(g, seat)));
         // never let a confused bot freeze the table
         if (!res.ok) {
           const hand = g.hands[seat];
@@ -493,6 +493,14 @@ export class HostSession {
         }
       });
     }
+  }
+
+  // a computer's notes for this round (whether it's holding its lay down to stump people); not saved with the game
+  botMemo(g, seat) {
+    const key = `${g.round}:${g.tiebreak ? 't' : ''}`;
+    if (this.memoGame !== g || this.memoKey !== key) Object.assign(this, { memoGame: g, memoKey: key, memos: new Map() });
+    if (!this.memos.has(seat)) this.memos.set(seat, {});
+    return this.memos.get(seat);
   }
 
   close() {

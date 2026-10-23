@@ -11,13 +11,13 @@ const always = () => 0; // every chance comes true
 const never = () => 0.99; // no chance comes true
 
 // A play-phase or buy view for seat 0, built by hand the way viewFor shapes it.
-function view(level, { hand, melds = [], laid = false, round = 0, top = null, options = {} }) {
+function view(level, { hand, melds = [], laid = false, othersLaid = true, round = 0, top = null, options = {} }) {
   return {
     you: 0,
     options: { ...DEFAULT_OPTIONS, botLevel: level, ...options },
     players: [
       { name: 'Bot', bot: true, laid, buysUsed: 0, blocked: false },
-      { name: 'Lou', bot: false, laid: true, buysUsed: 0, blocked: false },
+      { name: 'Lou', bot: false, laid: othersLaid, buysUsed: 0, blocked: false },
     ],
     round,
     phase: top ? 'draw' : 'play',
@@ -114,4 +114,42 @@ test('with 2 cards left, a computer only plays one if the last card can go out a
   const queen = card(12, 'S');
   const a = choosePlay(view('normal', { hand: [six, queen], melds: [spades, diamonds], laid: true }), always);
   assert.equal(a.type, 'addToMeld');
+});
+
+// round 1 (2 sets) ready to go down, with 5 cards that won't go anywhere
+const readyHand = (extra = [card(7, 'S'), card(8, 'D'), card(12, 'C'), card(4, 'H'), card(3, 'D')]) => [
+  card(5, 'S'), card(5, 'H'), card(5, 'D'), card(9, 'S'), card(9, 'H'), card(9, 'C'), ...extra,
+];
+
+test('hard computers sometimes hold a ready lay down to stump the others', () => {
+  const h = readyHand();
+  const memo = {};
+  const a = choosePlay(view('hard', { hand: h, othersLaid: false }), always, memo);
+  assert.equal(a.type, 'discard');
+  assert.equal(a.id, h[8].id, 'lets go of the queen, a card that does nothing for it');
+  assert.deepEqual(memo, { stump: true, held: 1 });
+  // the next turn it still holds
+  assert.equal(choosePlay(view('hard', { hand: readyHand(), othersLaid: false }), always, memo).type, 'discard');
+  // ...and when it isn't stumping this round, it lays down at once
+  assert.equal(choosePlay(view('hard', { hand: readyHand(), othersLaid: false }), never, {}).type, 'layDown');
+});
+
+test('a stumping computer lays down once someone else does, or once it would be nearly out', () => {
+  assert.equal(choosePlay(view('hard', { hand: readyHand(), othersLaid: true }), always, {}).type, 'layDown');
+  // the extra five goes on its own set, leaving only the 7 and the 8
+  const nearlyOut = readyHand([card(5, 'C'), card(7, 'S'), card(8, 'D')]);
+  assert.equal(choosePlay(view('hard', { hand: nearlyOut, othersLaid: false }), always, {}).type, 'layDown');
+});
+
+test('a computer won\'t stump holding back a lot of points', () => {
+  const joker = { id: nextId++, r: 0, s: 'J' };
+  const h = [card(1, 'S'), card(1, 'H'), card(1, 'D'), card(9, 'S'), card(9, 'H'), joker, card(7, 'S'), card(8, 'D'), card(12, 'C')];
+  assert.equal(choosePlay(view('hard', { hand: h, othersLaid: false }), always, {}).type, 'layDown');
+});
+
+test('normal computers stump less: one turn at most; easy ones never', () => {
+  const memo = {};
+  assert.equal(choosePlay(view('normal', { hand: readyHand(), othersLaid: false }), always, memo).type, 'discard');
+  assert.equal(choosePlay(view('normal', { hand: readyHand(), othersLaid: false }), always, memo).type, 'layDown');
+  assert.equal(choosePlay(view('easy', { hand: readyHand(), othersLaid: false }), always, {}).type, 'layDown');
 });
