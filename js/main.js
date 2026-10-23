@@ -1803,6 +1803,61 @@ function syncChatSheet() {
   document.body.appendChild(sheet);
   fillChatSheet();
   fitChatSheet();
+  swipeToClose(sheet.querySelector('.chat-panel'));
+}
+
+// Swiping down closes the chat, as well as Close and tapping outside it. The swipe starts on the title bar, or on the
+// messages once they're scrolled to the top (otherwise that swipe scrolls them); never in the quick reactions (they
+// scroll sideways) or the text box. The chat follows the finger, then closes past a third of the way down or on a
+// flick, and springs back otherwise.
+function swipeToClose(panel) {
+  let start = null; // { y, x, list }, then dragging once it's clearly a pull down
+  let last = []; // recent [time, y], for the flick
+  const reset = (back) => {
+    if (back && start && start.dragging) {
+      panel.style.transition = 'transform 0.2s ease-out';
+      panel.style.transform = '';
+    }
+    start = null;
+  };
+  panel.addEventListener('touchstart', (e) => {
+    const t = e.target;
+    const list = t.closest('.chat-msgs');
+    if (e.touches.length !== 1 || t.closest('.chat-quick, .chat-compose') || (list && list.scrollTop > 0)) return (start = null);
+    start = { y: e.touches[0].clientY, x: e.touches[0].clientX, list, dragging: false };
+    last = [[e.timeStamp, start.y]];
+  }, { passive: true });
+  panel.addEventListener('touchmove', (e) => {
+    if (!start) return;
+    const y = e.touches[0].clientY;
+    const dy = y - start.y;
+    const dx = e.touches[0].clientX - start.x;
+    if (!start.dragging) {
+      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) return reset(false);
+      if (dy < -8 || (start.list && start.list.scrollTop > 0)) return reset(false);
+      if (dy < 8) return;
+      start.dragging = true;
+      start.y = y; // follow from here, so the sheet doesn't jump by the first few pixels
+      panel.style.transition = 'none';
+    }
+    e.preventDefault(); // the page and the messages stay put while the chat moves
+    panel.style.transform = `translateY(${Math.max(0, y - start.y)}px)`;
+    last = [...last.slice(-4), [e.timeStamp, y]];
+  }, { passive: false });
+  panel.addEventListener('touchend', (e) => {
+    if (!start || !start.dragging) return (start = null);
+    const y = e.changedTouches[0].clientY;
+    const dy = y - start.y;
+    const [t0, y0] = last.find(([t]) => e.timeStamp - t < 100) || last[last.length - 1];
+    const speed = (y - y0) / Math.max(1, e.timeStamp - t0); // px per ms over the last tenth of a second
+    if (dy > panel.offsetHeight / 3 || (dy > 30 && speed > 0.5)) {
+      start = null;
+      panel.style.transition = 'transform 0.18s ease-in';
+      panel.style.transform = 'translateY(100%)';
+      setTimeout(closeChat, 170);
+    } else reset(true);
+  });
+  panel.addEventListener('touchcancel', () => reset(true));
 }
 
 function fillChatSheet() {
