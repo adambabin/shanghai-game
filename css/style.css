@@ -163,6 +163,24 @@ h3 {
   gap: 14px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
 }
+/* the lobby's Start game, How to play and Leave stay pinned to the bottom while the players and rules scroll */
+.panel.lobby {
+  padding-bottom: 0;
+}
+.lobby-foot {
+  position: sticky;
+  bottom: 0;
+  margin: 0 -24px;
+  padding: 12px 24px calc(14px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* opaque, so the rules scrolling underneath don't show through: the panel's shade over solid felt */
+  background-color: var(--felt-dark);
+  background-image: linear-gradient(var(--panel-strong), var(--panel-strong));
+  border-radius: 0 0 18px 18px;
+  box-shadow: 0 -8px 16px -8px rgba(0, 0, 0, 0.35);
+}
 .title {
   text-align: center;
   font-size: 44px;

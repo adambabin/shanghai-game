@@ -651,7 +651,7 @@ function lobbyHTML(snap) {
     )
     .join('');
   const invite = lobby.code ? inviteLink(lobby.code) : '';
-  return `<div class="center-screen"><div class="panel">
+  return `<div class="center-screen"><div class="panel lobby">
     <h2>${solo ? 'Game vs computer' : 'Game lobby'}</h2>
     ${
       lobby.code
@@ -674,13 +674,14 @@ function lobbyHTML(snap) {
       ${optionRow('Wrong Shanghai call', 'falseCallPenalty', [[0, 'No penalty'], [1, '1 card'], [2, '2 cards'], [3, '3 cards']], o, isHost)}
       ${lobby.seats.some((s) => s.bot) ? botOptionsHTML(o, isHost) : ''}
     </div>
-    ${
-      isHost
-        ? `<button class="primary" data-act="start" ${lobby.seats.length < 2 ? 'disabled' : ''}>Start game</button>`
-        : `<div class="muted" style="text-align:center">Waiting for ${esc(lobby.seats[0]?.name || 'the host')} to start…</div>`
-    }
-    <button class="ghost small" data-act="rules">How to play</button>
-    <button class="ghost small" data-act="leave">Leave</button>
+    <div class="lobby-foot">
+      ${
+        isHost
+          ? `<button class="primary" data-act="start" ${lobby.seats.length < 2 ? 'disabled' : ''}>Start game</button>`
+          : `<div class="muted" style="text-align:center">Waiting for ${esc(lobby.seats[0]?.name || 'the host')} to start…</div>`
+      }
+      <div class="row"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="leave">Leave</button></div>
+    </div>
   </div></div>${ui.modal === 'rules' ? rulesModal(o, lobby.seats.some((s) => s.bot)) : ''}`;
 }
 
