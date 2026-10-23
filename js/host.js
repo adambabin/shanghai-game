@@ -556,6 +556,8 @@ export class ClientSession {
   sendChat(text) {
     text = cleanChat(text);
     if (!text) return { ok: false, error: 'Type a message first.' };
+    // messages go through the host's phone: with them away it would just be lost
+    if (this.snap.status !== 'connected' || this.snap.hostLeft) return { ok: false, error: 'Chat is paused until the host is back.' };
     this.link.send({ t: 'chat', text });
     return { ok: true, pending: true, sent: true };
   }

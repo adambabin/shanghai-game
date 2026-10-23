@@ -2193,6 +2193,26 @@ button.link-btn {
   font-size: 13px;
   flex: none;
 }
+/* the host is away: nothing can be sent until they're back */
+.chat-away {
+  display: none;
+  margin: 0 12px 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--ink-dim);
+  font-size: 14px;
+  text-align: center;
+  flex: none;
+}
+.chat-panel.away .chat-away {
+  display: block;
+}
+.chat-panel.away .chat-quick,
+.chat-panel.away .chat-compose,
+.chat-panel.away .chat-tip {
+  display: none;
+}
 .chat-compose {
   display: flex;
   gap: 8px;

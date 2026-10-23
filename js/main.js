@@ -1824,14 +1824,14 @@ function syncChatSheet() {
     if (!ui.modal) ui.chatOpen = false;
     return;
   }
-  if (sheet) return;
+  if (sheet) return markChatAway(sheet);
   sheet = document.createElement('div');
   sheet.id = 'chat-sheet';
   const quick = [...ui.quickEmoji.map((e) => `<button class="emo" data-chat="emoji">${esc(e)}</button>`),
     ...ui.quickSayings.map((t) => `<button class="say" data-chat="saying">${esc(t)}</button>`)].join('');
   // one time: these can be changed (shown in the sheet itself, since tips wait while the chat is open)
   const seen = store.get('tipsSeen', []);
-  const tip = !store.get('tipsOff', false) && !seen.includes('quickChat');
+  const tip = !store.get('tipsOff', false) && !seen.includes('quickChat') && !chatAway(ui.snap);
   if (tip) {
     store.set('tipsSeen', [...seen, 'quickChat']);
     stats.track('tip', { tip: 'quickChat' });
@@ -1841,6 +1841,7 @@ function syncChatSheet() {
       <div class="chat-head"><b>Chat</b><button class="icon-btn" data-chat="edit" title="Change quick reactions" aria-label="Change quick reactions">${GEAR_ICON}</button><button class="icon-btn" data-chat="close" title="Close" aria-label="Close">${X_ICON}</button></div>
       <div class="chat-msgs"></div>
       ${tip ? `<p class="chat-tip">You can change these quick reactions in Settings, or tap <span class="tip-icon">${GEAR_ICON}</span> up top.</p>` : ''}
+      <p class="chat-away"></p>
       <div class="chat-quick">${quick}</div>
       <form class="chat-compose"><input data-field="chatText" maxlength="${CHAT_MAX}" placeholder="Say something…" autocomplete="off" enterkeyhint="send"
         aria-label="Message"><button class="primary">Send</button></form>
@@ -1864,6 +1865,7 @@ function syncChatSheet() {
     sendChat(input.value, 'typed');
     input.value = '';
   });
+  markChatAway(sheet);
   document.body.appendChild(sheet);
   const toMessage = ui.chatHighlight != null;
   fillChatSheet();
@@ -1877,6 +1879,19 @@ function syncChatSheet() {
   box.addEventListener('scroll', () => (atEnd = chatAtEnd(box)), { passive: true });
   if (window.ResizeObserver) new ResizeObserver(() => atEnd && (box.scrollTop = box.scrollHeight)).observe(box);
   swipeToClose(panel);
+}
+
+// Every message goes through the host's phone, so while they're away the chat can be read but not added to: say so
+// in place of the quick reactions and the text box (a half-typed message stays for when they're back).
+const chatAway = (snap) => !!snap && !snap.isHost && (snap.status !== 'connected' || !!snap.hostLeft);
+function markChatAway(sheet) {
+  const away = chatAway(ui.snap);
+  const panel = sheet.querySelector('.chat-panel');
+  if (away && panel.contains(document.activeElement)) document.activeElement.blur();
+  const changed = panel.classList.contains('away') !== away;
+  panel.classList.toggle('away', away);
+  if (changed && sheet.isConnected && !chatList().length) fillChatSheet();
+  sheet.querySelector('.chat-away').innerHTML = away ? `Chat is paused until <b>${esc(hostName(ui.snap))}</b> is back.` : '';
 }
 
 // Swiping down closes the chat, as well as Close and tapping outside it. The swipe starts on the title bar, or on the
@@ -2060,7 +2075,7 @@ function fillChatSheet(toEnd = false) {
   if (!box) return;
   const list = chatList();
   if (!list.length) {
-    box.innerHTML = '<p class="chat-empty">No messages yet. Say hi, or tap a quick reaction below.</p>';
+    box.innerHTML = `<p class="chat-empty">No messages yet.${chatAway(ui.snap) ? '' : ' Say hi, or tap a quick reaction below.'}</p>`;
     return;
   }
   const atEnd = chatAtEnd(box);
