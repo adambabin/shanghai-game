@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSet, buildRun, addCards, fitsAnyMeld, runHi, placements, couldBeSet, couldBeRun, arrangeRun } from '../js/melds.js';
 import { wildTest } from '../js/cards.js';
-import { createGame, applyAction, viewFor, totals, nextRound, buyTimeout, buyAsking, mustDecideOnDiscard, startRound, endRoundNoWinner, buyEligible } from '../js/engine.js';
+import { ROUNDS } from '../js/rules.js';
+import { createGame, applyAction, endIfPastLastRound, viewFor, totals, nextRound, buyTimeout, buyAsking, mustDecideOnDiscard, startRound, endRoundNoWinner, buyEligible } from '../js/engine.js';
 
 const isWild = wildTest({ twoClubsWild: false });
 let nid = 1000;
@@ -403,7 +404,7 @@ test('laying down at the wrong time or with the wrong groups says what is wrong'
 // The last round, ended with everyone holding nothing, so the totals are just the earlier scores given here
 function finalRound(players, earlier) {
   const g = createGame(players, {}, () => 0.3);
-  g.round = 9;
+  g.round = ROUNDS.length - 2;
   startRound(g);
   g.scores = earlier.map((t) => [t]);
   g.hands = g.hands.map(() => []);
@@ -438,7 +439,8 @@ test('a tiebreaker deals the last round again to just the tied players', () => {
   const g = finalRound([{ name: 'Adam' }, { name: 'Rebecca' }, { name: 'Lou', bot: true }, { name: 'Shark', bot: true }], [34, 50, 34, 60]);
   assert.deepEqual(g.tiebreak.seats, [0, 2], 'Adam and the computer Lou are tied; only Adam votes');
   applyAction(g, 0, { type: 'tieVote', choice: 'tiebreak' });
-  assert.equal(g.round, 10, 'still round 11, the same contract');
+  assert.equal(g.round, 6, 'still round 7, the same contract');
+  assert.equal(g.hands[0].length, 11);
   assert.equal(g.phase, 'ready');
   assert.equal(g.hands[1].length, 0, 'Rebecca sits out');
   assert.equal(g.hands[3].length, 0, 'Shark sits out');
@@ -457,6 +459,56 @@ test('a tiebreaker deals the last round again to just the tied players', () => {
   assert.deepEqual(g.winners, [0], 'lowest in the tiebreaker wins');
   assert.deepEqual(g.tiebreak.points, [5, null, 20, null]);
   assert.deepEqual(totals(g), [34, 50, 34, 60]);
+});
+
+test('the game is 7 rounds: round 7 is 3 runs and ends the game', () => {
+  assert.equal(ROUNDS.length, 7);
+  const g = finalRound([{ name: 'Adam' }, { name: 'Rebecca' }], [30, 40]);
+  assert.equal(g.round, 6);
+  assert.equal(g.phase, 'gameOver');
+  assert.equal(nextRound(g).ok, false);
+});
+
+test('a game saved when there were 11 rounds ends after the round it is in', () => {
+  const people = [{ name: 'Adam' }, { name: 'Rebecca' }, { name: 'Lou', bot: true }];
+  // in round 9 (1 set + 3 runs): it can still be played, then it's over
+  const g = createGame(people, {}, () => 0.3);
+  g.round = 7;
+  startRound(g);
+  assert.equal(g.hands[0].length, 11);
+  g.scores = [[10], [20], [30]];
+  g.hands = g.hands.map(() => []);
+  endRoundNoWinner(g);
+  assert.equal(g.phase, 'gameOver');
+  assert.deepEqual(g.winners, [0]);
+
+  // between rounds 8 and 9: straight to the final scores, a tie going to the vote as usual
+  const between = createGame(people, {}, () => 0.3);
+  between.round = 7;
+  between.phase = 'roundOver';
+  between.scores = [[20], [20], [30]];
+  assert.ok(endIfPastLastRound(between));
+  assert.equal(between.phase, 'tieVote');
+  assert.deepEqual(between.tiebreak.seats, [0, 1]);
+  applyAction(between, 0, { type: 'tieVote', choice: 'tiebreak' });
+  applyAction(between, 1, { type: 'tieVote', choice: 'tiebreak' });
+  assert.equal(between.phase, 'ready', 'the tiebreaker replays the round it was in');
+  assert.equal(between.round, 7);
+
+  // nextRound does the same for a host that taps Deal
+  const deal = createGame(people, {}, () => 0.3);
+  deal.round = 6;
+  deal.phase = 'roundOver';
+  deal.scores = [[5], [20], [30]];
+  assert.ok(nextRound(deal).ok);
+  assert.equal(deal.phase, 'gameOver');
+
+  // an earlier round between rounds is left alone
+  const early = createGame(people, {}, () => 0.3);
+  early.round = 3;
+  early.phase = 'roundOver';
+  assert.equal(endIfPastLastRound(early), false);
+  assert.equal(early.phase, 'roundOver');
 });
 
 test('a tiebreaker that ties again is a shared win', () => {

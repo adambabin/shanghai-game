@@ -1,7 +1,7 @@
 // Runs in the host's browser: owns the lobby and the game, drives the bots, and sends each
 // player their own view of the game.
 
-import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, buyTimeout, beginPlay, sittingOut } from './engine.js';
+import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, endIfPastLastRound, buyTimeout, beginPlay, sittingOut } from './engine.js';
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai, shanghaiReaction } from './bot.js';
 import { DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
 import { openRoom, randomCode } from './net.js';
@@ -35,6 +35,8 @@ export class HostSession {
       this.game = restore.game;
       // games saved by an older version are missing newer fields
       Object.assign(this.game, { mustPlay: [], buyOffered: false, ...this.game, buyWindow: null, earlyBuy: null });
+      // saved between rounds when there were 11: past round 7 it goes straight to the final scores
+      endIfPastLastRound(this.game);
       this.lobby.seats.forEach((s) => {
         if (!s.bot && !s.isHost) s.connected = false;
       });

@@ -9,11 +9,25 @@ export const ROUNDS = [
   { sets: 2, runs: 1, deal: 11 },
   { sets: 1, runs: 2, deal: 11 },
   { sets: 0, runs: 3, deal: 11 },
+];
+
+// The game used to have 11 rounds. Games saved before it went to 7 may still be in one of these; they end after it.
+const RETIRED_ROUNDS = [
   { sets: 3, runs: 1, deal: 11 },
   { sets: 1, runs: 3, deal: 11 },
   { sets: 4, runs: 0, deal: 13 },
   { sets: 0, runs: 4, deal: 13 },
 ];
+
+// A round's contract and deal, including the retired rounds older saved games may still be playing
+export function roundCfg(round) {
+  return ROUNDS[round] || RETIRED_ROUNDS[round - ROUNDS.length];
+}
+
+// The last round of a game: round 7, or the round an older saved game was already in past it
+export function isLastRound(round) {
+  return round >= ROUNDS.length - 1;
+}
 
 export const SET_MIN = 3; // cards of the same rank
 export const RUN_MIN = 4; // cards in a row, same suit
@@ -54,7 +68,7 @@ export function decksFor(options = {}) {
 }
 
 export function contractText(round) {
-  const r = ROUNDS[round];
+  const r = roundCfg(round);
   const parts = [];
   if (r.sets) parts.push(`${r.sets} Set${r.sets > 1 ? 's' : ''}`);
   if (r.runs) parts.push(`${r.runs} Run${r.runs > 1 ? 's' : ''}`);

@@ -2,7 +2,7 @@
 
 import { wildTest, cardPoints } from './cards.js';
 import { addCards, fitsAnyMeld, placements, buildSet, buildRun, runValue, wildSlotFor } from './melds.js';
-import { ROUNDS, SET_MIN, RUN_MIN, botLevelFor } from './rules.js';
+import { roundCfg, SET_MIN, RUN_MIN, botLevelFor } from './rules.js';
 
 // How each computer skill plays.
 // declare: chance it says Shanghai itself when its discard could go on a pile (otherwise anyone can catch it).
@@ -69,7 +69,7 @@ function runCandidates(cards, isWild) {
 }
 
 export function findContract(hand, round, isWild) {
-  const cfg = ROUNDS[round];
+  const cfg = roundCfg(round);
   const needed = [...Array(cfg.runs).fill('run'), ...Array(cfg.sets).fill('set')];
   const search = (idx, avail, lastKey) => {
     if (idx === needed.length) return [];
@@ -92,7 +92,7 @@ export function findContract(hand, round, isWild) {
 // Picks the most promising partial sets and runs for this round's contract, then values each card by
 // whether it belongs to one of them. Cards outside those groups are discard fodder.
 function planHand(hand, round, isWild) {
-  const cfg = ROUNDS[round];
+  const cfg = roundCfg(round);
   const value = new Map();
   const naturals = hand.filter((c) => !isWild(c));
 
@@ -208,7 +208,7 @@ function buyIsWorthIt(view, lvl) {
   if (!findContract(hand, view.round, isWild) && findContract([...hand, top], view.round, isWild)) return true;
   const u = usefulness(top, [...hand, top], view.round, isWild);
   // later rounds need more cards than you're dealt, so be keener
-  const cfg = ROUNDS[view.round];
+  const cfg = roundCfg(view.round);
   const need = cfg.sets * SET_MIN + cfg.runs * RUN_MIN;
   const short = need >= cfg.deal;
   let bar = short ? 7 : 12;

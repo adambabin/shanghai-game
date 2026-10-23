@@ -63,9 +63,9 @@ function playGame(players, seed, botLevel = 'normal') {
 const GAMES = 24;
 const catchRate = {};
 
-// easy computers hold cards back and get caught more, so a few more rounds stall. Hard finishes as often as
-// normal over a hundred games (about 87%), but these 24 happen to be some of its worst.
-const MIN_WENT_OUT = { easy: 0.8, normal: 0.85, hard: 0.8 };
+// easy computers hold cards back and get caught more, so a few more rounds stall (about 95% go out; normal and
+// hard nearly all)
+const MIN_WENT_OUT = { easy: 0.9, normal: 0.95, hard: 0.95 };
 
 for (const level of ['easy', 'normal', 'hard']) {
   test(`bot-only games run to completion without stalls (${level})`, () => {
@@ -74,8 +74,8 @@ for (const level of ['easy', 'normal', 'hard']) {
     let catchable = 0;
     for (let seed = 1; seed <= GAMES; seed++) {
       const { g, stats } = playGame(3 + (seed % 6), seed, level);
-      assert.equal(stats.rounds, 11);
-      assert.equal(g.scores[0].length, 11);
+      assert.equal(stats.rounds, 7);
+      assert.equal(g.scores[0].length, 7);
       wentOut += g.scores[0].map((_, r) => g.scores.some((s) => s[r] === 0)).filter(Boolean).length;
       assert.ok(totals(g).every((t) => t >= 0));
       discards += stats.discards;
@@ -83,7 +83,7 @@ for (const level of ['easy', 'normal', 'hard']) {
     }
     catchRate[level] = catchable / discards;
     // most rounds should end with someone going out
-    const rounds = GAMES * 11;
+    const rounds = GAMES * 7;
     assert.ok(wentOut / rounds > MIN_WENT_OUT[level], `only ${wentOut}/${rounds} rounds had a winner`);
   });
 }

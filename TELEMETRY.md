@@ -24,7 +24,7 @@ they get and where they seem to get stuck. The code is `js/telemetry.js` (sendin
 ## Events
 
 Every event carries `version` (the stamped release, or `local`). Most in-game events also carry `role` (`vs computer`,
-`host` or `joined`), `round` (1–11), `phase`, `minutes` (since this device opened the game), `people` and `computers`.
+`host` or `joined`), `round` (1–7; up to 11 in games saved before the game went to 7 rounds), `phase`, `minutes` (since this device opened the game), `people` and `computers`.
 Every device in a game sends its own, so count games with `role` ≠ `joined`.
 
 | Event | When | Extra data |
