@@ -2612,6 +2612,11 @@ const TIPS = {
     html: (v) => `<b>Take it</b> puts the ${esc(cardLabel(v.discardTop))} in your hand. <b>Allow buy</b> lets the others buy it
       first (it costs them ${v.options.buyPenalty} extra cards), then you draw from the deck.`,
   },
+  buyEarly: {
+    when: (v) => !!v.earlyBuy && v.earlyBuy.mine === undefined,
+    at: ['.activity'],
+    html: () => "You can say <b>Buy</b> or <b>No</b> now. It only counts if they let others buy.",
+  },
   shanghai: {
     when: (v) => v.phase === 'draw' && v.melds.length > 0 && lastLog(v, (e) => DISCARD_KINDS.includes(e.kind))?.seat !== v.you,
     at: ['.shanghai-btn'],
