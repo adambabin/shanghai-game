@@ -73,6 +73,7 @@ const ui = {
   sortDesc: store.get('sortDesc', false),
   drag: null,
   pendingRender: false,
+  swiping: false, // the hand is being swiped down (redraws wait, like during a drag)
   tour: null, // the step of the first-game tour being shown
   tip: null, // the one-time tip being shown (a key of TIPS)
   fbPhotos: [], // feedback photos, shrunk to JPEG data URLs
@@ -459,7 +460,7 @@ function send(action) {
 
 // ---------- rendering ----------
 function render() {
-  if (ui.drag) {
+  if (ui.drag || ui.swiping) {
     ui.pendingRender = true;
     return;
   }
@@ -1858,6 +1859,73 @@ function swipeToClose(panel) {
     } else reset(true);
   });
   panel.addEventListener('touchcancel', () => reset(true));
+}
+
+// Swiping down lowers your hand too, as well as the ▾ button, and swiping up on "Show my cards" brings it back. The
+// swipe starts around the cards (the ▾ strip, the Lay down line, the Undo / Sort row, empty space), never on a card,
+// a staged card, the deck or the discard: those still drag exactly as before. Like the chat, the hand follows the finger
+// and goes down past a third of the way or on a flick, otherwise it springs back. Redraws wait while it moves.
+let handSwipe = null;
+function onHandTouchStart(e) {
+  handSwipe = null;
+  const t = e.target;
+  const dock = t.closest('.dock');
+  if (!dock || e.touches.length !== 1 || ui.drag) return;
+  const collapsed = dock.classList.contains('collapsed');
+  if (collapsed ? !t.closest('.dock-toggle') : t.closest('.card, [data-staged-card], [data-drag], .new-group, input')) return;
+  const body = t.closest('.dock-body');
+  if (body && body.scrollTop > 0) return; // scrolled down a tall hand: that swipe scrolls it back
+  const y = e.touches[0].clientY;
+  handSwipe = { dock, collapsed, body, y, x: e.touches[0].clientX, dragging: false, last: [[e.timeStamp, y]] };
+}
+function onHandTouchMove(e) {
+  const h = handSwipe;
+  if (!h) return;
+  const y = e.touches[0].clientY;
+  const dy = y - h.y;
+  const dx = e.touches[0].clientX - h.x;
+  if (!h.dragging) {
+    if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) return (handSwipe = null); // the staged row scrolling sideways
+    if (h.collapsed ? dy > 8 : dy < -8 || (h.body && h.body.scrollTop > 0)) return (handSwipe = null);
+    if (Math.abs(dy) < 8) return;
+    h.dragging = true;
+    h.y = y;
+    ui.swiping = true;
+    ui.swallowClick = true; // the button the swipe started on doesn't count as tapped
+    h.dock.style.transition = 'none';
+  }
+  e.preventDefault();
+  if (!h.collapsed) h.dock.style.transform = `translateY(${Math.max(0, y - h.y)}px)`;
+  h.last = [...h.last.slice(-4), [e.timeStamp, y]];
+}
+function onHandTouchEnd(e) {
+  const h = handSwipe;
+  handSwipe = null;
+  if (!h || !h.dragging) return;
+  const y = e.changedTouches ? e.changedTouches[0].clientY : h.y;
+  const dy = y - h.y;
+  const [t0, y0] = h.last.find(([t]) => e.timeStamp - t < 100) || h.last[h.last.length - 1];
+  const speed = (y - y0) / Math.max(1, e.timeStamp - t0);
+  const done = () => {
+    ui.swiping = false;
+    render();
+  };
+  if (h.collapsed) {
+    if (dy < -20) ui.dockCollapsed = false;
+    return done();
+  }
+  if (e.type === 'touchend' && (dy > h.dock.offsetHeight / 3 || (dy > 30 && speed > 0.5))) {
+    h.dock.style.transition = 'transform 0.18s ease-in';
+    h.dock.style.transform = 'translateY(100%)';
+    setTimeout(() => {
+      ui.dockCollapsed = true;
+      done();
+    }, 170);
+  } else {
+    h.dock.style.transition = 'transform 0.2s ease-out';
+    h.dock.style.transform = '';
+    setTimeout(done, 200);
+  }
 }
 
 function fillChatSheet() {
@@ -3613,6 +3681,10 @@ $app.addEventListener('input', onInput);
 $app.addEventListener('change', onChange);
 $app.addEventListener('keydown', onKey);
 $app.addEventListener('pointerdown', onPointerDown);
+$app.addEventListener('touchstart', onHandTouchStart, { passive: true });
+$app.addEventListener('touchmove', onHandTouchMove, { passive: false });
+$app.addEventListener('touchend', onHandTouchEnd);
+$app.addEventListener('touchcancel', onHandTouchEnd);
 window.addEventListener('pointermove', onPointerMove);
 window.addEventListener('pointerup', onPointerUp);
 window.addEventListener('pointercancel', (e) => {
