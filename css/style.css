@@ -1338,6 +1338,13 @@ canvas.confetti {
 .buy-bar .buy-actions button {
   padding: 8px 16px;
 }
+/* a countdown at the end of a sentence sits on its last line instead of wrapping onto one of its own */
+.buy-bar > span > .countdown {
+  vertical-align: middle;
+  min-width: 24px;
+  height: 24px;
+  font-size: 13px;
+}
 .countdown {
   display: inline-flex;
   align-items: center;

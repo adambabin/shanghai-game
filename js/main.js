@@ -950,8 +950,8 @@ function buyBarHTML(v) {
   const w = v.buyWindow;
   const timer = `<span class="countdown" data-countdown>${secondsLeft()}</span>`;
   if (w) {
-    // everyone who can buy is asked at once; others just see the countdown
-    if (!w.order.includes(me)) return `<div class="buy-bar"><span>Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}…</span> ${timer}</div>`;
+    // everyone who can buy is asked at once; others just see the countdown (in the sentence, so it rides on its last line)
+    if (!w.order.includes(me)) return `<div class="buy-bar"><span>Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}… ${timer}</span></div>`;
     if (w.mine !== undefined) {
       // a Buy still open means someone ahead of you hasn't answered (the first Buy in line gets it)
       const ahead = w.order.slice(0, w.order.indexOf(me));
@@ -960,7 +960,7 @@ function buyBarHTML(v) {
         : ahead.length === 1
           ? `Waiting on <b>${esc(v.players[ahead[0]].name)}</b>, who's ahead of you…`
           : `${ahead.length} players are ahead of you. Waiting for them…`;
-      return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait}</span> ${timer}</div>`;
+      return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait} ${timer}</span></div>`;
     }
     return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
       <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span> ${timer}</div>`;
