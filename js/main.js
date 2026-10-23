@@ -175,7 +175,8 @@ function beep(freqs, dur = 0.12) {
 // ---------- toasts ----------
 // During a game, messages show briefly in the activity box under the deck; elsewhere they float.
 // loud: shown even over "Your turn" (like who just bought the card you let go)
-function toast(text, bad = false, ms = 3000, loud = false) {
+// longer messages stay up long enough to read
+function toast(text, bad = false, ms = Math.max(3000, String(text).length * 45), loud = false) {
   if (ui.snap && ui.snap.view) {
     if (bad) trackRefused(text);
     ui.flash = { text, bad, loud, until: Date.now() + ms };

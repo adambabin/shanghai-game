@@ -125,6 +125,41 @@ test('round 1 lay down, play on piles, and Shanghai call penalties', () => {
   assert.deepEqual([g.stats[0].caughtBy, g.stats[0].shanghaiCards], [1, 2]);
 });
 
+test("a lay down or play that would strand your last card is refused before anyone sees it", () => {
+  // two sets of 4s and 9s, plus a K that fits nowhere and a 4 that fits the 4s
+  const p0 = [c(4, 'S'), c(4, 'H'), c(4, 'D'), c(9, 'S'), c(9, 'H'), c(9, 'C'), c(13, 'C')];
+  const p1 = [c(2, 'H'), c(3, 'D'), c(6, 'C'), c(7, 'C'), c(8, 'S')];
+  const g = rigged([p0, p1], { deck: [c(4, 'C')] });
+  deckDraw(g, 0);
+  const four = g.hands[0].find((x) => x.r === 4 && x.s === 'C');
+  const sets = [{ type: 'set', ids: [p0[0].id, p0[1].id, p0[2].id] }, { type: 'set', ids: [p0[3].id, p0[4].id, p0[5].id] }];
+  // laying down the 4C too would leave only the K
+  const bad = applyAction(g, 0, { type: 'layDown', groups: [{ ...sets[0], ids: [...sets[0].ids, four.id] }, sets[1]] });
+  assert.ok(!bad.ok);
+  assert.match(bad.error, /only the K♣/);
+  assert.equal(g.melds.length, 0);
+  assert.ok(!g.laid[0]);
+  assert.equal(g.hands[0].length, 8);
+  // leaving 2 is fine, but playing the 4C on the pile then would strand the K
+  assert.ok(applyAction(g, 0, { type: 'layDown', groups: sets }).ok);
+  const play = applyAction(g, 0, { type: 'addToMeld', meldId: g.melds[0].id, ids: [four.id] });
+  assert.match(play.error, /^Not yet\. Playing that/);
+  assert.equal(g.melds[0].cards.length, 3);
+  assert.equal(g.hands[0].length, 2);
+});
+
+test("leaving one card is fine when it goes on one of the new piles", () => {
+  const p0 = [c(4, 'S'), c(4, 'H'), c(4, 'D'), c(9, 'S'), c(9, 'H'), c(9, 'C'), c(9, 'D')];
+  const p1 = [c(2, 'H'), c(3, 'D'), c(6, 'C'), c(7, 'C'), c(8, 'S')];
+  const g = rigged([p0, p1], { deck: [c(4, 'C')] });
+  deckDraw(g, 0);
+  const four = g.hands[0].find((x) => x.r === 4 && x.s === 'C');
+  const sets = [{ type: 'set', ids: [p0[0].id, p0[1].id, p0[2].id, four.id] }, { type: 'set', ids: [p0[3].id, p0[4].id, p0[5].id] }];
+  assert.ok(applyAction(g, 0, { type: 'layDown', groups: sets }).ok);
+  assert.ok(applyAction(g, 0, { type: 'addToMeld', meldId: g.melds[1].id, ids: [p0[6].id] }).ok);
+  assert.equal(g.phase, 'roundOver');
+});
+
 test('declared Shanghai discard is dead, no penalty, live again once covered and uncovered', () => {
   const p0 = [c(4, 'S'), c(4, 'H'), c(4, 'D'), c(9, 'S'), c(9, 'H'), c(9, 'C'), c(4, 'C'), c(12, 'D'), c(3, 'H')];
   const p1 = [c(2, 'H'), c(3, 'D'), c(6, 'C'), c(7, 'C'), c(8, 'S')];

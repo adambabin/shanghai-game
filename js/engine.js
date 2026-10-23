@@ -2,7 +2,7 @@
 // Players are referred to by seat number (0..n-1).
 
 import { makeDecks, shuffle, wildTest, cardPoints, cardLabel } from './cards.js';
-import { buildSet, buildRun, addCards, fitsAnyMeld, wildSlotFor } from './melds.js';
+import { buildSet, buildRun, addCards, fitsAnyMeld, placements, wildSlotFor } from './melds.js';
 import { ROUNDS, roundCfg, isLastRound, DEFAULT_OPTIONS, decksFor, contractText } from './rules.js';
 
 // How long players get to decide whether to buy once the current player allows it.
@@ -304,6 +304,21 @@ function afterPlay(state, seat) {
   if (state.hands[seat].length === 0) finishRound(state, seat);
 }
 
+// Can a last card still go out? Onto a pile, or in place of a wild in a run as long as the wild then has somewhere to
+// go. Otherwise you'd be stuck, since you can't go out on a discard: a play that would leave you there is refused before
+// anyone sees it, instead of happening and being taken back with Undo.
+function canGoOutWith(card, melds, isWild) {
+  if (melds.some((m) => placements(m, card, isWild).length)) return true;
+  return melds.some((m) => {
+    const i = wildSlotFor(m, card, isWild);
+    if (i < 0) return false;
+    const swapped = { ...m, cards: m.cards.map((c, j) => (j === i ? card : c)) };
+    return melds.some((o) => placements(o === m ? swapped : o, m.cards[i], isWild).length);
+  });
+}
+const strandedError = (card, what) =>
+  `Not yet. ${what} would leave you only the ${cardLabel(card)}, and it can't go on any pile. Keep one more card back to discard.`;
+
 // Why a Shanghai call missed, in words for the person who called it
 function notShanghaiReason(state, seat) {
   const ld = state.lastDiscard;
@@ -428,6 +443,9 @@ export function applyAction(state, seat, action) {
         if (!m) return err(`That isn't a valid ${g.type}: ${gc.map(cardLabel).join(' ')}`);
         built.push(m);
       }
+      const left = state.hands[seat].filter((c) => !allIds.includes(c.id));
+      if (left.length === 1 && !canGoOutWith(left[0], [...state.melds, ...built], isWild))
+        return err(strandedError(left[0], 'Laying these down'));
       removeFromHand(state, seat, allIds);
       const ids = [];
       for (const m of built) {
@@ -452,6 +470,9 @@ export function applyAction(state, seat, action) {
       if (!cards || !cards.length) return err("Those cards aren't in your hand.");
       const next = addCards(meld, cards, isWild, action.wildEnd);
       if (!next) return err(`${cards.map(cardLabel).join(' ')} can't go on that ${meld.type}.`);
+      const left = state.hands[seat].filter((c) => !action.ids.includes(c.id));
+      if (left.length === 1 && !canGoOutWith(left[0], state.melds.map((m) => (m === meld ? { ...meld, ...next } : m)), isWild))
+        return err(strandedError(left[0], 'Playing that'));
       removeFromHand(state, seat, action.ids);
       state.history.push({ kind: 'add', meld: { ...meld }, cards });
       Object.assign(meld, next);
