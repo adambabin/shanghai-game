@@ -123,6 +123,22 @@ test("a joined player's message carries their own seat and name, whatever it cla
   h.close();
 });
 
+test('a message sent too fast comes back to its sender as chat, with what they typed', () => {
+  data.clear();
+  const h = new HostSession({ name: 'Ann', clientId: 'me', solo: true });
+  const sent = [];
+  h.room = { send: (connId, msg) => sent.push([connId, msg]), close() {} };
+  h.lobby.seats.push({ name: 'Bob', clientId: 'bob', connected: true });
+  h.conns.set('c1', 3);
+  h.act(0, { type: 'start' });
+  h.onMessage('c1', { t: 'chat', text: 'one' });
+  h.onMessage('c1', { t: 'chat', text: 'two' });
+  assert.equal(h.chat.length, 1);
+  const err = sent.find(([c, msg]) => c === 'c1' && msg.t === 'err');
+  assert.deepEqual(err[1], { t: 'err', msg: 'Hold on a second, then send it again.', chat: true, text: 'two' });
+  h.close();
+});
+
 test('the chat is kept with the game, the latest messages only', () => {
   data.clear();
   const h = soloGame();

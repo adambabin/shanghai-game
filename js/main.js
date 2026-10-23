@@ -89,6 +89,7 @@ const ui = {
   chatTipAt: 0, // when someone else's message last arrived, for the one-time chat tip
   quickEmoji: quickEmoji(store.get('quickEmoji')), // your quick reactions in the chat (Settings › Quick reactions)
   quickSayings: quickSayings(store.get('quickSayings')),
+  chatNote: null, // a line in the chat only you see, when a message of yours didn't go: { text, after: message id }
   quickEdit: null, // changing one in its own sheet (#quick-sheet): { kind: 'emoji', i } or { kind: 'saying' }
   revealQuick: false, // Settings opened from the chat's Edit: scroll to the quick reactions
 };
@@ -252,6 +253,7 @@ function startSession(session) {
   ui.modal = null;
   ui.flash = null;
   ui.chatOpen = false;
+  ui.chatNote = null;
   ui.chatPops = [];
   ui.chatMore = 0;
   session.subscribe(onSnapshot);
@@ -1795,8 +1797,12 @@ function chatButtonHTML() {
   }</button>`;
 }
 
-// m: a message that just arrived, or null when the whole list came in (on joining or coming back)
-function onChat(m) {
+// m: a message that just arrived, or null when the whole list came in (on joining or coming back); refused: the host
+// turned down one of yours ({ error, text })
+function onChat(m, refused) {
+  if (refused) return chatRefused(refused.error, refused.text);
+  // one of yours went through: any note about the last one is done with
+  if (m && m.seat === mySeat()) ui.chatNote = null;
   if (m && m.seat !== mySeat()) {
     beep([1175, 1568], 0.07);
     ui.chatTipAt = Date.now();
@@ -1817,10 +1823,26 @@ function onChat(m) {
 }
 
 function sendChat(text, kind) {
-  if (!ui.session) return;
+  if (!ui.session) return false;
   const res = ui.session.sendChat(text);
-  if (!res.ok) return toast(res.error, true);
+  if (!res.ok) {
+    chatRefused(res.error);
+    return false;
+  }
   stats.track('chat_sent', { kind, role: statsRole(ui.snap) });
+  return true;
+}
+
+// A message that didn't go (sent too fast, for one): said in the chat itself, where you're looking, as a line only you
+// see, and anything you'd typed goes back in the box. The game's message box is under the chat, so a toast would be missed.
+function chatRefused(error, text = '') {
+  const sheet = document.getElementById('chat-sheet');
+  if (!sheet) return toast(error, true);
+  const list = chatList();
+  ui.chatNote = { text: error, after: list.length ? list[list.length - 1].id : null };
+  const input = sheet.querySelector('[data-field="chatText"]');
+  if (text && input && !input.value.trim()) input.value = text;
+  fillChatSheet(true);
 }
 
 function openChat(highlight = null) {
@@ -1837,6 +1859,7 @@ function openChat(highlight = null) {
 }
 function closeChat() {
   ui.chatOpen = false;
+  ui.chatNote = null;
   ui.chatHighlight = null;
   render();
 }
@@ -1896,8 +1919,8 @@ function syncChatSheet() {
     e.preventDefault();
     const input = sheet.querySelector('input');
     if (!cleanChat(input.value)) return;
-    sendChat(input.value, 'typed');
-    input.value = '';
+    // kept when it can't go, to send again
+    if (sendChat(input.value, 'typed')) input.value = '';
   });
   markChatAway(sheet);
   document.body.appendChild(sheet);
@@ -2108,7 +2131,8 @@ function fillChatSheet(toEnd = false) {
   const box = document.querySelector('#chat-sheet .chat-msgs');
   if (!box) return;
   const list = chatList();
-  if (!list.length) {
+  const note = ui.chatNote;
+  if (!list.length && !note) {
     box.innerHTML = `<p class="chat-empty">No messages yet.${chatAway(ui.snap) ? '' : ' Say hi, or tap a quick reaction below.'}</p>`;
     return;
   }
@@ -2131,6 +2155,18 @@ function fillChatSheet(toEnd = false) {
     text.textContent = m.text;
     row.append(text);
     box.append(row);
+  }
+  if (note) {
+    // right after the last message you saw when it was refused, so later messages carry on below it
+    const el = document.createElement('p');
+    el.className = 'chat-note';
+    el.textContent = note.text;
+    const who = document.createElement('small');
+    who.textContent = 'Only you see this';
+    el.append(who);
+    const at = note.after != null && box.querySelector(`[data-id="${note.after}"]`);
+    if (at) at.after(el);
+    else box.prepend(el);
   }
   const hl = ui.chatHighlight != null && box.querySelector(`[data-id="${ui.chatHighlight}"]`);
   if (hl) {

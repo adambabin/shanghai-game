@@ -2178,6 +2178,22 @@ button.link-btn {
 .chat-msg.hl .t {
   box-shadow: 0 0 0 2px var(--gold);
 }
+/* a line only you see, when a message of yours didn't go */
+.chat-note {
+  align-self: center;
+  margin: 2px 0;
+  padding: 6px 12px;
+  border-radius: 14px;
+  background-color: rgba(0, 0, 0, 0.3);
+  color: var(--ink);
+  font-size: 13px;
+  text-align: center;
+}
+.chat-note small {
+  display: block;
+  color: var(--ink-dim);
+  font-size: 11px;
+}
 .chat-quick {
   display: flex;
   gap: 6px;
