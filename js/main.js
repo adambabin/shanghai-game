@@ -3,6 +3,7 @@ import { joinRoom } from './net.js';
 import { SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
 import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
 import { browserTracker, plainError } from './telemetry.js';
+import { gameAwards, playerFacts } from './awards.js';
 import { CHAT_MAX, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, cleanChat, cleanSaying, isEmojiOnly, oneEmoji, quickEmoji,
   quickSayings } from './chat.js';
 import { ROUNDS, roundCfg, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor, BOT_LEVELS, botLevelFor } from './rules.js';
@@ -1145,10 +1146,12 @@ function gameHTML(snap) {
 function modalHTML(snap) {
   const v = snap.view;
   if (v.phase === 'roundOver' || v.phase === 'gameOver' || v.phase === 'tieVote') {
-    if (!['scores', 'menu', 'rules', 'log', 'settings', 'install', 'feedback', 'cropPhoto'].includes(ui.modal))
+    if (!['scores', 'menu', 'rules', 'log', 'settings', 'install', 'feedback', 'cropPhoto', 'awards'].includes(ui.modal))
       return v.phase === 'tieVote' ? tieModal(snap) : resultModal(snap);
   }
   switch (ui.modal) {
+    case 'awards':
+      return v.stats ? awardsModal(snap) : '';
     case 'scores':
       return wrapModal('Scores', scoresTable(v));
     case 'rules':
@@ -1187,8 +1190,8 @@ function modalHTML(snap) {
 // the title and the Close button stay put; only the middle scrolls
 // closeFirst puts Close on the left, for forms whose main button (Send) belongs on the right; headAction is a small
 // button that sits at the right end of the title line
-function wrapModal(title, body, actions = '', { closeFirst = false, headAction = '' } = {}) {
-  const close = '<button class="ghost" data-act="closeModal">Close</button>';
+function wrapModal(title, body, actions = '', { closeFirst = false, headAction = '', closeLabel = 'Close' } = {}) {
+  const close = `<button class="ghost" data-act="closeModal">${closeLabel}</button>`;
   const head = headAction ? `<div class="modal-head"><h2>${title}</h2>${headAction}</div>` : `<h2>${title}</h2>`;
   // playing alone against the computer, these pop-ups pause the game (see gamePaused); say so
   const paused = gamePaused() ? '<p class="muted paused-note">The game is paused while this is open.</p>' : '';
@@ -1293,6 +1296,7 @@ function resultModal(snap) {
     <h2>${title}</h2>
     <div class="modal-body result-body">
     ${sub ? `<p class="muted result-sub">${sub}</p>` : ''}
+    ${over && v.stats ? awardsCardHTML(v) : ''}
     ${rr.winner == null ? `<p class="muted">Nobody went out this ${tb ? 'tiebreaker' : 'round'}.</p>` : ''}
     ${rows}
     </div>
@@ -1300,6 +1304,51 @@ function resultModal(snap) {
       over ? '<button class="ghost" data-act="leave">Home</button>' : snap.isHost ? '' : '<button class="ghost" data-act="leave">Leave game</button>'
     }${actions}</div>
   </div></div>`;
+}
+
+// ---------- how everyone played ----------
+// The game-over pop-up opens with a card that teases the awards ("🚨 Shanghai Sheriff: Lou · 🎯 Most Wanted: You");
+// tapping it shows each player's report card: place and total, their award badges and three of their numbers. Only
+// at the end of a game, and only for games that kept the counts (see newStats in engine.js).
+function awardsCardHTML(v) {
+  const awards = gameAwards(v.stats, v.scores);
+  const me = v.you;
+  const mine = awards.find((a) => a.seats.includes(me));
+  const other = awards.find((a) => a !== mine && !a.seats.includes(me));
+  const tease = [other, mine]
+    .filter(Boolean)
+    .map((a) => `${a.emoji} ${a.title}: ${namesOf(v, a.seats)}`)
+    .join(' · ');
+  return `<button class="awards-card" data-act="modal" data-m="awards"><span class="medal" aria-hidden="true">🏅</span><span class="txt"><b>How everyone played</b>${
+    tease ? `<span>${tease}</span>` : ''
+  }</span><span class="go" aria-hidden="true">›</span></button>`;
+}
+
+function awardsModal(snap) {
+  const v = snap.view;
+  const totals = totalsOf(v);
+  const winners = winnersOf(v);
+  const awards = gameAwards(v.stats, v.scores);
+  const order = v.players.map((_, i) => i).sort((a, b) => winners.includes(b) - winners.includes(a) || totals[a] - totals[b]);
+  // a place counts everyone ahead: the winners, then lower totals
+  const placeOf = (j) => (winners.includes(j) ? 1 : 1 + v.players.filter((_, i) => i !== j && (winners.includes(i) || totals[i] < totals[j])).length);
+  const cards = order
+    .map((i) => {
+      const won = winners.includes(i);
+      const badges = awards
+        .filter((a) => a.seats.includes(i))
+        .map((a) => `<span class="badge">${a.emoji} ${a.title}${a.seats.length > 1 ? ' <span class="tie">tie</span>' : ''}</span>`)
+        .join('');
+      const facts = playerFacts(v.stats, v.scores, i, awards)
+        .map((f) => `<div><b>${f.n}</b>${f.label}</div>`)
+        .join('');
+      return `<div class="report ${won ? 'winner' : ''}"><div class="top"><span>${won ? '👑 ' : ''}${esc(v.players[i].name)}${i === v.you ? ' (you)' : ''}</span><span>${ordinal(
+        placeOf(i)
+      )} · ${totals[i]}</span></div>${badges ? `<div class="badges">${badges}</div>` : ''}<div class="facts">${facts}</div></div>`;
+    })
+    .join('');
+  const again = snap.isHost ? '<button class="primary" data-act="playAgain">Play again</button>' : '';
+  return wrapModal('How everyone played', `<div class="reports">${cards}</div>`, again, { closeFirst: true, closeLabel: 'Back' });
 }
 
 function ordinal(n) {

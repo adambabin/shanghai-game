@@ -120,6 +120,9 @@ test('round 1 lay down, play on piles, and Shanghai call penalties', () => {
   assert.ok(!applyAction(g, 2, { type: 'buy' }).ok, 'dead card cannot be bought');
   // a second call on the same card is a false call
   assert.equal(applyAction(g, 1, { type: 'shanghai' }).result, 'miss');
+  // counted for "How everyone played" at the end
+  assert.deepEqual([g.stats[0].falseCalls, g.stats[1].falseCalls, g.stats[2].caught], [1, 1, 1]);
+  assert.deepEqual([g.stats[0].caughtBy, g.stats[0].shanghaiCards], [1, 2]);
 });
 
 test('declared Shanghai discard is dead, no penalty, live again once covered and uncovered', () => {
@@ -130,6 +133,7 @@ test('declared Shanghai discard is dead, no penalty, live again once covered and
   applyAction(g, 0, { type: 'layDown', groups: [{ type: 'set', ids: [p0[0].id, p0[1].id, p0[2].id] }, { type: 'set', ids: [p0[3].id, p0[4].id, p0[5].id] }] });
   assert.ok(applyAction(g, 0, { type: 'discard', id: p0[6].id, declare: true }).ok);
   assert.ok(g.topDead);
+  assert.equal(g.stats[0].ownShanghais, 1);
   assert.equal(applyAction(g, 1, { type: 'shanghai' }).result, 'miss');
   assert.ok(!applyAction(g, 1, { type: 'drawDiscard' }).ok);
   deckDraw(g, 1);
@@ -167,6 +171,7 @@ test('cannot discard your last card; undo takes plays back; going out on two pil
   applyAction(g, 0, { type: 'addToMeld', meldId: g.melds[0].id, ids: [four.id] });
   assert.ok(applyAction(g, 0, { type: 'addToMeld', meldId: g.melds[1].id, ids: [nine.id] }).ok);
   assert.equal(g.phase, 'roundOver');
+  assert.equal(g.stats[0].wentOut, 1);
   assert.deepEqual(g.scores[1], [20 + 10 + 5 + 50]);
   assert.equal(g.scores[0][0], 0);
   assert.ok(nextRound(g).ok);
@@ -197,6 +202,7 @@ test('everyone is asked to buy at once; the soonest in turn order wins; card + 2
   assert.equal(g.buyWindow, null);
   assert.equal(g.hands[0].length, 14, 'card + 2 extra');
   assert.equal(g.buysUsed[0], 1);
+  assert.deepEqual([g.stats[0].buys, g.stats[0].buyExtra], [1, 2]);
   // the 4C underneath is exposed and offered again: take it, or allow buying again
   assert.equal(g.discard[g.discard.length - 1].id, under.id);
   assert.ok(mustDecideOnDiscard(g));
@@ -252,6 +258,7 @@ test('Shanghai counts on anyone, laid down or not; a self-Shanghai that is not o
   applyAction(g, 2, { type: 'discard', id: p2[0].id, declare: true });
   assert.ok(!g.topDead);
   assert.equal(g.log[g.log.length - 1].kind, 'notshanghai');
+  assert.equal(g.stats[2].ownShanghais, 0, "saying Shanghai on a card that isn't one doesn't count");
   assert.ok(applyAction(g, 0, { type: 'drawDiscard' }).ok);
 });
 
@@ -284,6 +291,7 @@ test('swapping a natural card for a wild in a run, which then must be played', (
   const joker = g.hands[0].find((x) => x.r === 0);
   assert.ok(applyAction(g, 0, { type: 'addToMeld', meldId: run.id, ids: [joker.id] }).ok);
   assert.ok(applyAction(g, 0, { type: 'discard', id: p0[9].id }).ok);
+  assert.equal(g.stats[0].jokerSwaps, 1, 'a swap that was undone does not count');
 });
 
 test('staging partial groups', () => {
@@ -308,6 +316,9 @@ test('view hides other hands', () => {
   assert.equal(v.hand.length, 11);
   assert.equal(v.players[1].cards, 11);
   assert.ok(!JSON.stringify(v).includes('"deck"'));
+  assert.equal(v.stats, null, 'the stats only show once the game is over');
+  g.phase = 'gameOver';
+  assert.equal(viewFor(g, 1).stats[0].buys, 0);
 });
 
 test('undo puts a picked-up discard back so you can choose again', () => {

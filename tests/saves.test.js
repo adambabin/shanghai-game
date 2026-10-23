@@ -43,6 +43,17 @@ test('a resumed game keeps saving to the same slot', () => {
   assert.equal(HostSession.savedGames().length, 1);
 });
 
+test('a game saved before stats were counted resumes with none, so it shows no wrong numbers at the end', () => {
+  data.clear();
+  const a = soloGame('Ann');
+  const saved = HostSession.saved(a.gameId);
+  assert.equal(saved.game.stats.length, 3, 'new games count from the start');
+  delete saved.game.stats;
+  const r = new HostSession({ name: 'Ann', clientId: 'me', solo: true, restore: saved });
+  assert.equal(r.game.stats, null);
+  r.close();
+});
+
 test('clearing one game leaves the others', () => {
   data.clear();
   const a = soloGame('Ann');

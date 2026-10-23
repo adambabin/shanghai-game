@@ -34,7 +34,8 @@ export class HostSession {
       this.lobby.options = { ...DEFAULT_OPTIONS, ...this.lobby.options };
       this.game = restore.game;
       // games saved by an older version are missing newer fields
-      Object.assign(this.game, { mustPlay: [], buyOffered: false, ...this.game, buyWindow: null, earlyBuy: null });
+      // (stats: null, so a game saved before they were counted shows no "How everyone played" rather than wrong numbers)
+      Object.assign(this.game, { mustPlay: [], buyOffered: false, stats: null, ...this.game, buyWindow: null, earlyBuy: null });
       // saved between rounds when there were 11: past round 7 it goes straight to the final scores
       endIfPastLastRound(this.game);
       this.lobby.seats.forEach((s) => {

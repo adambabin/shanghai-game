@@ -13,6 +13,7 @@ export function createGame(players, options = {}, rng = Math.random) {
     options: { ...DEFAULT_OPTIONS, ...options },
     players: players.map((p) => ({ name: p.name, bot: !!p.bot })),
     scores: players.map(() => []),
+    stats: players.map(() => newStats()),
     round: -1,
     dealer: Math.floor(rng() * players.length),
     phase: 'draw',
@@ -23,6 +24,15 @@ export function createGame(players, options = {}, rng = Math.random) {
   Object.defineProperty(state, 'rng', { value: rng, enumerable: false, writable: true });
   startRound(state);
   return state;
+}
+
+// Counted all game for "How everyone played" at the end (only shown then). Games saved before these were kept have
+// none, and show nothing.
+function newStats() {
+  return { caught: 0, caughtBy: 0, shanghaiCards: 0, ownShanghais: 0, falseCalls: 0, buys: 0, buyExtra: 0, jokerSwaps: 0, wentOut: 0 };
+}
+function bump(state, seat, key, n = 1) {
+  if (state.stats && state.stats[seat]) state.stats[seat][key] += n;
 }
 
 function log(state, text, kind = 'info', extra = {}) {
@@ -207,6 +217,8 @@ function completeBuy(state, buyer) {
   state.topDead = false;
   state.buyOffered = false;
   closeShanghaiWindow(state);
+  bump(state, buyer, 'buys');
+  bump(state, buyer, 'buyExtra', extra.length);
   log(state, `${state.players[buyer].name} bought the ${cardLabel(card)} (+${extra.length} from the deck).`, 'buy', {
     seat: buyer,
     card, // the card everyone saw on the pile, so other players can watch it go to the buyer
@@ -223,6 +235,7 @@ function finishRound(state, winner) {
   state.buyWindow = null;
   closeShanghaiWindow(state);
   const what = state.tiebreak && state.tiebreak.playing ? 'the tiebreaker' : `round ${state.round + 1}`;
+  if (winner != null) bump(state, winner, 'wentOut');
   if (winner != null) log(state, `${state.players[winner].name} went out and won ${what}!`, 'win', { seat: winner });
   else log(state, `${what[0].toUpperCase() + what.slice(1)} ended with nobody going out.`, 'win');
   if (!isLastRound(state.round)) {
@@ -470,6 +483,7 @@ export function applyAction(state, seat, action) {
       removeFromHand(state, seat, [card.id]);
       state.hands[seat].push(wild);
       state.mustPlay.push(wild.id);
+      bump(state, seat, 'jokerSwaps');
       log(state, `${name} swapped the ${cardLabel(card)} into ${state.players[meld.owner].name}'s run and took the ${cardLabel(wild)}.`, 'swap', { seat });
       return { ok: true };
     }
@@ -489,6 +503,7 @@ export function applyAction(state, seat, action) {
       const declared = !!action.declare && playable;
       state.topDead = declared;
       state.lastDiscard = { by: seat, card, declared, eligible: !declared && playable, open: !declared, called: false };
+      if (declared) bump(state, seat, 'ownShanghais');
       if (declared) log(state, `${name} said "Shanghai!" and discarded the ${cardLabel(card)}. It's dead until covered.`, 'dead', { seat });
       else if (action.declare)
         log(state, `${name} discarded the ${cardLabel(card)}.`, 'notshanghai', {
@@ -524,6 +539,7 @@ export function applyAction(state, seat, action) {
         removeFromHand(state, seat, [h.wild.id]);
         state.mustPlay = state.mustPlay.filter((id) => id !== h.wild.id);
         state.hands[seat].push(...h.cards);
+        bump(state, seat, 'jokerSwaps', -1);
         log(state, `${name} took back their swap.`, 'undo', { seat });
         return { ok: true };
       } else {
@@ -546,6 +562,9 @@ export function applyAction(state, seat, action) {
         state.buyWindow = null;
         state.buyOffered = true;
         const got = drawCards(state, ld.by, state.options.shanghaiPenalty);
+        bump(state, seat, 'caught');
+        bump(state, ld.by, 'caughtBy');
+        bump(state, ld.by, 'shanghaiCards', got.length);
         log(
           state,
           `SHANGHAI! ${name} caught ${state.players[ld.by].name}'s ${cardLabel(ld.card)}. ${state.players[ld.by].name} picks up ${got.length} cards.`,
@@ -557,6 +576,7 @@ export function applyAction(state, seat, action) {
       const got = drawCards(state, seat, state.options.falseCallPenalty);
       const cost = got.length ? ` ${name} picks up ${got.length} card${got.length === 1 ? '' : 's'}.` : '';
       const why = notShanghaiReason(state, seat);
+      bump(state, seat, 'falseCalls');
       log(state, `${name} called Shanghai, but there wasn't one.${cost}`, 'falsecall', { seat, why });
       return { ok: true, result: 'miss', why };
     }
@@ -651,5 +671,6 @@ export function viewFor(state, seat) {
     // a tie for the win: who's tied, how they've voted, and the tiebreaker's scores once it's played
     tiebreak: state.tiebreak || null,
     winners: state.winners || null,
+    stats: state.phase === 'gameOver' && state.stats ? state.stats : null, // only once the game is over
   };
 }
