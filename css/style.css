@@ -1179,8 +1179,11 @@ canvas.confetti {
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
+  /* every card tucks half under the one before; each row starts half a card in, so its first card lines up with the
+     edge too (pulling only cards after the first left made a second row's first card stick out) */
+  padding-left: calc(var(--sw) * 0.5);
 }
-.result-row .mini-hand .card + .card {
+.result-row .mini-hand .card {
   margin-left: calc(var(--sw) * -0.5);
 }
 /* How everyone played: the card on the game-over pop-up, and each player's report card */
