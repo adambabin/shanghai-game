@@ -16,7 +16,7 @@ The host has to keep their page open for the whole game. If the host refreshes, 
 ## House rules
 
 - Each round starts with everyone looking over their cards and tapping **I'm ready** (the host can start anyway).
-- 11 rounds, lowest total score wins. The contracts are listed under **How to play** in the game and live in [`js/rules.js`](js/rules.js).
+- 7 rounds, lowest total score wins. The contracts are listed under **How to play** in the game and live in [`js/rules.js`](js/rules.js).
 - 3 decks with 6 jokers; when the deck runs out the discard pile is reshuffled.
 - Sets are 3+ of a rank, runs are 4+ in a row of one suit (aces are high only: J-Q-K-A, never A-2-3-4). Every set or run needs more real cards than jokers, and a run can't have two jokers side by side. Jokers in a run go where you put them (select joker, 8, 9, 10 to put the joker below the 8).
 - **Only jokers are wild.** The 2♣ is a normal card (the host can turn 2♣-wild on in the lobby).

@@ -3,7 +3,7 @@
 
 import { makeDecks, shuffle, wildTest, cardPoints, cardLabel } from './cards.js';
 import { buildSet, buildRun, addCards, fitsAnyMeld, wildSlotFor } from './melds.js';
-import { ROUNDS, DEFAULT_OPTIONS, decksFor, contractText } from './rules.js';
+import { ROUNDS, roundCfg, isLastRound, DEFAULT_OPTIONS, decksFor, contractText } from './rules.js';
 
 // How long players get to decide whether to buy once the current player allows it.
 export const BUY_WINDOW_MS = 10000; // one countdown shared by everyone being asked
@@ -58,7 +58,7 @@ function nextSeat(state, seat) {
 export function startRound(state, { tiebreaker = false } = {}) {
   if (!tiebreaker) state.round++;
   if (state.round > 0 || tiebreaker) state.dealer = nextSeat(state, state.dealer);
-  const cfg = ROUNDS[state.round];
+  const cfg = roundCfg(state.round);
   state.deck = shuffle(makeDecks(decksFor(state.options)), rngOf(state));
   state.hands = state.players.map((_, i) => (sittingOut(state, i) ? [] : state.deck.splice(0, cfg.deal)));
   state.discard = [state.deck.pop()];
@@ -217,7 +217,7 @@ function completeBuy(state, buyer) {
 function finishRound(state, winner) {
   const isWild = isWildFn(state);
   const points = state.hands.map((h) => h.reduce((sum, c) => sum + cardPoints(c, isWild), 0));
-  // a tiebreaker's points go in its own row (state.tiebreak.points), not the 11 rounds' totals
+  // a tiebreaker's points go in its own row (state.tiebreak.points), not the rounds' totals
   if (!(state.tiebreak && state.tiebreak.playing)) points.forEach((p, i) => state.scores[i].push(p));
   state.roundResult = { winner, points };
   state.buyWindow = null;
@@ -225,7 +225,7 @@ function finishRound(state, winner) {
   const what = state.tiebreak && state.tiebreak.playing ? 'the tiebreaker' : `round ${state.round + 1}`;
   if (winner != null) log(state, `${state.players[winner].name} went out and won ${what}!`, 'win', { seat: winner });
   else log(state, `${what[0].toUpperCase() + what.slice(1)} ended with nobody going out.`, 'win');
-  if (state.round < ROUNDS.length - 1) {
+  if (!isLastRound(state.round)) {
     state.phase = 'roundOver';
     return;
   }
@@ -237,7 +237,11 @@ function finishRound(state, winner) {
     const best = Math.min(...tb.seats.map((i) => points[i]));
     return endGame(state, tb.seats.filter((i) => points[i] === best));
   }
-  // lowest total wins; a tie for it goes to a vote among the tied people (all computers: shared)
+  settleGame(state);
+}
+
+// After the last round: lowest total wins; a tie for it goes to a vote among the tied people (all computers: shared)
+function settleGame(state) {
   const t = totals(state);
   const best = Math.min(...t);
   const tied = t.map((_, i) => i).filter((i) => t[i] === best);
@@ -256,7 +260,7 @@ function endGame(state, winners) {
   log(state, winners.length > 1 ? `${listNames(state, winners)} share the win!` : `${state.players[winners[0]].name} wins the game!`, 'gameover');
 }
 
-// After a tie for the win, each tied person votes: everyone picking the tiebreaker plays round 11 again (just them);
+// After a tie for the win, each tied person votes: everyone picking the tiebreaker plays the last round again (just them);
 // anyone picking "share" makes it a shared win. Computers don't vote.
 function tieVote(state, seat, choice) {
   const tb = state.tiebreak;
@@ -395,7 +399,7 @@ export function applyAction(state, seat, action) {
       if (!myTurn || !inRound) return err("You can only lay down on your turn.");
       if (state.phase === 'draw') return err('Draw a card first, then lay down.');
       if (state.laid[seat]) return err("You've already laid down this round.");
-      const cfg = ROUNDS[state.round];
+      const cfg = roundCfg(state.round);
       const groups = action.groups || [];
       const sets = groups.filter((g) => g.type === 'set').length;
       const runs = groups.filter((g) => g.type === 'run').length;
@@ -580,8 +584,17 @@ export function endRoundNoWinner(state) {
 
 export function nextRound(state) {
   if (state.phase !== 'roundOver') return err('The round is not over.');
+  if (endIfPastLastRound(state)) return { ok: true };
   startRound(state);
   return { ok: true };
+}
+
+// A game saved between rounds when the game had 11 rounds can be past the last one now: it ends with the scores so far
+export function endIfPastLastRound(state) {
+  if (!state || state.phase !== 'roundOver' || !isLastRound(state.round)) return false;
+  log(state, `The game is ${ROUNDS.length} rounds now, so that was the last one.`, 'info');
+  settleGame(state);
+  return true;
 }
 
 // What one seat is allowed to see. seat = null for a spectator.

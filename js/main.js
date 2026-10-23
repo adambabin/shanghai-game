@@ -5,7 +5,7 @@ import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arra
 import { browserTracker, plainError } from './telemetry.js';
 import { CHAT_MAX, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, cleanChat, cleanSaying, isEmojiOnly, oneEmoji, quickEmoji,
   quickSayings } from './chat.js';
-import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor, BOT_LEVELS, botLevelFor } from './rules.js';
+import { ROUNDS, roundCfg, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor, BOT_LEVELS, botLevelFor } from './rules.js';
 
 const $app = document.getElementById('app');
 const $toasts = document.getElementById('toasts');
@@ -555,7 +555,12 @@ function namesText(names) {
 }
 
 function roundText(round) {
-  return round == null ? 'Not started yet' : `Round ${round + 1} of ${ROUNDS.length}`;
+  return round == null ? 'Not started yet' : `Round ${round + 1} of ${roundsIn(round)}`;
+}
+
+// 7, or more for a game saved when there were 11 rounds that's still in one past round 7 (it ends after that one)
+function roundsIn(round) {
+  return Math.max(ROUNDS.length, (round ?? 0) + 1);
 }
 
 // every game you can go back to: the ones saved on this device (yours) and the ones you joined, newest first
@@ -771,7 +776,7 @@ function canPlayOn(v) {
 
 function tableHTML(v, isWild) {
   if (!v.melds.length)
-    return `<div class="table-empty"><span class="table-round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1} of ${ROUNDS.length}`}</span><b class="table-contract">${contractText(v.round)}</b></div>`;
+    return `<div class="table-empty"><span class="table-round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1} of ${roundsIn(v.round)}`}</span><b class="table-contract">${contractText(v.round)}</b></div>`;
   const playable = canPlayOn(v);
   // piles take dragged cards whenever you could play on them, selected or not
   const laid = v.you != null && v.players[v.you].laid;
@@ -1005,7 +1010,7 @@ function buyBarHTML(v) {
 function stagingHTML(v, isWild) {
   const me = v.you;
   if (me == null || v.players[me].laid) return '';
-  const cfg = ROUNDS[v.round];
+  const cfg = roundCfg(v.round);
   const sets = ui.staged.filter((g) => g.type === 'set').length;
   const runs = ui.staged.filter((g) => g.type === 'run').length;
   if (!ui.staged.length) return '';
@@ -1049,7 +1054,7 @@ function stagingHTML(v, isWild) {
 function newGroupSpotsHTML(v) {
   const me = v.you;
   if (me == null || v.players[me].laid || v.phase === 'roundOver' || v.phase === 'gameOver') return '';
-  const cfg = ROUNDS[v.round];
+  const cfg = roundCfg(v.round);
   const count = (type) => ui.staged.filter((g) => g.type === type).length;
   // with 2 or more cards selected, the spots the selection could start also show without dragging, to tap
   // (taking the place of the old Make set / Make run buttons); one selected card shows nothing
@@ -1122,7 +1127,7 @@ function gameHTML(snap) {
   return `<div class="game">
     ${banner}
     <div class="topbar">
-      <span class="round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}/${ROUNDS.length}`}</span>
+      <span class="round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}/${roundsIn(v.round)}`}</span>
       <span class="contract">${contractText(v.round)}</span>
       <span class="spacer"></span>
       ${snap.lobby.code ? `<span class="muted" style="font-size:12px">${snap.lobby.code}</span>` : ''}
@@ -1214,7 +1219,8 @@ function winnersOf(v) {
 function scoresTable(v) {
   const totals = totalsOf(v);
   const head = v.players.map((p) => `<th>${esc(p.name)}</th>`).join('');
-  const rows = ROUNDS.map((_, r) => {
+  const played = Math.max(ROUNDS.length, ...v.scores.map((s) => s.length));
+  const rows = Array.from({ length: played }, (_, r) => {
     const cells = v.players.map((_, i) => {
       const s = v.scores[i][r];
       return s == null ? '<td></td>' : `<td class="${s === 0 ? 'zero' : ''}">${s}</td>`;
@@ -1224,7 +1230,7 @@ function scoresTable(v) {
   // a tie for the win played off: its own row, under the totals it doesn't change
   const tb = v.tiebreak && (v.tiebreak.playing || v.tiebreak.points) ? v.tiebreak : null;
   const tbRow = tb
-    ? `<tr class="tiebreak"><td>Tiebreaker · ${contractText(ROUNDS.length - 1)}</td>${v.players
+    ? `<tr class="tiebreak"><td>Tiebreaker · ${contractText(v.round)}</td>${v.players
         .map((_, i) => (tb.points && tb.points[i] != null ? `<td class="${tb.points[i] === 0 ? 'zero' : ''}">${tb.points[i]}</td>` : '<td></td>'))
         .join('')}</tr>`
     : '';
@@ -1235,7 +1241,7 @@ function scoresTable(v) {
   const crown = '<span class="crown" role="img" aria-label="in the lead">👑</span>';
   return `<div style="overflow-x:auto"><table class="scores"><tr><th>Round</th>${head}</tr>${rows}<tr class="total"><td>Total</td>${totals
     .map((t, i) => `<td>${t}${scored && crowned(t, i) ? crown : ''}</td>`)
-    .join('')}</tr>${tbRow}</table></div><p class="muted">Lowest total after ${ROUNDS.length} rounds wins. A tie for the win can be shared or played off in a tiebreaker.</p>`;
+    .join('')}</tr>${tbRow}</table></div><p class="muted">Lowest total after ${played} rounds wins. A tie for the win can be shared or played off in a tiebreaker.</p>`;
 }
 
 function resultModal(snap) {
@@ -1270,7 +1276,7 @@ function resultModal(snap) {
     else title = `${namesOf(v, winners)} win${winners.length > 1 ? '' : 's'}!`;
     if (won && winners.length > 1) sub = "It's a shared win.";
     else if (won && tb) sub = 'You won the tiebreaker.';
-    else if (won) sub = `Lowest total after ${ROUNDS.length} rounds.`;
+    else if (won) sub = `Lowest total after ${roundsIn(v.round)} rounds.`;
     else if (me != null && tb && tb.seats.includes(me)) sub = 'You lost the tiebreaker.';
     else if (me != null) {
       // your place counts everyone with a lower total ahead of you (the winners always count)
@@ -1331,9 +1337,7 @@ function tieModal(snap) {
     <h2>It's a tie!</h2>
     <div class="modal-body result-body">
     <p class="muted result-sub">${namesOf(v, tb.seats)} ${tb.seats.length > 2 ? 'all' : 'both'} have ${totals[tb.seats[0]]}.</p>
-    <p>${iVote ? 'Call it a shared win, or play a <b>tiebreaker</b>' : 'They can share the win or play a <b>tiebreaker</b>'}: round ${ROUNDS.length} (${contractText(
-      ROUNDS.length - 1
-    )}) again, ${just}. Lowest score in it wins.</p>
+    <p>${iVote ? 'Call it a shared win, or play a <b>tiebreaker</b>' : 'They can share the win or play a <b>tiebreaker</b>'}: round ${v.round + 1} (${contractText(v.round)}) again, ${just}. Lowest score in it wins.</p>
     ${voters.length > 1 ? `<p class="muted">Everyone tied has to pick the tiebreaker to play it.</p>` : ''}
     ${votes}
     </div>
