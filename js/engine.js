@@ -128,6 +128,7 @@ function closeShanghaiWindow(state) {
 
 function resetDraw(state) {
   state.buyWindow = null;
+  state.earlyBuy = null;
   state.buyOffered = false; // the current player already let others buy this turn
 }
 
@@ -160,6 +161,14 @@ export function buyEligible(state) {
 function turnOrder(state, seat) {
   const n = state.players.length;
   return (seat - state.turn + n) % n;
+}
+
+// While the current player is still deciding, the others can already say Buy or No: kept for that card only, and
+// counted the moment the current player allows buying (thrown away if they take it).
+function earlyAnswers(state) {
+  const e = state.earlyBuy;
+  const top = topCard(state);
+  return e && top && e.cardId === top.id ? e.answers : {};
 }
 
 // Everyone who can buy is asked at once and shares one countdown of BUY_WINDOW_MS. The card goes to whoever said Buy
@@ -356,13 +365,25 @@ export function applyAction(state, seat, action) {
         return { ok: true };
       }
       const order = eligible.sort((a, b) => turnOrder(state, a) - turnOrder(state, b));
-      state.buyWindow = { cardId: top.id, order, answers: {}, deadline: Date.now() + BUY_WINDOW_MS };
+      const early = earlyAnswers(state);
+      const answers = Object.fromEntries(order.filter((s) => early[s] !== undefined).map((s) => [s, early[s]]));
+      state.earlyBuy = null;
+      state.buyWindow = { cardId: top.id, order, answers, deadline: Date.now() + BUY_WINDOW_MS };
       log(state, `${name} is letting others buy the ${cardLabel(top)}.`, 'buywindow', { seat });
+      settleBuy(state, false); // settled at once if the early answers already decide it
       return { ok: true };
     }
 
     case 'buyAnswer': {
       const w = state.buyWindow;
+      if (!w && mustDecideOnDiscard(state) && buyEligible(state).includes(seat)) {
+        // answering early, before the current player has chosen; null takes the answer back
+        const top = topCard(state);
+        if (!state.earlyBuy || state.earlyBuy.cardId !== top.id) state.earlyBuy = { cardId: top.id, answers: {} };
+        if (action.buy == null) delete state.earlyBuy.answers[seat];
+        else state.earlyBuy.answers[seat] = !!action.buy;
+        return { ok: true };
+      }
       if (!w || !w.order.includes(seat)) return err("You can't buy this card.");
       if (w.answers[seat] !== undefined) return err('You already answered.');
       w.answers[seat] = !!action.buy;
@@ -598,6 +619,10 @@ export function viewFor(state, seat) {
     buyEligible: buyEligible(state),
     mustDecide: mustDecideOnDiscard(state),
     // who's being asked and how long is left; you see only your own answer (true, false, or undefined while deciding)
+    // your early answer while the current player decides (true, false, or undefined)
+    earlyBuy: seat != null && seat !== state.turn && mustDecideOnDiscard(state) && buyEligible(state).includes(seat)
+      ? { mine: earlyAnswers(state)[seat] }
+      : null,
     buyWindow: state.buyWindow
       ? {
           order: state.buyWindow.order,

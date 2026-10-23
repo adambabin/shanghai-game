@@ -881,6 +881,13 @@ function readyBarHTML(v, isHost) {
   return `<div class="buy-bar"><span>Waiting for ${waiting.join(', ')} to be ready…</span>${startNow ? `<span class="buy-actions">${startNow}</span>` : ''}</div>`;
 }
 
+function buyCostText(v) {
+  const left = v.options.buyLimit - v.players[v.you].buysUsed;
+  const extra = v.options.buyPenalty;
+  const cost = extra ? `It costs ${extra} card${extra === 1 ? '' : 's'}.` : 'No extra cards.';
+  return `${cost} ${left} buy${left === 1 ? '' : 's'} left.`;
+}
+
 function buyBarHTML(v) {
   const me = v.you;
   if (v.phase === 'ready') return readyBarHTML(v, ui.snap.isHost);
@@ -894,11 +901,18 @@ function buyBarHTML(v) {
     if (w.mine !== undefined) {
       return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. Waiting for the others…</span> ${timer}</div>`;
     }
-    const left = v.options.buyLimit - v.players[me].buysUsed;
-    const extra = v.options.buyPenalty;
-    const cost = extra ? `It costs ${extra} card${extra === 1 ? '' : 's'}.` : 'No extra cards.';
-    return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${cost} ${left} buy${left === 1 ? '' : 's'} left.</span>
+    return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
       <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span> ${timer}</div>`;
+  }
+  // the current player is still choosing: you can already say whether you'd buy it
+  if (v.earlyBuy) {
+    const who = `<b>${esc(v.players[v.turn].name)}</b>`;
+    if (v.earlyBuy.mine !== undefined) {
+      return `<div class="buy-bar"><span>You said <b>${v.earlyBuy.mine ? 'Buy' : 'No'}</b> if ${who} lets others buy ${miniCards(esc(cardLabel(top)))}.</span>
+        <span class="buy-actions"><button class="ghost" data-act="buyAnswer" data-buy="clear">Change</button></span></div>`;
+    }
+    return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))} if ${who} lets others buy it? ${buyCostText(v)}</span>
+      <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span></div>`;
   }
   if (v.turn === me && v.mustDecide) {
     return `<div class="buy-bar ask"><span>Take ${miniCards(esc(cardLabel(top)))} or let others buy it?</span>
@@ -1624,7 +1638,7 @@ function rulesModal(o, bots = false) {
     <li>End your turn by discarding one card.</li></ul>
     <h3>Buying</h3>
     <ul><li>At the start of your turn you choose: <b>Take it</b> (you take the discard) or <b>Allow buy</b>. You can only draw from the deck after allowing others to buy.</li>
-    <li>If you allow it, everyone who can buy gets 10 seconds to say Buy or No. If more than one says Buy, the card goes to whoever plays soonest after you. The buyer gets the card plus ${o.buyPenalty} from the deck.</li>
+    <li>If you allow it, everyone who can buy gets 10 seconds to say Buy or No (they can answer early, while you decide). If more than one says Buy, the card goes to whoever plays soonest after you. The buyer gets the card plus ${o.buyPenalty} from the deck.</li>
     <li>When a card is bought, the card underneath is live again (even if it had been Shanghai'd), and you choose again: take it, or allow buying.</li>
     <li>If nobody buys it, you can still take it, or draw from the deck.</li>
     <li>${o.buyLimit} buys per round. Once you've laid down you can't buy.</li></ul>
@@ -2925,7 +2939,7 @@ function onClick(e) {
       send({ type: act, seat: Number(t.dataset.seat) });
       return render();
     case 'buyAnswer':
-      send({ type: 'buyAnswer', buy: t.dataset.buy === '1' });
+      send({ type: 'buyAnswer', buy: t.dataset.buy === 'clear' ? null : t.dataset.buy === '1' });
       return render();
     case 'tieVote':
       send({ type: 'tieVote', choice: t.dataset.choice });

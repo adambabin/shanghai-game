@@ -29,7 +29,7 @@ export class HostSession {
       this.lobby.options = { ...DEFAULT_OPTIONS, ...this.lobby.options };
       this.game = restore.game;
       // games saved by an older version are missing newer fields
-      Object.assign(this.game, { mustPlay: [], buyOffered: false, ...this.game, buyWindow: null });
+      Object.assign(this.game, { mustPlay: [], buyOffered: false, ...this.game, buyWindow: null, earlyBuy: null });
       this.lobby.seats.forEach((s) => {
         if (!s.bot && !s.isHost) s.connected = false;
       });

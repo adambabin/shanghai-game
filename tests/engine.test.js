@@ -178,7 +178,8 @@ test('everyone is asked to buy at once; the soonest in turn order wins; card + 2
   const under = c(4, 'C');
   const g = rigged(hands, { discard: [under, c(7, 'S')] });
   g.turn = 1;
-  assert.ok(!applyAction(g, 3, { type: 'buyAnswer', buy: true }).ok, 'no buying until allowed');
+  assert.ok(applyAction(g, 3, { type: 'buyAnswer', buy: true }).ok, 'an early answer is kept…');
+  assert.ok(applyAction(g, 3, { type: 'buyAnswer', buy: null }).ok, '…until taken back');
   assert.ok(applyAction(g, 1, { type: 'allowBuy' }).ok);
   assert.deepEqual(g.buyWindow.order, [2, 3, 0], 'clockwise from the player after the current one');
   assert.ok(!applyAction(g, 1, { type: 'drawDeck' }).ok, 'current player waits for buyers');
@@ -467,4 +468,37 @@ test('a tiebreaker that ties again is a shared win', () => {
   endRoundNoWinner(g);
   assert.equal(g.phase, 'gameOver');
   assert.deepEqual(g.winners, [0, 1]);
+});
+
+test('others can say Buy or No before the current player chooses; counted on Allow buy, dropped on Take it', () => {
+  const hands = [0, 1, 2, 3].map(() => Array.from({ length: 11 }, (_, i) => c((i % 13) + 1, 'D')));
+  const g = rigged(hands, { discard: [c(4, 'C'), c(7, 'S')] });
+  g.turn = 1;
+  assert.ok(!applyAction(g, 1, { type: 'buyAnswer', buy: true }).ok, "the current player can't answer");
+  assert.ok(applyAction(g, 3, { type: 'buyAnswer', buy: true }).ok);
+  assert.equal(viewFor(g, 3).earlyBuy.mine, true);
+  assert.equal(viewFor(g, 2).earlyBuy.mine, undefined, "others' answers stay hidden");
+  assert.equal(viewFor(g, 1).earlyBuy, null);
+  assert.ok(applyAction(g, 3, { type: 'buyAnswer', buy: null }).ok, 'take it back');
+  assert.equal(viewFor(g, 3).earlyBuy.mine, undefined);
+  assert.ok(applyAction(g, 3, { type: 'buyAnswer', buy: true }).ok);
+  assert.ok(applyAction(g, 0, { type: 'buyAnswer', buy: true }).ok);
+  // Take it: the early answers are dropped, nobody pays
+  assert.ok(applyAction(g, 1, { type: 'drawDiscard' }).ok);
+  assert.equal(g.earlyBuy, null);
+  assert.deepEqual(g.buysUsed, [0, 0, 0, 0]);
+  // next discard: seat 3 says Buy early, seat 2 (ahead) says No early, so Allow buy settles it at once
+  applyAction(g, 1, { type: 'discard', id: g.hands[1][0].id });
+  g.turn = 1; g.phase = 'draw';
+  assert.ok(applyAction(g, 3, { type: 'buyAnswer', buy: true }).ok);
+  assert.ok(applyAction(g, 2, { type: 'buyAnswer', buy: false }).ok);
+  assert.ok(applyAction(g, 1, { type: 'allowBuy' }).ok);
+  assert.equal(g.buyWindow, null);
+  assert.equal(g.buysUsed[3], 1);
+  // everyone said No early: Allow buy ends at once and the current player draws
+  g.turn = 1; g.phase = 'draw'; g.buyOffered = false; g.topDead = false; g.lastDiscard = null;
+  for (const s of [2, 3, 0]) assert.ok(applyAction(g, s, { type: 'buyAnswer', buy: false }).ok);
+  assert.ok(applyAction(g, 1, { type: 'allowBuy' }).ok);
+  assert.equal(g.buyWindow, null);
+  assert.ok(applyAction(g, 1, { type: 'drawDeck' }).ok);
 });
