@@ -1599,6 +1599,11 @@ body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
 .activity .buy-bar b {
   color: var(--gold);
 }
+/* a slimmer card plus a 1px margin keeps the line the same height but leaves a gap when two lines both have one */
+.activity .mini-card {
+  line-height: 1.2;
+  margin: 1px;
+}
 .activity .buy-bar.flash {
   border: 2px solid var(--gold);
   font-weight: 600;
