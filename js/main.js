@@ -1892,10 +1892,10 @@ function onHandTouchMove(e) {
     h.y = y;
     ui.swiping = true;
     ui.swallowClick = true; // the button the swipe started on doesn't count as tapped
-    h.dock.style.transition = 'none';
+    if (!h.collapsed) h.drop = handDrop(h.dock);
   }
   e.preventDefault();
-  if (!h.collapsed) h.dock.style.transform = `translateY(${Math.max(0, y - h.y)}px)`;
+  if (!h.collapsed) slideHand(h.dock, Math.max(0, y - h.y), h.drop);
   h.last = [...h.last.slice(-4), [e.timeStamp, y]];
 }
 function onHandTouchEnd(e) {
@@ -1911,21 +1911,74 @@ function onHandTouchEnd(e) {
     render();
   };
   if (h.collapsed) {
-    if (dy < -20) ui.dockCollapsed = false;
-    return done();
+    ui.swiping = false;
+    return dy < -20 ? raiseHand() : render();
   }
-  if (e.type === 'touchend' && (dy > h.dock.offsetHeight / 3 || (dy > 30 && speed > 0.5))) {
-    h.dock.style.transition = 'transform 0.18s ease-in';
-    h.dock.style.transform = 'translateY(100%)';
-    setTimeout(() => {
-      ui.dockCollapsed = true;
-      done();
-    }, 170);
-  } else {
-    h.dock.style.transition = 'transform 0.2s ease-out';
-    h.dock.style.transform = '';
-    setTimeout(done, 200);
+  if (e.type === 'touchend' && (dy > h.dock.offsetHeight / 3 || (dy > 30 && speed > 0.5))) lowerHand(h.dock, h.drop);
+  else {
+    slideHand(h.dock, 0, h.drop, HAND_SLIDE_MS);
+    setTimeout(done, HAND_SLIDE_MS);
   }
+}
+
+// Lowering and raising the hand (the ▾ button, "Show my cards" or a swipe) slides it, and the deck row, discard,
+// SHANGHAI! and activity box above it move down or up with it to where they'll sit, so nothing jumps at the end.
+const HAND_SLIDE_MS = 200;
+const calmMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// how far everything above the hand drops when it goes down: the open hand's height less the "Show my cards" bar's
+function handDrop(dock) {
+  const bar = document.createElement('div');
+  bar.className = 'dock collapsed';
+  bar.style.cssText = 'position: absolute; left: 0; right: 0; visibility: hidden';
+  bar.innerHTML = '<button class="dock-toggle">Show my cards (00) ▴</button>';
+  dock.parentElement.appendChild(bar);
+  const h = bar.offsetHeight;
+  bar.remove();
+  return Math.max(0, dock.offsetHeight - h);
+}
+
+// the hand y pixels down (0 = in place), and the rest of the bottom area along with it, but only as far as drop.
+// Held sideways the bottom area is a shaded column of its own, so its contents move and the column stays put.
+const SIDEWAYS = matchMedia('(orientation: landscape) and (max-height: 520px)');
+function slideHand(dock, y, drop, ms = 0) {
+  const along = Math.min(y, drop);
+  const bottom = dock.parentElement;
+  const moves = SIDEWAYS.matches
+    ? [...[...bottom.children].filter((el) => el !== dock).map((el) => [el, along]), [dock, y]]
+    : [[bottom, along], [dock, y - along]];
+  for (const [el, by] of moves) {
+    el.style.transition = ms ? `transform ${ms}ms ease-out` : 'none';
+    el.style.transform = by ? `translateY(${by}px)` : '';
+  }
+}
+
+function lowerHand(dock, drop) {
+  if (!dock || calmMotion()) {
+    ui.dockCollapsed = true;
+    return render();
+  }
+  ui.swiping = true; // redraws wait till it's down
+  slideHand(dock, dock.offsetHeight, drop ?? handDrop(dock), HAND_SLIDE_MS);
+  setTimeout(() => {
+    ui.dockCollapsed = true;
+    ui.swiping = false;
+    render();
+  }, HAND_SLIDE_MS);
+}
+
+function raiseHand() {
+  const bar = $app.querySelector('.dock.collapsed');
+  const barH = bar ? bar.offsetHeight : 0;
+  ui.dockCollapsed = false;
+  render();
+  const dock = $app.querySelector('.dock:not(.collapsed)');
+  if (!bar || !dock || calmMotion()) return;
+  // start from where things were (hand out of sight, the rest still down), then slide up
+  const drop = Math.max(0, dock.offsetHeight - barH);
+  slideHand(dock, dock.offsetHeight, drop);
+  dock.getBoundingClientRect();
+  slideHand(dock, 0, drop, HAND_SLIDE_MS);
 }
 
 function fillChatSheet() {
@@ -3507,8 +3560,8 @@ function onClick(e) {
       ui.wildPrompt = null;
       return render();
     case 'toggleDock':
-      ui.dockCollapsed = !ui.dockCollapsed;
-      return render();
+      if (ui.dockCollapsed) return raiseHand();
+      return lowerHand(t.closest('.dock'));
     case 'addToHome':
       return addToHome();
     case 'setSound':
