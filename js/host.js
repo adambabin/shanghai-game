@@ -397,8 +397,25 @@ export class HostSession {
     this.pausedAt = null;
     // the cleared timers are set up again: buy answers, and the computers' Shanghai calls on this discard
     this.askArmed = null;
+    this.askFast = null;
     this.reacted.clear();
     this.changed();
+  }
+
+  stillAsking(seat) {
+    const w = this.game && this.game.buyWindow;
+    return !!w && w.order.includes(seat) && w.answers[seat] === undefined;
+  }
+
+  // every person in the buy window has answered (the computers still to go don't count)
+  peopleAnswered(w) {
+    return w.order.every((seat) => this.game.players[seat].bot || w.answers[seat] !== undefined);
+  }
+
+  botBuyAnswer(seat, ms) {
+    const g = this.game;
+    const w = g.buyWindow;
+    this.later(ms, () => this.game === g && g.buyWindow === w && this.stillAsking(seat) && this.act(seat, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, seat)) }));
   }
 
   scheduleBots() {
@@ -416,12 +433,12 @@ export class HostSession {
     const askKey = w && `${w.cardId}:${w.deadline}`;
     if (w && this.askArmed !== askKey) {
       this.askArmed = askKey;
-      const stillAsking = (seat) => this.game === g && g.buyWindow === w && w.answers[seat] === undefined;
+      const peopleDone = this.peopleAnswered(w);
       for (const seat of w.order) {
         const s = this.lobby.seats[seat];
         if (g.players[seat].bot) {
-          this.later(900 + Math.random() * 1200, () => stillAsking(seat) && this.act(seat, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, seat)) }));
-        } else if (s && !s.isHost && !s.connected) this.later(300, () => stillAsking(seat) && this.act(seat, { type: 'buyAnswer', buy: false }));
+          if (!peopleDone) this.botBuyAnswer(seat, 900 + Math.random() * 1200);
+        } else if (s && !s.isHost && !s.connected) this.later(300, () => this.stillAsking(seat) && this.act(seat, { type: 'buyAnswer', buy: false }));
       }
       const t = setTimeout(() => {
         this.timers.delete(t);
@@ -431,6 +448,11 @@ export class HostSession {
         }
       }, Math.max(0, w.deadline - Date.now()) + 250);
       this.timers.add(t);
+    }
+    // once every person being asked has answered, the computers answer quickly: nobody is left needing time to think
+    if (w && this.askFast !== askKey && this.peopleAnswered(w)) {
+      this.askFast = askKey;
+      for (const seat of w.order) if (g.players[seat].bot) this.botBuyAnswer(seat, 400 + Math.random() * 500);
     }
 
     // Shanghai calls on the latest discard, decided once per discard per bot
@@ -452,8 +474,11 @@ export class HostSession {
     const seat = g.turn;
     if (g.phase === 'draw') {
       if (g.buyWindow) return; // wait for buyers; resolving the window reschedules us
-      // give people time to spot and call Shanghai before the bot draws (the window closes on the draw)
-      const wait = g.lastDiscard && g.lastDiscard.open && !g.buyOffered ? 6000 : 1500;
+      // give people time to spot and call Shanghai before the bot draws (the window closes on the draw); with no piles on
+      // the table nothing can be a Shanghai, so there's nothing to wait for. Once nobody bought it, draw a little sooner
+      // (after a buy, the usual pause lets the bought card fly to the buyer first)
+      const callable = g.lastDiscard && g.lastDiscard.open && !g.buyOffered && g.melds.length > 0;
+      const wait = callable ? 6000 : g.buyOffered ? 800 : 1500;
       this.turnTimer = this.later(wait, () => {
         const a = chooseDraw(viewFor(g, seat));
         if (a) this.act(seat, a);
