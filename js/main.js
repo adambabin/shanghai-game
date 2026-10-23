@@ -1754,6 +1754,15 @@ function closeChat() {
   render();
 }
 
+// line icons for the chat's title bar, drawn rather than ⚙ / ✕ characters, which phones can turn into color emoji
+const GEAR_ICON = `<svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0
+  .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65
+  0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65
+  1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1
+  1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65
+  1.65 0 0 0-1.51 1z"/></svg>`;
+const X_ICON = '<svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+
 function syncChatSheet() {
   let sheet = document.getElementById('chat-sheet');
   const show = ui.chatOpen && ui.snap && ui.snap.view && !ui.modal;
@@ -1776,9 +1785,9 @@ function syncChatSheet() {
   }
   sheet.innerHTML = `<div class="chat-backdrop" data-chat="close"></div>
     <div class="chat-panel" role="dialog" aria-label="Chat">
-      <div class="chat-head"><b>Chat</b><button class="ghost small quick-edit" data-chat="edit">Edit reactions</button><button class="ghost small" data-chat="close">Close</button></div>
+      <div class="chat-head"><b>Chat</b><button class="icon-btn" data-chat="edit" title="Change quick reactions" aria-label="Change quick reactions">${GEAR_ICON}</button><button class="icon-btn" data-chat="close" title="Close" aria-label="Close">${X_ICON}</button></div>
       <div class="chat-msgs"></div>
-      ${tip ? '<p class="chat-tip">You can change these quick reactions in Settings, or tap <b>Edit reactions</b>.</p>' : ''}
+      ${tip ? `<p class="chat-tip">You can change these quick reactions in Settings, or tap <span class="tip-icon">${GEAR_ICON}</span> up top.</p>` : ''}
       <div class="chat-quick">${quick}</div>
       <form class="chat-compose"><input data-field="chatText" maxlength="${CHAT_MAX}" placeholder="Say something…" autocomplete="off" enterkeyhint="send"
         aria-label="Message"><button class="primary">Send</button></form>
