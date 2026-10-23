@@ -83,6 +83,7 @@ const ui = {
   drawTo: null, // where in the hand a card being drawn by dragging should go
   afterDraw: null, // a discard dragged onto a group or pile, to play once it's in your hand
   chatOpen: false, // the chat sheet (#chat-sheet) is showing
+  chatDraft: '', // what was in the chat's text box when it closed
   chatPopups: store.get('chatPopups', true), // Settings › Chat pop-ups: messages pop up under the sender's tile
   chatPops: [], // messages popped up right now: { m, until, open }
   chatMore: 0, // messages that didn't fit as pop-ups (more than two at once), shown as "+3 more"
@@ -252,6 +253,7 @@ function startSession(session) {
   ui.modal = null;
   ui.flash = null;
   ui.chatOpen = false;
+  ui.chatDraft = '';
   ui.chatPops = [];
   ui.chatMore = 0;
   session.subscribe(onSnapshot);
@@ -1854,11 +1856,18 @@ function syncChatSheet() {
   let sheet = document.getElementById('chat-sheet');
   const show = ui.chatOpen && ui.snap && ui.snap.view && !ui.modal;
   if (!show) {
-    if (sheet) sheet.remove();
+    if (sheet) {
+      // a half-typed message waits for the chat to open again
+      ui.chatDraft = sheet.querySelector('[data-field="chatText"]').value;
+      sheet.remove();
+    }
     if (!ui.modal) ui.chatOpen = false;
     return;
   }
-  if (sheet) return markChatAway(sheet);
+  if (sheet) {
+    markChatTurn(sheet);
+    return markChatAway(sheet);
+  }
   sheet = document.createElement('div');
   sheet.id = 'chat-sheet';
   const quick = [...ui.quickEmoji.map((e) => `<button class="emo" data-chat="emoji">${esc(e)}</button>`),
@@ -1873,6 +1882,7 @@ function syncChatSheet() {
   sheet.innerHTML = `<div class="chat-backdrop" data-chat="close"></div>
     <div class="chat-panel" role="dialog" aria-label="Chat">
       <div class="chat-head"><b>Chat</b><button class="icon-btn" data-chat="edit" title="Change quick reactions" aria-label="Change quick reactions">${GEAR_ICON}</button><button class="icon-btn" data-chat="close" title="Close" aria-label="Close">${X_ICON}</button></div>
+      <div class="chat-turn"></div>
       <div class="chat-msgs"></div>
       ${tip ? `<p class="chat-tip">You can change these quick reactions in Settings, or tap <span class="tip-icon">${GEAR_ICON}</span> up top.</p>` : ''}
       <p class="chat-away"></p>
@@ -1899,6 +1909,8 @@ function syncChatSheet() {
     sendChat(input.value, 'typed');
     input.value = '';
   });
+  sheet.querySelector('[data-field="chatText"]').value = ui.chatDraft || '';
+  markChatTurn(sheet);
   markChatAway(sheet);
   document.body.appendChild(sheet);
   const toMessage = ui.chatHighlight != null;
@@ -1913,6 +1925,34 @@ function syncChatSheet() {
   box.addEventListener('scroll', () => (atEnd = chatAtEnd(box)), { passive: true });
   if (window.ResizeObserver) new ResizeObserver(() => atEnd && (box.scrollTop = box.scrollHeight)).observe(box);
   swipeToClose(panel);
+}
+
+// The chat covers the game's message box, so when the game needs you (your turn, a buy question, the next round) a bar
+// under its title says so, with a button back to the game. It only points the way: the answer is given in the game.
+// (Not the early buy question: that's asked at the start of nearly every turn, and waits for you anyway.)
+function chatTurnHTML(v) {
+  const me = v.you;
+  if (me == null || v.players[me].out) return '';
+  const top = v.discardTop && miniCards(esc(cardLabel(v.discardTop)));
+  let line;
+  if (v.phase === 'ready') line = v.players[me].ready ? '' : `<b>${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}`}!</b> Look over your cards.`;
+  else if (v.turn === me && (v.phase === 'draw' || v.phase === 'play')) {
+    const d = v.phase === 'draw' && lastLog(v, (e) => DISCARD_KINDS.includes(e.kind));
+    const more = v.mustDecide ? `Take ${top} or let others buy it?` : d ? logHTML(d, v) : '';
+    line = `<b>Your turn!</b>${more ? `<small>${more}</small>` : ''}`;
+  } else if (v.phase === 'draw' && v.buyWindow && v.buyWindow.order.includes(me) && v.buyWindow.mine === undefined)
+    line = `<b>Buy ${top}?</b> <span class="countdown" data-countdown>${secondsLeft()}</span>`;
+  return line ? `<span class="chat-turn-text">${line}</span><button class="primary small" data-chat="close">Go to game</button>` : '';
+}
+function markChatTurn(sheet) {
+  const el = sheet.querySelector('.chat-turn');
+  const html = ui.snap && ui.snap.view ? chatTurnHTML(ui.snap.view) : '';
+  // the countdown ticks by itself, so only redraw when the words change (a redraw would restart the pulse)
+  const key = html.replace(/<span class="countdown"[^]*?<\/span>/, '');
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.innerHTML = html;
+  el.classList.toggle('on', !!html);
 }
 
 // Every message goes through the host's phone, so while they're away the chat can be read but not added to: say so

@@ -2129,6 +2129,55 @@ button.link-btn {
   flex: 1;
   font-size: 17px;
 }
+/* the game needs you: your turn, a buy question, the next round (the chat covers the game's message box) */
+.chat-turn {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 12px 6px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 12px;
+  background-color: var(--gold);
+  color: #3a2a00;
+  box-shadow: 0 0 0 3px rgba(242, 193, 78, 0.35);
+}
+.chat-turn.on {
+  display: flex;
+  animation: chat-turn-in 0.9s ease-out;
+}
+.chat-turn-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.3;
+}
+.chat-turn-text small {
+  display: block;
+  font-size: 13px;
+}
+.chat-turn .primary {
+  flex: none;
+  background: var(--felt-dark);
+  color: var(--ink);
+}
+@keyframes chat-turn-in {
+  0% {
+    transform: scale(0.96);
+    box-shadow: 0 0 0 0 rgba(242, 193, 78, 0.9);
+  }
+  60% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: none;
+    box-shadow: 0 0 0 3px rgba(242, 193, 78, 0.35);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-turn.on {
+    animation: none;
+  }
+}
 .chat-msgs {
   flex: 1;
   min-height: 0;
