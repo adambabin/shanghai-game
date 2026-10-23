@@ -13,7 +13,8 @@ globalThis.localStorage = {
   removeItem: (k) => data.delete(k),
 };
 
-const { cleanChat, isEmojiOnly, ChatLimit, CHAT_MAX, CHAT_KEEP } = await import('../js/chat.js');
+const { cleanChat, isEmojiOnly, ChatLimit, CHAT_MAX, CHAT_KEEP, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, oneEmoji, cleanSaying,
+  quickEmoji, quickSayings } = await import('../js/chat.js');
 const { HostSession } = await import('../js/host.js');
 
 const cp = (...codes) => String.fromCodePoint(...codes);
@@ -35,6 +36,32 @@ test('messages are squeezed to one short line of visible text', () => {
 test('just emoji are shown big', () => {
   for (const t of ['😂', '😂😂', '👍🏽', '❤️', `👨${cp(0x200d)}👩${cp(0x200d)}👧`]) assert.ok(isEmojiOnly(t), t);
   for (const t of ['hi 😂', 'Nice one!', '😂😂😂😂', '1', '#', '']) assert.ok(!isEmojiOnly(t), t);
+});
+
+test('a quick reaction emoji is exactly one emoji', () => {
+  assert.equal(oneEmoji('ab👍🏽c'), '👍🏽');
+  assert.equal(oneEmoji(cp(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467) + 'x'), cp(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467));
+  assert.equal(oneEmoji('hello 123'), '');
+  assert.equal(oneEmoji(null), '');
+});
+
+test('your own sayings are cleaned and kept short', () => {
+  assert.equal(cleanSaying(`  Grandma\nwins${cp(0x202e)} again  `), 'Grandma wins again');
+  assert.equal(Array.from(cleanSaying('x'.repeat(50))).length, SAYING_MAX);
+  assert.equal(cleanSaying(cp(0x200b, 0x2066)), '');
+  for (const t of [...CHAT_SAYINGS, ...CHAT_IDEAS]) assert.equal(cleanSaying(t), t);
+});
+
+test('saved quick reactions are checked again when loaded', () => {
+  assert.deepEqual(quickEmoji(undefined), CHAT_EMOJI);
+  assert.deepEqual(quickEmoji('😀'), CHAT_EMOJI);
+  // anything that isn't one emoji falls back to the usual one in that spot
+  assert.deepEqual(quickEmoji(['😀', 'hi', null, '👍👍', '<b>', '🃏']), ['😀', ...CHAT_EMOJI.slice(1, 5), '🃏']);
+  assert.deepEqual(quickSayings(undefined), CHAT_SAYINGS);
+  assert.deepEqual(quickSayings([]), []);
+  const many = quickSayings(['Hi', 'hi', ' ', 42, 'a\nb', ...'cdefgh']);
+  assert.deepEqual(many, ['Hi', 'a b', 'c', 'd', 'e', 'f']);
+  assert.equal(many.length, QUICK_COUNT);
 });
 
 test('nobody can flood the table', () => {

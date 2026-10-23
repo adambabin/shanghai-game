@@ -3,7 +3,8 @@ import { joinRoom } from './net.js';
 import { SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
 import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
 import { browserTracker, plainError } from './telemetry.js';
-import { CHAT_MAX, CHAT_EMOJI, CHAT_SAYINGS, cleanChat, isEmojiOnly } from './chat.js';
+import { CHAT_MAX, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, cleanChat, cleanSaying, isEmojiOnly, oneEmoji, quickEmoji,
+  quickSayings } from './chat.js';
 import { ROUNDS, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor, BOT_LEVELS, botLevelFor } from './rules.js';
 
 const $app = document.getElementById('app');
@@ -84,6 +85,10 @@ const ui = {
   chatPops: [], // messages popped up right now: { m, until, open }
   chatMore: 0, // messages that didn't fit as pop-ups (more than two at once), shown as "+3 more"
   chatTipAt: 0, // when someone else's message last arrived, for the one-time chat tip
+  quickEmoji: quickEmoji(store.get('quickEmoji')), // your quick reactions in the chat (Settings › Quick reactions)
+  quickSayings: quickSayings(store.get('quickSayings')),
+  quickEdit: null, // changing one in its own sheet (#quick-sheet): { kind: 'emoji', i } or { kind: 'saying' }
+  revealQuick: false, // Settings opened from the chat's Edit: scroll to the quick reactions
 };
 
 // card back colors you can pick in Settings (the CSS for each lives in style.css)
@@ -477,6 +482,7 @@ function render() {
   syncFeedbackSheet();
   syncCropSheet();
   syncChatSheet();
+  syncQuickSheet();
   saveHand();
   syncPause();
   layoutHand();
@@ -507,6 +513,11 @@ function render() {
   placeTapSpots();
   const modalBody = $app.querySelector('.modal-body');
   if (modalBody && modalTop != null) modalBody.scrollTop = modalTop;
+  if (ui.revealQuick && modalBody) {
+    const quick = modalBody.querySelector('#quick-chat');
+    if (quick) modalBody.scrollTop = quick.offsetTop - modalBody.offsetTop - 8;
+  }
+  ui.revealQuick = false;
   const table = $app.querySelector('.table');
   if (table && tableTop != null) table.scrollTop = tableTop;
   placeChatPops();
@@ -1373,10 +1384,122 @@ function settingsModal() {
       <h3>Sound</h3><div class="seg">${choice('setSound', 1, ui.sound, 'On')}${choice('setSound', 0, !ui.sound, 'Off')}</div>
       <h3>Chat pop-ups</h3><div class="seg">${choice('setChatPopups', 1, ui.chatPopups, 'On')}${choice('setChatPopups', 0, !ui.chatPopups, 'Off')}</div>
       <p class="muted">Messages and emoji pop up under the sender's name. With this off, the chat still works: 💬 shows how many are new.</p>
+      ${quickSettingsHTML()}
       <p class="muted">Saved on this device.${canAddToHome() ? ' Phones can clear them if you don\'t play for a while, unless you add the game to your home screen.' : ''}</p>
       ${canAddToHome() ? '<button class="ghost small" data-act="addToHome">Add to your home screen</button>' : ''}
     </div>`
   );
+}
+
+// ---------- your own quick reactions ----------
+// Settings lists them; changing an emoji or adding a saying happens in its own sheet outside #app (like the feedback
+// form), so game updates can't take the text box away mid-word. They stay on this phone and go out as ordinary chat.
+function quickSettingsHTML() {
+  const custom = ui.quickEmoji.join() !== CHAT_EMOJI.join() || ui.quickSayings.join('\n') !== CHAT_SAYINGS.join('\n');
+  const emoji = ui.quickEmoji
+    .map((e, i) => `<button class="ghost" data-act="quickEmoji" data-i="${i}" aria-label="Change ${esc(e)}">${esc(e)}</button>`)
+    .join('');
+  const sayings = ui.quickSayings
+    .map((t, i) => `<div class="quick-saying"><span>${esc(t)}</span><button class="ghost small" data-act="quickRemove" data-i="${i}" aria-label="Remove ${esc(t)}">✕</button></div>`)
+    .join('');
+  const n = ui.quickSayings.length;
+  return `<h3 id="quick-chat">Quick reactions</h3>
+    <p class="muted quick-note">Tap one to change it to any emoji on your keyboard.</p>
+    <div class="quick-emoji">${emoji}</div>
+    <h3>Quick sayings</h3>
+    <div class="quick-sayings">${sayings}${
+      n < QUICK_COUNT
+        ? `<button class="ghost quick-add" data-act="quickAdd">+ Add a saying (${n} of ${QUICK_COUNT})</button>`
+        : '<p class="muted">Remove one to add another.</p>'
+    }</div>
+    ${custom ? '<button class="link-btn" data-act="quickReset">Reset to default options</button>' : ''}`;
+}
+
+function saveQuick() {
+  store.set('quickEmoji', ui.quickEmoji);
+  store.set('quickSayings', ui.quickSayings);
+}
+
+// a saying from the ideas or typed in; says why when it can't go in
+function addSaying(text) {
+  const clean = cleanSaying(text);
+  if (!clean) return 'Write something first.';
+  if (ui.quickSayings.some((t) => t.toLowerCase() === clean.toLowerCase())) return 'You already have that one.';
+  if (ui.quickSayings.length >= QUICK_COUNT) return 'Remove one to add another.';
+  ui.quickSayings = [...ui.quickSayings, clean];
+  saveQuick();
+  ui.quickEdit = null;
+  render();
+  return '';
+}
+
+function syncQuickSheet() {
+  let sheet = document.getElementById('quick-sheet');
+  const q = ui.modal === 'settings' ? ui.quickEdit : null;
+  if (!q) {
+    if (sheet) sheet.remove();
+    return;
+  }
+  if (sheet && sheet.quick === q) return;
+  if (sheet) sheet.remove();
+  sheet = document.createElement('div');
+  sheet.id = 'quick-sheet';
+  sheet.quick = q;
+  let title, body, actions;
+  if (q.kind === 'emoji') {
+    title = 'New emoji';
+    body = `<p>Open your emoji keyboard and pick one. It takes the place of ${esc(ui.quickEmoji[q.i])}.</p>
+      <input class="quick-input quick-emoji-input" data-field="quickEmoji" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Emoji">`;
+    actions = '<button class="ghost" data-act="quickCancel">Cancel</button>';
+  } else {
+    const ideas = CHAT_IDEAS.filter((t) => !ui.quickSayings.some((s) => s.toLowerCase() === t.toLowerCase()));
+    title = 'Add a saying';
+    body = `${ideas.length ? `<p class="muted">Pick one</p><div class="quick-ideas">${ideas
+      .map((t) => `<button class="say" data-act="quickIdea">${esc(t)}</button>`)
+      .join('')}</div><p class="muted">Or write your own</p>` : ''}
+      <div class="quick-own"><input class="quick-input" data-field="quickSaying" maxlength="${SAYING_MAX}" autocomplete="off" enterkeyhint="done"
+        placeholder="Your saying" aria-label="Your saying"><span class="quick-count muted">0/${SAYING_MAX}</span></div>`;
+    actions = '<button class="ghost" data-act="quickCancel">Cancel</button><button class="primary" data-act="quickOwn">Add</button>';
+  }
+  sheet.innerHTML = `<div class="overlay" data-act="quickCancel"><div class="modal framed quick-modal" data-stop>
+    <h2>${title}</h2><div class="modal-body">${body}<p class="quick-msg" role="status"></p></div>
+    <div class="actions">${actions}</div></div></div>`;
+  sheet.addEventListener('click', onClick);
+  sheet.addEventListener('input', onQuickInput);
+  sheet.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.dataset.field === 'quickSaying') {
+      e.preventDefault();
+      quickMsg(addSaying(e.target.value));
+    }
+  });
+  document.body.appendChild(sheet);
+  // straight away, inside the tap, so phones bring up the keyboard
+  sheet.querySelector('input').focus();
+}
+
+function quickMsg(text) {
+  const el = document.querySelector('#quick-sheet .quick-msg');
+  if (el) el.textContent = text;
+}
+
+function onQuickInput(e) {
+  const f = e.target.dataset.field;
+  if (f === 'quickSaying') {
+    const count = document.querySelector('#quick-sheet .quick-count');
+    if (count) count.textContent = `${Array.from(e.target.value).length}/${SAYING_MAX}`;
+    quickMsg('');
+  } else if (f === 'quickEmoji') {
+    const em = oneEmoji(e.target.value);
+    if (em) {
+      ui.quickEmoji = ui.quickEmoji.map((x, i) => (i === ui.quickEdit.i ? em : x));
+      saveQuick();
+      ui.quickEdit = null;
+      render();
+    } else if (e.target.value.trim()) {
+      e.target.value = '';
+      quickMsg('Only an emoji fits here.');
+    }
+  }
 }
 
 // ---------- your photo as the card back ----------
@@ -1640,12 +1763,20 @@ function syncChatSheet() {
   if (sheet) return;
   sheet = document.createElement('div');
   sheet.id = 'chat-sheet';
-  const quick = [...CHAT_EMOJI.map((e) => `<button class="emo" data-chat="emoji">${e}</button>`),
-    ...CHAT_SAYINGS.map((t) => `<button class="say" data-chat="saying">${esc(t)}</button>`)].join('');
+  const quick = [...ui.quickEmoji.map((e) => `<button class="emo" data-chat="emoji">${esc(e)}</button>`),
+    ...ui.quickSayings.map((t) => `<button class="say" data-chat="saying">${esc(t)}</button>`)].join('');
+  // one time: these can be changed (shown in the sheet itself, since tips wait while the chat is open)
+  const seen = store.get('tipsSeen', []);
+  const tip = !store.get('tipsOff', false) && !seen.includes('quickChat');
+  if (tip) {
+    store.set('tipsSeen', [...seen, 'quickChat']);
+    stats.track('tip', { tip: 'quickChat' });
+  }
   sheet.innerHTML = `<div class="chat-backdrop" data-chat="close"></div>
     <div class="chat-panel" role="dialog" aria-label="Chat">
-      <div class="chat-head"><b>Chat</b><button class="ghost small" data-chat="close">Close</button></div>
+      <div class="chat-head"><b>Chat</b><button class="ghost small quick-edit" data-chat="edit">Edit reactions</button><button class="ghost small" data-chat="close">Close</button></div>
       <div class="chat-msgs"></div>
+      ${tip ? '<p class="chat-tip">You can change these quick reactions in Settings, or tap <b>Edit reactions</b>.</p>' : ''}
       <div class="chat-quick">${quick}</div>
       <form class="chat-compose"><input data-field="chatText" maxlength="${CHAT_MAX}" placeholder="Say something…" autocomplete="off" enterkeyhint="send"
         aria-label="Message"><button class="primary">Send</button></form>
@@ -1654,6 +1785,12 @@ function syncChatSheet() {
     const b = e.target.closest('[data-chat]');
     if (!b) return;
     if (b.dataset.chat === 'close') return closeChat();
+    if (b.dataset.chat === 'edit') {
+      // Settings opens over the chat; closing it comes back to the chat, with the new reactions
+      ui.modal = 'settings';
+      ui.revealQuick = true;
+      return render();
+    }
     sendChat(b.textContent, b.dataset.chat);
   });
   sheet.querySelector('form').addEventListener('submit', (e) => {
@@ -3168,7 +3305,7 @@ function onClick(e) {
     return;
   }
   // clicks inside a modal shouldn't hit the backdrop's close handler
-  if (t.dataset.act === 'closeModal' && t.classList.contains('overlay') && e.target.closest('[data-stop]')) return;
+  if (t.classList.contains('overlay') && e.target.closest('[data-stop]')) return;
   const act = t.dataset.act;
   const v = ui.snap && ui.snap.view;
   const isWild = v ? wildTest(v.options) : null;
@@ -3242,6 +3379,7 @@ function onClick(e) {
       return render();
     case 'closeModal':
       ui.crop = null;
+      ui.quickEdit = null;
       ui.modal = null;
       ui.wildPrompt = null;
       return render();
@@ -3261,6 +3399,28 @@ function onClick(e) {
       return render();
     case 'chat':
       return openChat();
+    case 'quickEmoji':
+      ui.quickEdit = { kind: 'emoji', i: Number(t.dataset.i) };
+      return render();
+    case 'quickAdd':
+      ui.quickEdit = { kind: 'saying' };
+      return render();
+    case 'quickCancel':
+      ui.quickEdit = null;
+      return render();
+    case 'quickIdea':
+      return quickMsg(addSaying(t.textContent));
+    case 'quickOwn':
+      return quickMsg(addSaying(document.querySelector('#quick-sheet [data-field="quickSaying"]').value));
+    case 'quickRemove':
+      ui.quickSayings = ui.quickSayings.filter((_, i) => i !== Number(t.dataset.i));
+      saveQuick();
+      return render();
+    case 'quickReset':
+      ui.quickEmoji = [...CHAT_EMOJI];
+      ui.quickSayings = [...CHAT_SAYINGS];
+      saveQuick();
+      return render();
     case 'setCardBack':
       ui.cardBack = t.dataset.val;
       store.set('cardBack', ui.cardBack);

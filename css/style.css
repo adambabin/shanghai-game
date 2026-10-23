@@ -1785,6 +1785,94 @@ body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
 .settings .back-note {
   margin: 6px 0 0;
 }
+/* Settings › Quick reactions: your own emoji and sayings for the chat */
+.settings .quick-note {
+  margin: 0 0 8px;
+}
+.quick-emoji {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+.quick-emoji button {
+  height: 48px;
+  padding: 0;
+  font-size: 26px;
+  background-color: var(--panel);
+}
+.quick-sayings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.quick-saying {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 10px;
+  background-color: var(--panel);
+}
+.quick-saying span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.quick-sayings > p {
+  margin: 0;
+}
+button.quick-add {
+  background-color: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+}
+button.link-btn {
+  margin-top: 10px;
+  padding: 6px 0;
+  background-color: transparent;
+  color: var(--ink-dim);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: underline;
+}
+.quick-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.quick-modal .modal-body p {
+  margin: 0;
+}
+.quick-ideas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.quick-ideas .say {
+  background-color: rgba(255, 255, 255, 0.14);
+  color: var(--ink);
+  font-size: 15px;
+  padding: 8px 13px;
+  border-radius: 999px;
+}
+.quick-own {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.quick-own input {
+  flex: 1;
+  min-width: 0;
+}
+.quick-emoji-input {
+  width: 100%;
+  font-size: 28px;
+  text-align: center;
+}
+.quick-msg {
+  min-height: 1.2em;
+  color: var(--gold);
+  font-size: 14px;
+}
 
 /* fitting your photo to the card back: the photo moves under a card-shaped window, everything outside it dimmed */
 .crop-modal .modal-head {
@@ -1987,6 +2075,19 @@ body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
   padding: 7px 11px;
   border-radius: 999px;
   white-space: nowrap;
+}
+button.quick-edit {
+  background-color: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.4);
+}
+.chat-tip {
+  margin: 0 12px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background-color: rgba(242, 193, 78, 0.15);
+  color: var(--ink);
+  font-size: 13px;
+  flex: none;
 }
 .chat-compose {
   display: flex;
