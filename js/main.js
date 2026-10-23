@@ -307,6 +307,9 @@ function trackMeldChanges(v) {
   setTimeout(render, JUST_PLAYED_MS + 50);
 }
 
+const RECENT_BUY_MS = 5000;
+const recentBuy = () => (ui.recentBuy && ui.recentBuy.until > Date.now() ? ui.recentBuy.entry : null);
+
 function processLog(v) {
   if (ui.lastSeq == null || ui.lastSeq > v.seq) {
     ui.lastSeq = v.seq;
@@ -318,6 +321,12 @@ function processLog(v) {
     if (DISCARD_KINDS.includes(e.kind) && e.seat !== v.you) ui.flyFrom = e.seat;
     // someone else's buy flies the other way: the card from the pile, then the extra cards from the deck, to their tile
     if (e.kind === 'buy' && e.seat !== v.you && e.card) ui.flyBuy = { seat: e.seat, card: e.card, extra: e.extra || 0 };
+    // who bought stays on their tile, and leads the next card's buy question, for a few seconds
+    if (e.kind === 'buy') {
+      ui.recentBuy = { entry: e, until: Date.now() + RECENT_BUY_MS };
+      ui.revealBuy = true;
+      setTimeout(render, RECENT_BUY_MS + 30);
+    }
     if (e.kind === 'shanghai') {
       shout('SHANGHAI!');
       toast(e.text, true, 5000);
@@ -479,16 +488,19 @@ function render() {
   layoutHand();
   markTableOverflow();
   fitHomeGames();
-  flyDiscard();
-  flyBuy();
   celebrateWin();
   const players = $app.querySelector('.players');
   if (players) {
     if (playersLeft != null) players.scrollLeft = playersLeft;
     if (ui.revealTurn) revealTurn(players, playersLeft != null);
-    ui.revealTurn = false;
+    // whoever just bought: their tile says so, so bring it into view (at once, so the bought card flies to it)
+    if (ui.revealBuy) revealTurn(players, false, '.chip.just-bought');
+    ui.revealTurn = ui.revealBuy = false;
     markEdgeFade(players);
   }
+  // after the tiles are scrolled back where they were, so the cards fly to and from the right place
+  flyDiscard();
+  flyBuy();
   const staged = $app.querySelector('.staged-row');
   if (staged) {
     if (stagedLeft != null) staged.scrollLeft = stagedLeft;
@@ -513,8 +525,8 @@ function render() {
 }
 
 // The row of player tiles scrolls sideways when it doesn't fit; bring whoever's turn it is into view.
-function revealTurn(players, smooth) {
-  const chip = players.querySelector('.chip.turn');
+function revealTurn(players, smooth, which = '.chip.turn') {
+  const chip = players.querySelector(which);
   if (!chip) return;
   const pad = 32; // clear of the edge fade
   const left = chip.offsetLeft - pad;
@@ -732,11 +744,16 @@ function playerChips(v) {
       const left = p.laid ? 0 : Math.max(0, v.options.buyLimit - p.buysUsed);
       const buys = left ? `<span class="buys-left" title="${left} buy${left === 1 ? '' : 's'} left">${'$'.repeat(left)}</span>` : '';
       const dealer = i === v.dealer;
+      // just bought: the tile says what, for a few seconds
+      const bought = recentBuy();
+      const stats = bought && bought.seat === i && bought.card
+        ? `<span class="bought">bought ${miniCards(esc(cardLabel(bought.card)))}</span>`
+        : `<span>${p.cards} card${p.cards === 1 ? '' : 's'}</span>${buys}`;
       // names longer than 15 characters are cut short; the full name shows on hover
       const short = p.name.length > 15 ? p.name.slice(0, 14).trimEnd() + '…' : p.name;
-      return `<div class="chip ${i === v.turn ? 'turn' : ''} ${i === v.you ? 'me' : ''} ${dealer ? 'dealer' : ''}">
+      return `<div class="chip ${i === v.turn ? 'turn' : ''} ${i === v.you ? 'me' : ''} ${dealer ? 'dealer' : ''} ${stats.includes('class="bought"') ? 'just-bought' : ''}">
         ${dealer ? '<span class="dealer-badge" title="Dealer">D</span>' : ''}<span class="pname" title="${esc(p.name)}">${esc(short)}</span>
-        <span class="pstats">${p.out ? '<span>sitting out</span>' : `<span>${p.cards} card${p.cards === 1 ? '' : 's'}</span>${buys}`}</span>
+        <span class="pstats">${p.out ? '<span>sitting out</span>' : stats}</span>
         <span class="ptags">${tags.join('')}</span></div>`;
     })
     .join('');
@@ -891,9 +908,11 @@ function activityHTML(v) {
   // prompts keep their own buttons; any other message opens the game log when tapped
   let main = buyBarHTML(v);
   const log = 'data-act="modal" data-m="log" title="Tap for the game log"';
-  // a mistake of yours (like a Shanghai call that missed), or who just bought the card, shows above a prompt instead of
-  // hiding behind it (the next card's buy question comes straight after a buy)
-  if (main && f && (f.bad || f.loud)) main = `<div class="buy-bar flash ${f.bad ? 'bad' : ''}"><span>${miniCards(esc(f.text))}</span></div>${main}`;
+  // the next card's buy question comes straight after a buy, so it starts with who bought the last one
+  const bought = main && v.phase === 'draw' && recentBuy();
+  if (bought) main = main.replace('<span>', `<span>${logHTML({ ...bought, text: bought.text.replace(/ \(.*\)\.$/, '') }, v)}. `);
+  // a mistake of yours (like a Shanghai call that missed) shows above a prompt instead of hiding behind it
+  if (main && f && f.bad) main = `<div class="buy-bar flash bad"><span>${miniCards(esc(f.text))}</span></div>${main}`;
   if (!main && showFlash) main = `<div class="buy-bar flash tappable ${f.bad ? 'bad' : ''}" ${log}><span>${miniCards(esc(f.text))}</span></div>`;
   if (!main) {
     const warn = mine && v.phase === 'play' && (v.hand.length === 1 || v.mustPlay.some((id) => v.hand.some((c) => c.id === id)));
@@ -921,7 +940,13 @@ function buyCostText(v) {
   const left = v.options.buyLimit - v.players[v.you].buysUsed;
   const extra = v.options.buyPenalty;
   const cost = extra ? `It costs ${extra} card${extra === 1 ? '' : 's'}.` : 'No extra cards.';
-  return `${cost} ${left} buy${left === 1 ? '' : 's'} left.`;
+  const buys = `${left} buy${left === 1 ? '' : 's'} left.`;
+  // right after a buy the question starts with who bought, so the cost (which never changes) is left out to keep it
+  // short, if you'd already seen it in this game before that buy
+  const game = handGameKey();
+  if (!ui.costSeen || ui.costSeen.game !== game) ui.costSeen = { game, at: Date.now() };
+  if (recentBuy() && ui.costSeen.at < ui.recentBuy.until - RECENT_BUY_MS) return buys;
+  return `${cost} ${buys}`;
 }
 
 // Where you'd be in line to buy the card on top if everyone ahead of you said Buy too (seating order only, no answers)
@@ -942,8 +967,8 @@ function buyBarHTML(v) {
   const w = v.buyWindow;
   const timer = `<span class="countdown" data-countdown>${secondsLeft()}</span>`;
   if (w) {
-    // everyone who can buy is asked at once; others just see the countdown
-    if (!w.order.includes(me)) return `<div class="buy-bar"><span>Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}…</span> ${timer}</div>`;
+    // everyone who can buy is asked at once; others just see the countdown (in the sentence, so it rides on its last line)
+    if (!w.order.includes(me)) return `<div class="buy-bar"><span>Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}… ${timer}</span></div>`;
     if (w.mine !== undefined) {
       // a Buy still open means someone ahead of you hasn't answered (the first Buy in line gets it)
       const ahead = w.order.slice(0, w.order.indexOf(me));
@@ -952,7 +977,7 @@ function buyBarHTML(v) {
         : ahead.length === 1
           ? `Waiting on <b>${esc(v.players[ahead[0]].name)}</b>, who's ahead of you…`
           : `${ahead.length} players are ahead of you. Waiting for them…`;
-      return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait}</span> ${timer}</div>`;
+      return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait} ${timer}</span></div>`;
     }
     return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
       <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span> ${timer}</div>`;
