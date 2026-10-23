@@ -428,7 +428,8 @@ export class HostSession {
 
   close() {
     this.clearTimers();
-    this.room && this.room.close();
+    // tell everyone the host left on purpose, so they don't just see a dropped connection
+    this.room && this.room.close({ t: 'bye' });
   }
 }
 
@@ -444,6 +445,7 @@ export class ClientSession {
         if (msg.t === 'state') this.update({ ...msg.s, status: 'connected', isHost: false });
         else if (msg.t === 'err') this.listeners.forEach((fn) => fn({ ...this.snap, toastError: msg.msg, errSeq: Math.random() }));
         else if (msg.t === 'kicked') this.update({ ...this.snap, status: 'kicked' });
+        else if (msg.t === 'bye') this.update({ ...this.snap, hostLeft: true });
       },
       onStatus: (status, detail) => {
         if (this.snap.status === 'kicked') return;

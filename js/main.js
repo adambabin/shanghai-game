@@ -242,6 +242,9 @@ function onSnapshot(snap) {
     if (snap.status === 'connected') rememberJoined(snap);
     else if (snap.status === 'kicked') forgetJoined(ui.session.code);
   }
+  // the host is back (or we're back in touch with them)
+  if (prev && prev.view && !snap.isHost && snap.status === 'connected' && !snap.hostLeft && (prev.hostLeft || prev.status !== 'connected'))
+    toast(prev.hostLeft ? `${hostName(snap)} is back` : `Back in touch with ${hostName(snap)}`);
   if (snap.toastError && snap.errSeq !== ui.lastErrSeq) {
     ui.lastErrSeq = snap.errSeq;
     toast(snap.toastError, true);
@@ -658,6 +661,7 @@ function lobbyHTML(snap) {
     }
     ${snap.status === 'starting' ? '<div class="muted">Opening the room…</div>' : ''}
     ${snap.status === 'error' ? `<div class="err">${esc(snap.error)}</div>` : ''}
+    ${hostAwayText(snap) ? `<div class="err">${hostAwayText(snap)}</div>` : ''}
     <div class="seat-list">${seats}</div>
     ${isHost ? `<button class="ghost" data-act="addBot" ${lobby.seats.length >= MAX_PLAYERS ? 'disabled' : ''}>+ Add a computer player</button>` : ''}
     <h3 style="margin-top:6px">House rules</h3>
@@ -696,7 +700,7 @@ function playerChips(v) {
       const tags = [];
       if (v.phase === 'ready' && p.ready) tags.push('<span class="tag gold">ready</span>');
       const seat = ui.snap.lobby.seats[i];
-      if (seat && !seat.connected) tags.push('<span class="tag red">offline</span>');
+      if (seat && (!seat.connected || (seat.isHost && hostAwayText(ui.snap)))) tags.push('<span class="tag red">offline</span>');
       // one $ per buy left; none once they've laid down, since they can't buy then
       const left = p.laid ? 0 : Math.max(0, v.options.buyLimit - p.buysUsed);
       const buys = left ? `<span class="buys-left" title="${left} buy${left === 1 ? '' : 's'} left">${'$'.repeat(left)}</span>` : '';
@@ -998,13 +1002,26 @@ function dockHTML(v, isWild) {
   return `<div class="dock"><button class="dock-toggle icon" data-act="toggleDock" title="Hide my cards" aria-label="Hide my cards"><svg viewBox="0 0 24 14" aria-hidden="true"><path d="M3 3l9 8 9-8"/></svg></button><div class="dock-body">${body}</div></div>`;
 }
 
+function hostName(snap) {
+  const host = snap.lobby && snap.lobby.seats.find((s) => s.isHost);
+  return host ? host.name : 'the host';
+}
+
+// What players see while the host is away: they left on purpose (they said goodbye), or we lost touch with them.
+function hostAwayText(snap) {
+  if (snap.isHost || (snap.status === 'connected' && !snap.hostLeft)) return '';
+  const name = `<b>${esc(hostName(snap))}</b>`;
+  if (snap.hostLeft) return `${name} left the game. It's paused until they open it again.`;
+  return `Lost touch with ${name}. Waiting for them to come back…${snap.status === 'slow' ? " If you're on mobile data, try Wi-Fi." : ''}`;
+}
+
 function gameHTML(snap) {
   const v = snap.view;
   const isWild = wildTest(v.options);
-  const banner =
-    !snap.isHost && snap.status !== 'connected'
-      ? `<div class="conn-banner">${snap.status === 'slow' ? "Still can't reach the host. If you're on mobile data, try Wi-Fi." : 'Lost connection to the host. Reconnecting…'}</div>`
-      : snap.status === 'error'
+  const away = hostAwayText(snap);
+  const banner = away
+    ? `<div class="conn-banner host-away"><span>${away}</span><button class="small" data-act="leave">Home</button></div>`
+    : snap.status === 'error'
         ? `<div class="conn-banner">${esc(snap.error)}</div>`
         : '';
   const me = v.you;

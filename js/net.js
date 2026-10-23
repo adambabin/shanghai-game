@@ -112,10 +112,18 @@ export function openRoom(code, { onReady, onMessage, onClose, onError }) {
       const c = conns.get(connId);
       if (c && c.open) c.send(msg);
     },
-    close() {
+    // farewell goes to everyone first, with a moment for it to get out before the room closes
+    close(farewell) {
       destroyed = true;
       clearInterval(sweep);
-      peer && peer.destroy();
+      const p = peer;
+      const open = farewell ? [...conns.values()].filter((c) => c.open) : [];
+      for (const c of open)
+        try {
+          c.send(farewell);
+        } catch {}
+      if (open.length) setTimeout(() => p && p.destroy(), 300);
+      else p && p.destroy();
     },
   };
 }
