@@ -4,7 +4,7 @@
 // any failure is ignored, so it can't slow the game down or break it. Setup and the event list: TELEMETRY.md.
 
 // The website id from the Umami dashboard (Settings → Websites → Edit). Empty sends nothing.
-export const UMAMI_SITE = '';
+export const UMAMI_SITE = '1d02a51d-193d-4d76-a389-2c6f92da4bfe';
 export const UMAMI_URL = 'https://cloud.umami.is/api/send';
 const MAX_EVENTS = 300; // per page load, in case something goes round in a loop
 
