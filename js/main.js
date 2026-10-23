@@ -597,9 +597,9 @@ function homeHTML() {
     ${ui.homeError ? `<div class="err">${esc(ui.homeError)}</div>` : ''}
     <button class="primary" data-act="host">Host a game for friends &amp; family</button>
     <button class="ghost" data-act="solo">Play against the computer</button>
-    ${yourGamesHTML()}
     <div class="divider">— or join someone else's game —</div>
     <div class="row"><input data-field="joinCode" placeholder="ROOM CODE" maxlength="5" style="text-transform:uppercase;letter-spacing:3px" value="${esc(ui.joinCode)}"><button data-act="join" style="flex:none">Join</button></div>
+    ${yourGamesHTML()}
     <div class="row home-links"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="modal" data-m="settings">Settings</button><button class="ghost small" data-act="modal" data-m="feedback">Feedback</button></div>
     ${canAddToHome() ? '<button class="ghost small" data-act="addToHome">Add Shanghai to your home screen</button>' : ''}
   </div></div>${ui.modal === 'rules' ? rulesModal(DEFAULT_OPTIONS) : ui.modal === 'settings' ? settingsModal() : ui.modal === 'install' ? installModal() : ''}`;
