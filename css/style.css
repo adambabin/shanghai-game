@@ -434,6 +434,50 @@ label.field {
   background-image: repeating-linear-gradient(45deg, var(--back-a) 0 6px, var(--back-b) 6px 12px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
+/* loaderHTML(): a card in your card back flipping over to a random card, then back */
+.loader {
+  align-self: center;
+  width: var(--cw);
+  height: var(--ch);
+  margin: 6px 0 2px;
+  perspective: 400px;
+}
+.loader-flip {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  animation: loader-flip 1.8s ease-in-out infinite;
+}
+.loader .loader-side {
+  position: absolute;
+  inset: 0;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.35);
+}
+.loader .loader-face {
+  transform: rotateY(180deg);
+  transition: none;
+}
+@keyframes loader-flip {
+  0%,
+  30% {
+    transform: rotateY(0);
+  }
+  50%,
+  80% {
+    transform: rotateY(180deg);
+  }
+  100% {
+    transform: rotateY(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loader-flip {
+    animation: none;
+  }
+}
 .empty-pile {
   width: var(--cw);
   height: var(--ch);

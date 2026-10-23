@@ -1,6 +1,6 @@
 import { HostSession, ClientSession } from './host.js';
 import { joinRoom } from './net.js';
-import { SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
+import { SUITS, SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
 import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
 import { browserTracker, plainError } from './telemetry.js';
 import { gameAwards, playerFacts } from './awards.js';
@@ -207,6 +207,34 @@ function cardHTML(c, { sm = false, cls = '', attrs = '', isWild } = {}) {
   const wild = isWild && isWild(c) ? '<span class="wildmark">WILD</span>' : '';
   return `<div class="card${isRed(c) ? ' red' : ''}${size} ${cls}" ${attrs}><span class="tl">${RANK_LABEL[c.r]}<small>${SUIT_SYMBOL[c.s]}</small></span><span class="mid">${SUIT_SYMBOL[c.s]}</span>${wild}</div>`;
 }
+
+// ---------- loader ----------
+// A card in your own card back that keeps flipping over to a random card. loaderHTML() goes anywhere something is
+// waiting; each time the card's back comes round again, the animationiteration listener below deals a new face.
+function loaderCard(prev) {
+  let c;
+  do {
+    const r = Math.floor(Math.random() * 14); // 0 is a joker, now and then
+    c = { r, s: r ? SUITS[Math.floor(Math.random() * 4)] : 'J' };
+  } while (prev && c.r === prev.r && c.s === prev.s);
+  return c;
+}
+
+function loaderFaceHTML(c) {
+  return cardHTML(c, { cls: 'loader-side loader-face', attrs: `data-card="${c.r}${c.s}"` });
+}
+
+function loaderHTML(label = 'Waiting…') {
+  return `<div class="loader" role="img" aria-label="${esc(label)}"><div class="loader-flip"><div class="card-back loader-side"></div>${loaderFaceHTML(loaderCard())}</div></div>`;
+}
+
+document.addEventListener('animationiteration', (e) => {
+  if (e.animationName !== 'loader-flip') return;
+  const face = e.target.querySelector('.loader-face');
+  const [, r, s] = (face?.dataset.card || '').match(/^(\d+)(\w)$/) || [];
+  face?.insertAdjacentHTML('afterend', loaderFaceHTML(loaderCard(r && { r: +r, s })));
+  face?.remove();
+});
 
 // ---------- session ----------
 function startSession(session) {
@@ -656,13 +684,8 @@ function connectingHTML(snap) {
         : snap.status === 'slow'
           ? `Can't reach the host yet. If you're on mobile data, try Wi-Fi, or ask the host to check their connection. Still trying…`
           : 'Connecting to the game…';
-  const stuck = snap.status === 'no-host' || snap.status === 'slow';
-  const remove =
-    stuck && known
-      ? `<button class="ghost" data-act="forgetJoined" data-code="${esc(code)}">Remove from your games</button>`
-      : '';
   const title = waitingForHost ? `Waiting for ${esc(known.host)}…` : 'Joining…';
-  return `<div class="center-screen"><div class="panel"><div class="title" style="font-size:30px">${title}</div><p class="muted">${msg}</p>${remove}<button class="ghost" data-act="leave">Cancel</button></div></div>`;
+  return `<div class="center-screen"><div class="panel">${loaderHTML(waitingForHost ? `Waiting for ${known.host}` : 'Joining')}<div class="title" style="font-size:30px">${title}</div><p class="muted">${msg}</p><button class="ghost" data-act="leave">Cancel</button></div></div>`;
 }
 
 function optionRow(label, key, choices, opts, isHost) {
