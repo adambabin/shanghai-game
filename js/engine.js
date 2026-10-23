@@ -6,7 +6,7 @@ import { buildSet, buildRun, addCards, fitsAnyMeld, wildSlotFor } from './melds.
 import { ROUNDS, DEFAULT_OPTIONS, decksFor, contractText } from './rules.js';
 
 // How long players get to decide whether to buy once the current player allows it.
-export const BUY_WINDOW_MS = 10000;
+export const BUY_WINDOW_MS = 10000; // one countdown shared by everyone being asked
 
 export function createGame(players, options = {}, rng = Math.random) {
   const state = {
@@ -162,29 +162,29 @@ function turnOrder(state, seat) {
   return (seat - state.turn + n) % n;
 }
 
-// Buying goes around the table one player at a time, starting after the current player.
-// Each player in turn gets BUY_WINDOW_MS to say Buy or No thanks; the first to buy gets the card.
+// Everyone who can buy is asked at once and shares one countdown of BUY_WINDOW_MS. The card goes to whoever said Buy
+// and sits earliest in turn order (starting after the current player), as soon as everyone ahead of them has said No:
+// so it's settled the moment the first in line says Buy, or when the countdown ends (no answer counts as No).
 export function buyAsking(state) {
+  // the first in line who hasn't answered yet (the one the outcome is waiting on)
   const w = state.buyWindow;
-  return w ? w.order[w.idx] : null;
+  return w ? (w.order.find((s) => w.answers[s] === undefined) ?? null) : null;
 }
 
-function askNext(state) {
+function settleBuy(state, final) {
   const w = state.buyWindow;
-  w.idx++;
-  if (w.idx >= w.order.length) {
-    // everyone passed; nothing to log (each "passed on buying" already says so)
-    state.buyWindow = null;
-    return;
+  for (const s of w.order) {
+    if (w.answers[s] === true) return completeBuy(state, s);
+    if (w.answers[s] === undefined && !final) return; // still waiting on someone ahead
   }
-  w.deadline = Date.now() + BUY_WINDOW_MS;
+  // everyone said No (or didn't answer): nothing to log, the current player just carries on
+  state.buyWindow = null;
 }
 
-// The player being asked ran out of time: that counts as No thanks.
+// The countdown ran out: anyone who hasn't answered counts as No.
 export function buyTimeout(state) {
   if (!state.buyWindow) return err('Nobody is buying right now.');
-  log(state, `${state.players[buyAsking(state)].name} didn't answer in time.`, 'nobuy');
-  askNext(state);
+  settleBuy(state, true);
   return { ok: true };
 }
 
@@ -356,18 +356,17 @@ export function applyAction(state, seat, action) {
         return { ok: true };
       }
       const order = eligible.sort((a, b) => turnOrder(state, a) - turnOrder(state, b));
-      state.buyWindow = { cardId: top.id, order, idx: 0, deadline: Date.now() + BUY_WINDOW_MS };
+      state.buyWindow = { cardId: top.id, order, answers: {}, deadline: Date.now() + BUY_WINDOW_MS };
       log(state, `${name} is letting others buy the ${cardLabel(top)}.`, 'buywindow', { seat });
       return { ok: true };
     }
 
     case 'buyAnswer': {
-      if (buyAsking(state) !== seat) return err("It's not your turn to decide on buying.");
-      if (action.buy) completeBuy(state, seat);
-      else {
-        log(state, `${name} passed on buying.`, 'nobuy', { seat });
-        askNext(state);
-      }
+      const w = state.buyWindow;
+      if (!w || !w.order.includes(seat)) return err("You can't buy this card.");
+      if (w.answers[seat] !== undefined) return err('You already answered.');
+      w.answers[seat] = !!action.buy;
+      settleBuy(state, false);
       return { ok: true };
     }
 
@@ -598,8 +597,13 @@ export function viewFor(state, seat) {
     buyOffered: state.buyOffered,
     buyEligible: buyEligible(state),
     mustDecide: mustDecideOnDiscard(state),
+    // who's being asked and how long is left; you see only your own answer (true, false, or undefined while deciding)
     buyWindow: state.buyWindow
-      ? { asking: buyAsking(state), order: state.buyWindow.order, msLeft: Math.max(0, state.buyWindow.deadline - Date.now()) }
+      ? {
+          order: state.buyWindow.order,
+          mine: seat != null ? state.buyWindow.answers[seat] : undefined,
+          msLeft: Math.max(0, state.buyWindow.deadline - Date.now()),
+        }
       : null,
     roundResult: state.roundResult
       ? { ...state.roundResult, hands: ['roundOver', 'gameOver', 'tieVote'].includes(state.phase) ? state.hands : null }

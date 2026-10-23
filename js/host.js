@@ -1,7 +1,7 @@
 // Runs in the host's browser: owns the lobby and the game, drives the bots, and sends each
 // player their own view of the game.
 
-import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, buyTimeout, buyAsking, beginPlay, sittingOut } from './engine.js';
+import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, buyTimeout, beginPlay, sittingOut } from './engine.js';
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai, shanghaiReaction } from './bot.js';
 import { DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
 import { openRoom, randomCode } from './net.js';
@@ -367,21 +367,22 @@ export class HostSession {
     if (!g || (g.phase !== 'draw' && g.phase !== 'play')) return;
     const bots = g.players.map((p, i) => (p.bot ? i : -1)).filter((i) => i >= 0);
 
-    // buying goes around one player at a time: computers answer, players who dropped off pass,
-    // and anyone who doesn't answer within 10 seconds is skipped
+    // everyone eligible is asked at once: computers answer, players who dropped off pass,
+    // and anyone who hasn't answered when the 10 seconds run out passes
     const w = g.buyWindow;
-    const askKey = w && `${w.cardId}:${w.idx}:${w.deadline}`;
+    const askKey = w && `${w.cardId}:${w.deadline}`;
     if (w && this.askArmed !== askKey) {
       this.askArmed = askKey;
-      const seat = buyAsking(g);
-      const idx = w.idx;
-      const stillAsking = () => this.game === g && g.buyWindow === w && w.idx === idx;
-      const s = this.lobby.seats[seat];
-      if (g.players[seat].bot) this.later(900 + Math.random() * 1200, () => stillAsking() && this.act(seat, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, seat)) }));
-      else if (s && !s.isHost && !s.connected) this.later(300, () => stillAsking() && this.act(seat, { type: 'buyAnswer', buy: false }));
+      const stillAsking = (seat) => this.game === g && g.buyWindow === w && w.answers[seat] === undefined;
+      for (const seat of w.order) {
+        const s = this.lobby.seats[seat];
+        if (g.players[seat].bot) {
+          this.later(900 + Math.random() * 1200, () => stillAsking(seat) && this.act(seat, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, seat)) }));
+        } else if (s && !s.isHost && !s.connected) this.later(300, () => stillAsking(seat) && this.act(seat, { type: 'buyAnswer', buy: false }));
+      }
       const t = setTimeout(() => {
         this.timers.delete(t);
-        if (stillAsking() && w.deadline <= Date.now() + 50) {
+        if (this.game === g && g.buyWindow === w && w.deadline <= Date.now() + 50) {
           buyTimeout(g);
           this.changed();
         }

@@ -88,7 +88,7 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 
 - **`ready`:** each round opens here until every human sends `ready`. Bots are pre-ready, and the host can force `startNow`.
 - **`draw` with a live discard:** if anyone could buy it, the current player must choose `drawDiscard` ("Take it") or `allowBuy`. `drawDeck` is refused until they choose (`mustDecideOnDiscard`).
-  - `allowBuy` opens `buyWindow`, which asks eligible players one at a time in turn order, each with `BUY_WINDOW_MS`.
+  - `allowBuy` opens `buyWindow`, which asks every eligible player at once for `BUY_WINDOW_MS` (10s). Of those who say Buy, the soonest in turn order gets it, as soon as everyone ahead of them has said No; no answer counts as No. Answers stay private (`viewFor` exposes only `mine`).
   - A buy gives the card plus `buyPenalty` extra cards. The exposed card underneath is offered again: `buyOffered` resets.
 - **`play`:** lay down the contract, `addToMeld`, `swapWild` (runs only, after laying down; the taken wild goes into `mustPlay` and must be played before discarding), `undo` (reverses this turn's plays via `history`; undoing past everything puts a picked-up discard back and returns to `draw`), then `discard`.
 

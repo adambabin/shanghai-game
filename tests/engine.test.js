@@ -173,7 +173,7 @@ test('cannot discard your last card; undo takes plays back; going out on two pil
   assert.deepEqual(totals(g), [0, 85]);
 });
 
-test('buying goes around in turn order, one player at a time; card + 2 extra; exposed card is offered again', () => {
+test('everyone is asked to buy at once; the soonest in turn order wins; card + 2 extra; exposed card is offered again', () => {
   const hands = [0, 1, 2, 3].map(() => Array.from({ length: 11 }, (_, i) => c((i % 13) + 1, 'D')));
   const under = c(4, 'C');
   const g = rigged(hands, { discard: [under, c(7, 'S')] });
@@ -182,12 +182,16 @@ test('buying goes around in turn order, one player at a time; card + 2 extra; ex
   assert.ok(applyAction(g, 1, { type: 'allowBuy' }).ok);
   assert.deepEqual(g.buyWindow.order, [2, 3, 0], 'clockwise from the player after the current one');
   assert.ok(!applyAction(g, 1, { type: 'drawDeck' }).ok, 'current player waits for buyers');
-  assert.ok(!applyAction(g, 3, { type: 'buyAnswer', buy: true }).ok, "seat 3 can't jump ahead of seat 2");
-  assert.ok(applyAction(g, 2, { type: 'buyAnswer', buy: false }).ok);
-  assert.equal(buyAsking(g), 3);
-  buyTimeout(g); // seat 3 doesn't answer
-  assert.equal(buyAsking(g), 0);
+  assert.ok(!applyAction(g, 1, { type: 'buyAnswer', buy: true }).ok, "the current player can't buy");
+  // seat 0 says Buy first, but seats 2 and 3 come before it
   assert.ok(applyAction(g, 0, { type: 'buyAnswer', buy: true }).ok);
+  assert.ok(g.buyWindow, 'waits for the players ahead');
+  assert.ok(!applyAction(g, 0, { type: 'buyAnswer', buy: false }).ok, 'one answer each');
+  assert.equal(viewFor(g, 0).buyWindow.mine, true);
+  assert.equal(viewFor(g, 2).buyWindow.mine, undefined, "others' answers stay hidden");
+  assert.ok(applyAction(g, 2, { type: 'buyAnswer', buy: false }).ok);
+  assert.ok(g.buyWindow);
+  buyTimeout(g); // seat 3 doesn't answer: counts as No
   assert.equal(g.buyWindow, null);
   assert.equal(g.hands[0].length, 14, 'card + 2 extra');
   assert.equal(g.buysUsed[0], 1);
@@ -373,7 +377,8 @@ test('a Shanghai call that misses says why', () => {
   // p1 lets others buy, p2 buys the QD, and the card underneath is uncovered: not a fresh discard
   assert.ok(applyAction(g, 1, { type: 'allowBuy' }).ok);
   assert.equal(buyAsking(g), 2);
-  assert.ok(applyAction(g, 2, { type: 'buyAnswer', buy: true }).ok);
+  assert.ok(applyAction(g, 2, { type: 'buyAnswer', buy: true }).ok, 'first in line: settled at once');
+  assert.equal(g.buyWindow, null);
   const r = applyAction(g, 1, { type: 'shanghai' });
   assert.equal(r.result, 'miss');
   assert.match(r.why, /^The .+ was uncovered by a buy, not just discarded\.$/);
