@@ -13,6 +13,8 @@
   --card-black: #1d1d1f;
   --panel: rgba(0, 0, 0, 0.22);
   --panel-strong: rgba(0, 0, 0, 0.38);
+  /* the top bar: felt under --panel-strong, as one solid color so the strip behind the clock can match it exactly */
+  --topbar: #0e3b24;
   --cw: 62px; /* card width */
   --ch: 88px;
   --sw: 34px; /* small (table) card width */
@@ -507,34 +509,53 @@ html:has(.game) body {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--panel-strong);
+  background: var(--topbar);
 }
 /* On an iPhone home screen app the page runs up behind the clock and battery (status bar style black-translucent), so
-   whatever is at the top fills that strip with its own color: the top bar, or the red banner above it. iPhones also
-   fade the page into the status bar a little way down, so the bar's buttons start a few pixels below it, and are a
-   bit slimmer there so the bar doesn't grow much. --safe-top is 0 in a browser tab and held sideways. */
+   whatever is at the top pads by --safe-top (0 in a browser tab and held sideways) and fills that strip with its own
+   color: the top bar, or the red banner above it. */
 .game > .topbar:first-child {
-  padding-top: calc(8px + var(--safe-top) + min(var(--safe-top), 6px));
+  padding-top: calc(8px + var(--safe-top));
 }
 .game > .conn-banner:first-child {
-  padding-top: calc(4px + var(--safe-top) + min(var(--safe-top), 10px));
+  padding-top: calc(4px + var(--safe-top));
 }
 .game > .conn-banner.host-away:first-child {
-  padding-top: calc(8px + var(--safe-top) + min(var(--safe-top), 6px));
+  padding-top: calc(8px + var(--safe-top));
+}
+/* iOS 27 blurs the top of a home screen app's page into the status bar, unless something solid is pinned to the very
+   top: then it draws a plain status bar in that color instead. #top-edge (in index.html, so it's there before any
+   script runs) is that something, in the color of whatever is at the top. It reaches 11px down even when the phone
+   keeps the status bar to itself, so what's at the top starts below it. */
+#top-edge {
+  display: none;
 }
 @supports (-webkit-touch-callout: none) {
   @media (display-mode: standalone) and (orientation: portrait) {
-    /* in case the phone keeps the status bar to itself (no room reported), still start below its fade */
+    #top-edge {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: max(11px, var(--safe-top));
+      z-index: 45; /* over the game, under pop-ups (which dim it along with everything else) */
+      background: var(--felt);
+    }
+    body:has(.game > .topbar:first-child) #top-edge {
+      background: var(--topbar);
+    }
+    body:has(.game > .conn-banner:first-child) #top-edge {
+      background: var(--red);
+    }
     .game > .topbar:first-child {
-      padding-top: max(16px, calc(8px + var(--safe-top) + 6px));
-      padding-bottom: 4px;
+      padding-top: max(14px, calc(8px + var(--safe-top)));
     }
     .game > .conn-banner:first-child {
-      padding-top: max(16px, calc(4px + var(--safe-top) + 10px));
+      padding-top: max(14px, calc(4px + var(--safe-top)));
     }
-    .topbar button {
-      padding-top: 5px;
-      padding-bottom: 5px;
+    .game > .conn-banner.host-away:first-child {
+      padding-top: max(14px, calc(8px + var(--safe-top)));
     }
   }
 }
