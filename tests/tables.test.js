@@ -173,3 +173,34 @@ test('a Tables game is saved and picks up where it was', () => {
   assert.deepEqual(r.snapshot(0).tour.viewSeats, h.tour.tables[h.tableAt(0)]);
   r.close();
 });
+
+test('a tie for the win goes to the vote, then a tiebreaker table of just the tied players', () => {
+  data.clear();
+  const h = tablesLobby(8);
+  h.act(0, { type: 'start' });
+  const t = h.tour;
+  t.round = 6;
+  for (let r = 0; r < 7; r++) t.history[r] = t.history[0];
+  // the host and seat 1 tie for the lowest total
+  h.settleTour([50, 50, 90, 90, 90, 90, 90, 90]);
+  assert.equal(t.phase, 'tieVote');
+  assert.equal(h.snapshot(0).view.phase, 'tieVote');
+  assert.ok(!h.act(2, { type: 'tieVote', choice: 'share' }).ok, 'only the tied players choose');
+  assert.ok(h.act(0, { type: 'tieVote', choice: 'tiebreak' }).ok);
+  if (!h.lobby.seats[1].bot) assert.ok(h.act(1, { type: 'tieVote', choice: 'tiebreak' }).ok);
+  assert.equal(t.phase, 'tiebreak');
+  const mine = h.snapshot(0);
+  assert.equal(mine.view.players.length, 2);
+  assert.ok(mine.view.tiebreak.playing);
+  assert.equal(mine.view.hand.length, 11);
+  assert.equal(h.snapshot(2).view.you, null, 'everyone else watches the tiebreaker');
+  endRoundNoWinner(t.tbGame);
+  h.checkTour();
+  assert.equal(t.phase, 'gameOver');
+  assert.ok(t.winners.length >= 1 && t.winners.every((s) => s === 0 || s === 1));
+  assert.equal(t.tiebreak.points.filter((p) => p != null).length, 2);
+  const end = h.snapshot(4).view;
+  assert.equal(end.phase, 'gameOver');
+  assert.deepEqual(end.winners, t.winners);
+  h.close();
+});
