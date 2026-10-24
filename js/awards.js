@@ -2,7 +2,10 @@
 // the engine keeps all game (state.stats, only in the view once the game is over) and the score sheet.
 
 // in the order they're listed; each goes to whoever has the most (all of them on a tie), and only if it happened
+// (Penthouse and Regular only come up in Tables games: the counts behind them aren't kept for one table)
 export const AWARDS = [
+  { key: 'penthouse', emoji: '🏙️', title: 'Penthouse', stat: 'topRounds' },
+  { key: 'regular', emoji: '🪑', title: 'Regular', stat: 'longestStay' },
   { key: 'sheriff', emoji: '🚨', title: 'Shanghai Sheriff', stat: 'caught' },
   { key: 'wanted', emoji: '🎯', title: 'Most Wanted', stat: 'caughtBy' },
   { key: 'spender', emoji: '💸', title: 'Big Spender', stat: 'buys' },
@@ -22,9 +25,11 @@ const LABELS = {
   falseCalls: ['missed call', 'missed calls'],
   jokerSwaps: ['joker swapped', 'jokers swapped'],
   worst: ['worst round', 'worst round'],
+  topRounds: ['round at the winners’ table', 'rounds at the winners’ table'],
+  longestStay: ['round in a row at one table', 'rounds in a row at one table'],
 };
 // after a player's award numbers, the rest in this order (any that happened first, then ones that didn't)
-const FACT_ORDER = ['wentOut', 'caught', 'buys', 'caughtBy', 'jokerSwaps', 'ownShanghais', 'falseCalls', 'worst'];
+const FACT_ORDER = ['wentOut', 'topRounds', 'caught', 'buys', 'caughtBy', 'jokerSwaps', 'ownShanghais', 'falseCalls', 'worst', 'longestStay'];
 
 // each player's counts plus their worst round from the score sheet (rounds only, not a tiebreaker)
 function countsOf(stats, scores) {
@@ -47,8 +52,10 @@ export function gameAwards(stats, scores) {
 // three numbers for a player's card: their award numbers first, then whatever else happened, then zeros
 export function playerFacts(stats, scores, seat, awards = gameAwards(stats, scores)) {
   const c = countsOf(stats, scores)[seat];
+  // only the numbers this game kept (a one-table game has no table counts, so it never shows "0 rounds at the winners' table")
+  const order = FACT_ORDER.filter((k) => k in c);
   const keys = [...awards.filter((a) => a.seats.includes(seat)).map((a) => a.stat)];
-  for (const k of FACT_ORDER) if (c[k] > 0 && !keys.includes(k)) keys.push(k);
-  for (const k of FACT_ORDER) if (!keys.includes(k)) keys.push(k);
+  for (const k of order) if (c[k] > 0 && !keys.includes(k)) keys.push(k);
+  for (const k of order) if (!keys.includes(k)) keys.push(k);
   return keys.slice(0, 3).map((k) => ({ key: k, n: c[k] || 0, label: LABELS[k][c[k] === 1 ? 0 : 1] }));
 }
