@@ -2003,6 +2003,9 @@ function syncChatSheet() {
   sheet.querySelector('[data-field="chatText"]').value = ui.chatDraft || '';
   markChatTurn(sheet);
   markChatAway(sheet);
+  // the keyboard comes up and goes away with the text box
+  sheet.addEventListener('focusin', fitChatSheet);
+  sheet.addEventListener('focusout', () => setTimeout(fitChatSheet));
   document.body.appendChild(sheet);
   const toMessage = ui.chatHighlight != null;
   fillChatSheet();
@@ -2291,14 +2294,17 @@ function chatToEnd(box) {
   requestAnimationFrame(() => (box.scrollTop = box.scrollHeight));
 }
 
-// with the keyboard up, iPhones don't shrink the page, so keep the sheet above the keyboard
+// with the keyboard up, iPhones don't shrink the page, so keep the sheet above the keyboard. The keyboard is only up while
+// the text box is being typed in: otherwise the sheet sits at the bottom, whatever the phone last said about its size
+// (it doesn't always say when the keyboard has gone, which left the chat hanging up top over a gap)
 function fitChatSheet() {
   const panel = document.querySelector('#chat-sheet .chat-panel');
   const vv = window.visualViewport;
   if (!panel || !vv) return;
-  const hidden = Math.max(0, innerHeight - vv.height - vv.offsetTop);
-  panel.style.bottom = `${hidden}px`;
-  panel.style.maxHeight = `${Math.max(220, vv.height - 24)}px`;
+  const typing = document.activeElement && document.activeElement.matches('#chat-sheet input');
+  const hidden = typing ? Math.max(0, innerHeight - vv.height - vv.offsetTop) : 0;
+  panel.style.bottom = hidden ? `${hidden}px` : '';
+  panel.style.maxHeight = hidden ? `${Math.max(220, vv.height - 24)}px` : '';
 }
 window.visualViewport && visualViewport.addEventListener('resize', fitChatSheet);
 window.visualViewport && visualViewport.addEventListener('scroll', fitChatSheet);
