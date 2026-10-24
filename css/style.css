@@ -506,11 +506,17 @@ html:has(.game) body {
   background: var(--panel-strong);
 }
 /* an iPhone home screen app fades the top of the page into the status bar, which blurred the round name and ☰; start
-   them below the fade (the bar's own color fills the gap). Sideways there's no status bar. */
+   them below the fade (the bar's own color fills the gap), with slimmer buttons so the bar grows only a little.
+   Sideways there's no status bar. */
 @supports (-webkit-touch-callout: none) {
   @media (display-mode: standalone) and (orientation: portrait) {
     .topbar {
-      padding-top: 36px;
+      padding-top: 22px;
+      padding-bottom: 4px;
+    }
+    .topbar button {
+      padding-top: 5px;
+      padding-bottom: 5px;
     }
   }
 }
