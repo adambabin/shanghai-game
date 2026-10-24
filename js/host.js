@@ -658,6 +658,10 @@ export class HostSession {
     g.counted = true;
     g.roundResult.points.forEach((p, l) => (t.scores[t.tables[k][l]][t.round] = p));
     this.addStats(g, t.tables[k]);
+    // best to worst this round, so everyone at the table can see at once where they're going next
+    const totals = this.tourTotals();
+    const w = g.roundResult.winner;
+    g.ranked = rankTable(t.tables[k], { points: t.scores.map((s) => s[t.round] || 0), totals, wentOut: w == null ? null : t.tables[k][w] });
   }
 
   tourTotals() {
@@ -668,13 +672,8 @@ export class HostSession {
     const t = this.tour;
     const totals = this.tourTotals();
     if (isLastRound(t.round)) return this.settleTour(totals);
-    const points = t.scores.map((s) => s[t.round] || 0);
-    const ranked = t.tables.map((at, k) => {
-      const w = t.games[k].roundResult.winner;
-      return rankTable(at, { points, totals, wentOut: w == null ? null : at[w] });
-    });
     // this round's tables stay as they are until the host deals the next one
-    const { tables, moves } = nextTables(ranked);
+    const { tables, moves } = nextTables(t.games.map((g) => g.ranked));
     Object.assign(t, { next: tables, moves, phase: 'between' });
   }
 
@@ -761,7 +760,15 @@ export class HostSession {
       tables: t.tables.map((at, k) => {
         const g = t.games[k];
         const rr = g.roundResult;
-        return { seats: at, done: !!g.counted, phase: g.phase, turn: at[g.turn], laid: g.laid.filter(Boolean).length, wentOut: rr && rr.winner != null ? at[rr.winner] : null };
+        return {
+          seats: at,
+          done: !!g.counted,
+          phase: g.phase,
+          turn: at[g.turn],
+          laid: g.laid.filter(Boolean).length,
+          wentOut: rr && rr.winner != null ? at[rr.winner] : null,
+          ranked: g.ranked || null,
+        };
       }),
       points: t.scores.map((s) => s[t.round] ?? null),
       totals: this.tourTotals(),

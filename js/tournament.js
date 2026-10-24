@@ -64,6 +64,16 @@ export function nextTables(ranked) {
   return { tables: next, moves };
 }
 
+// Where each seat at one table goes next, from that table's ranking alone (the same as nextTables): seat -> table
+export function movesFrom(ranked, k, tableCount, m) {
+  const to = {};
+  ranked.forEach((s, i) => {
+    if (k === 0) to[s] = i >= ranked.length - m ? tableCount - 1 : 0;
+    else to[s] = i < m ? k - 1 : k;
+  });
+  return to;
+}
+
 // Which table each seat sits at in a round: seat -> table
 export function tableOf(tables) {
   const at = {};

@@ -4,6 +4,7 @@ import { SUITS, SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './ca
 import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
 import { browserTracker, plainError } from './telemetry.js';
 import { gameAwards, playerFacts } from './awards.js';
+import { MAX_TOUR_PLAYERS, tableRange, moveCount, movesFrom } from './tournament.js';
 import { CHAT_MAX, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, cleanChat, cleanSaying, isEmojiOnly, oneEmoji, quickEmoji,
   quickSayings } from './chat.js';
 import { ROUNDS, roundCfg, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor, BOT_LEVELS, botLevelFor } from './rules.js';
@@ -94,6 +95,9 @@ const ui = {
   quickEdit: null, // changing one in its own sheet (#quick-sheet): { kind: 'emoji', i }, { kind: 'saying', i } or { kind: 'saying' } to add
   sayingDrag: null, // moving a saying in Settings by its dots (startSayingDrag)
   revealQuick: false, // Settings opened from the chat's Edit: scroll to the quick reactions
+  chatTab: 'table', // Tables (BETA): the chat tab you're on, 'table' or 'all' (pop-ups follow it)
+  moveSeat: null, // Tables (BETA): the lobby seat the host is moving to another table
+  nextTab: 'tables', // Tables (BETA): between rounds, 'tables' (next round's) or 'standings'
 };
 
 // card back colors you can pick in Settings (the CSS for each lives in style.css)
@@ -307,6 +311,10 @@ function onSnapshot(snap) {
   }
   trackSnapshot(snap);
   const v = snap.view;
+  // Tables (BETA): watching another table, or a new round at a new one, is a different game: its log and piles start afresh
+  const t = snap.tour;
+  const viewKey = t ? `${t.phase === 'tiebreak' ? 'tb' : t.round}:${t.watching ?? t.table}:${['tieVote', 'gameOver'].includes(t.phase)}` : '';
+  if (viewKey !== ui.viewKey) Object.assign(ui, { viewKey, lastSeq: null, meldSig: null, recentBuy: null, flyFrom: null, flyBuy: null });
   if (v) {
     syncHand(v);
     // a discard dragged onto a group or pile: play it as soon as it's in your hand
@@ -614,8 +622,8 @@ function yourGameRows() {
   const hosted = HostSession.savedGames().map((s) => ({
     at: s.savedAt || 0,
     html: `<button class="ghost game-pick" data-act="resume" data-id="${esc(s.id)}">
-      <b>${s.solo ? 'Against the computer' : `Room ${esc(s.lobby.code)} · you're hosting`}</b>
-      <span>${roundText(s.game.round)} · ${namesText(s.lobby.seats.slice(1).map((p) => p.name))}</span></button>
+      <b>${s.solo ? 'Against the computer' : `Room ${esc(s.lobby.code)} · you're hosting${s.tour ? ' · Tables' : ''}`}</b>
+      <span>${roundText((s.tour || s.game).round)} · ${namesText(s.lobby.seats.slice(1).map((p) => p.name))}</span></button>
       <button class="ghost small game-forget" data-act="forgetGame" data-id="${esc(s.id)}" aria-label="Remove">✕</button>`,
   }));
   const joined = joinedGames().map((g) => ({
@@ -727,6 +735,7 @@ function botOptionsHTML(o, isHost) {
 function lobbyHTML(snap) {
   const { lobby, isHost, seat, solo } = snap;
   const o = lobby.options;
+  const tables = lobby.mode === 'tables';
   const seats = lobby.seats
     .map(
       (s, i) => `<div class="seat"><span class="name">${esc(s.name)}</span>
@@ -747,8 +756,9 @@ function lobbyHTML(snap) {
     ${snap.status === 'starting' ? '<div class="muted">Opening the room…</div>' : ''}
     ${snap.status === 'error' ? `<div class="err">${esc(snap.error)}</div>` : ''}
     ${hostAwayText(snap) ? `<div class="err">${hostAwayText(snap)}</div>` : ''}
-    <div class="seat-list">${seats}</div>
-    ${isHost ? `<button class="ghost" data-act="addBot" ${lobby.seats.length >= MAX_PLAYERS ? 'disabled' : ''}>+ Add a computer player</button>` : ''}
+    ${solo ? '' : modeSwitchHTML(lobby, isHost)}
+    ${tables ? tablesLobbyHTML(snap) : `<div class="seat-list">${seats}</div>`}
+    ${isHost ? `<button class="ghost" data-act="addBot" ${lobby.seats.length >= (tables ? MAX_TOUR_PLAYERS : MAX_PLAYERS) ? 'disabled' : ''}>+ Add a computer player</button>` : ''}
     <h3 style="margin-top:6px">House rules</h3>
     <div class="options">
       ${optionRow('Decks', 'decks', Array.from({ length: MAX_DECKS - MIN_DECKS + 1 }, (_, i) => [MIN_DECKS + i, `${MIN_DECKS + i} (${(MIN_DECKS + i) * 2} jokers)`]), o, isHost)}
@@ -762,12 +772,212 @@ function lobbyHTML(snap) {
     <div class="lobby-foot">
       ${
         isHost
-          ? `<button class="primary" data-act="start" ${lobby.seats.length < 2 ? 'disabled' : ''}>Start game</button>`
+          ? `<button class="primary" data-act="start" ${lobby.seats.length < 2 || (tables && !tableRange(lobby.seats.length)) ? 'disabled' : ''}>Start game</button>`
           : `<div class="muted" style="text-align:center">Waiting for ${esc(lobby.seats[0]?.name || 'the host')} to start…</div>`
       }
       <div class="row"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="leave">Leave</button></div>
     </div>
-  </div></div>${ui.modal === 'rules' ? rulesModal(o, lobby.seats.some((s) => s.bot)) : ''}`;
+  </div></div>${ui.modal === 'rules' ? rulesModal(o, lobby.seats.some((s) => s.bot)) : ui.modal === 'moveSeat' && isHost ? moveSeatModal(snap) : ''}`;
+}
+
+// ---------- Tables (BETA) ----------
+// A big group plays at several tables at once and moves between them after each round (see tournament.js). The host's
+// phone runs every table; each player sees their own (snap.tour says where everyone is), or one they're watching.
+
+const tableName = (k, n) => `Table ${k + 1}${k === 0 ? " · Winners' table" : k === n - 1 ? " · Losers' table" : ''}`;
+// the lobby seat of a player in the view (in a Tables game the view is one table, whose players are numbered apart)
+function lobbySeatOf(i) {
+  const t = ui.snap && ui.snap.tour;
+  return t ? t.viewSeats[i] : i;
+}
+// the table someone sits at this round
+function tableOfSeat(t, seat) {
+  return t.tables.findIndex((x) => x.seats.includes(seat));
+}
+
+function modeSwitchHTML(lobby, isHost) {
+  const tables = lobby.mode === 'tables';
+  const beta = '<span class="beta">(BETA)</span>';
+  const note = tables
+    ? "Several tables play at once. After each round the best at each table move up a table, and the worst at the winners' table drop to the losers' table. Lowest total after 7 rounds wins."
+    : '';
+  if (!isHost) return tables ? `<div class="mode-note"><b>Tables</b> ${beta} ${note}</div>` : '';
+  return `<div class="mode-switch" role="radiogroup" aria-label="How to play">
+      <button role="radio" aria-checked="${!tables}" class="${tables ? '' : 'on'}" data-act="setMode" data-mode="one">One table</button>
+      <button role="radio" aria-checked="${tables}" class="${tables ? 'on' : ''}" data-act="setMode" data-mode="tables">Tables ${beta}</button>
+    </div>${note ? `<p class="muted mode-note">${note}</p>` : ''}`;
+}
+
+function seatPill(s, i, me, act = '', marked = i === me) {
+  const tags = `${s.isHost ? '<span class="tag gold">host</span>' : ''}${s.bot ? '<span class="tag">computer</span>' : ''}${!s.connected ? '<span class="tag red">offline</span>' : ''}`;
+  const name = `${esc(s.name)}${i === me ? ' (you)' : ''}`;
+  return act ? `<button class="pill ${marked ? 'me' : ''}" ${act}>${name}${tags}</button>` : `<span class="pill ${marked ? 'me' : ''}">${name}${tags}</span>`;
+}
+
+function tablesLobbyHTML(snap) {
+  const { lobby, isHost, seat } = snap;
+  const n = lobby.seats.length;
+  const r = tableRange(n);
+  const k = lobby.tableCount;
+  const groups = Array.from({ length: k }, (_, t) => lobby.seats.map((s, i) => [s, i]).filter(([s]) => s.table === t));
+  const sizes = groups.map((g) => g.length);
+  const even = sizes.every((x) => x === sizes[0]) ? `${k} tables of ${sizes[0]}` : `${k} tables (${sizes.join(', ')})`;
+  const count = r
+    ? `<b>${n} players · ${even}</b><span class="muted">Up to ${MAX_TOUR_PLAYERS} players, 3 to 8 at a table</span>`
+    : `<b>${n} player${n === 1 ? '' : 's'}</b><span class="muted">Tables needs at least 6. Add computer players to fill seats.</span>`;
+  const stepper =
+    isHost && r
+      ? `<button class="ghost step" data-act="setTables" data-count="${k - 1}" aria-label="Fewer tables" ${k <= r.min ? 'disabled' : ''}>−</button>
+        <button class="ghost step" data-act="setTables" data-count="${k + 1}" aria-label="More tables" ${k >= r.max ? 'disabled' : ''}>+</button>`
+      : '';
+  const list = groups
+    .map((g, t) => `<div class="lobby-table ${t === 0 ? 'top' : ''}"><div class="lobby-table-head">${tableName(t, k)}</div><div class="pills">${g
+      .map(([s, i]) => seatPill(s, i, seat, isHost ? `data-act="moveSeat" data-seat="${i}"` : ''))
+      .join('')}</div></div>`)
+    .join('');
+  return `<div class="table-count"><span class="txt">${count}</span>${stepper}</div>
+    <div class="lobby-tables">${list}</div>
+    ${isHost ? `<p class="muted">Tap someone to move them to another table.</p><button class="ghost" data-act="shuffleTables">Shuffle tables</button>` : ''}`;
+}
+
+// The host moving someone: to another table, or swapping places with someone there
+function moveSeatModal(snap) {
+  const { lobby } = snap;
+  const i = ui.moveSeat;
+  const s = lobby.seats[i];
+  if (!s) return '';
+  const k = lobby.tableCount;
+  const body = Array.from({ length: k }, (_, t) => {
+    const at = lobby.seats.map((x, j) => [x, j]).filter(([x]) => x.table === t);
+    const here = t === s.table;
+    const head = here
+      ? `<div class="move-head"><b>${tableName(t, k)}</b><span class="muted">${esc(s.name)} is here</span></div>`
+      : `<button class="move-head" data-act="moveTo" data-table="${t}"><b>${tableName(t, k)}</b><span>Move here · ${at.length} player${at.length === 1 ? '' : 's'}</span></button>`;
+    const pills = at
+      .map(([x, j]) => (here ? seatPill(x, j, snap.seat, '', j === i) : seatPill(x, j, snap.seat, `data-act="swapWith" data-seat="${j}" aria-label="Swap places with ${esc(x.name)}"`)))
+      .join('');
+    return `<div class="move-table ${here ? 'here' : ''}">${head}<div class="pills">${pills}</div></div>`;
+  }).join('');
+  const remove = i !== 0 ? `<button class="danger" data-act="removeSeat" data-seat="${i}">Remove ${esc(s.name)}</button>` : '';
+  return wrapModal(`Move ${esc(s.name)}`, `<p class="muted">Pick a table to move ${esc(s.name)} to, or tap someone there to swap places.</p>${body}`, remove);
+}
+
+// Standings across every table: lowest total first
+function standingsHTML(snap) {
+  const t = snap.tour;
+  const seats = snap.lobby.seats;
+  const order = seats.map((_, i) => i).sort((a, b) => t.totals[a] - t.totals[b]);
+  const rows = order
+    .map((i) => {
+      const place = 1 + order.filter((j) => t.totals[j] < t.totals[i]).length;
+      const k = (t.next ? t.next.findIndex((x) => x.includes(i)) : tableOfSeat(t, i));
+      return `<div class="stand-row ${i === snap.seat ? 'me' : ''}"><span class="pl">${place}</span><span class="n">${i === snap.seat ? 'You' : esc(seats[i].name)}</span><span class="t">Table ${k + 1}</span><span class="tot">${t.totals[i]}</span></div>`;
+    })
+    .join('');
+  return `<div class="stand-head"><b>Standings</b><span class="muted">Lowest total wins${t.next ? ' · table next round' : ''}</span></div><div class="standings">${rows}</div>`;
+}
+
+// Where each person at a finished table goes next (from that table's ranking): seat -> 'up' | 'down' | 'stay', and the table
+function tableMoves(t, k) {
+  const ranked = t.tables[k].ranked;
+  if (!ranked) return {};
+  const to = movesFrom(ranked, k, t.tables.length, moveCount(t.tables.map((x) => x.seats)));
+  return Object.fromEntries(Object.entries(to).map(([s, d]) => [s, { to: d, how: d < k ? 'up' : d > k ? 'down' : 'stay' }]));
+}
+
+// Your table (or the one you're watching) has finished the round while others play on
+function tableDoneModal(snap) {
+  const v = snap.view;
+  const t = snap.tour;
+  const isWild = wildTest(v.options);
+  const k = t.watching ?? t.table;
+  const n = t.tables.length;
+  const rr = v.roundResult;
+  const moves = tableMoves(t, k);
+  const order = (t.tables[k].ranked || t.tables[k].seats).map((s) => t.tables[k].seats.indexOf(s));
+  const rows = order
+    .map((i) => {
+      const s = lobbySeatOf(i);
+      const hand = rr.hands ? rr.hands[i] : [];
+      const mv = moves[s];
+      const move = mv ? `<span class="move ${mv.how}">${mv.how === 'up' ? 'Up to' : mv.how === 'down' ? 'Down to' : 'Stays at'} table ${mv.to + 1}</span>` : '';
+      return `<div class="result-row ${s === snap.seat ? 'mine' : ''}"><div class="top"><span>${s === snap.seat ? 'You' : esc(v.players[i].name)}${rr.winner === i ? ' went out!' : ''}</span><span>+${rr.points[i]} · total ${t.totals[s]}</span></div>${move}
+      ${hand.length ? `<div class="mini-hand">${hand.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>` : ''}</div>`;
+    })
+    .join('');
+  const others = t.tables.map((x, j) => [x, j]).filter(([, j]) => j !== k);
+  const playing = others.filter(([x]) => !x.done);
+  const live = others
+    .map(([x, j]) => {
+      const name = (s) => (s === snap.seat ? 'You' : esc(snap.lobby.seats[s].name));
+      const what = x.done
+        ? `Done${x.wentOut != null ? `: ${name(x.wentOut)} went out` : ''}`
+        : x.phase === 'ready'
+          ? 'Looking over their cards'
+          : `${name(x.turn)}'s turn · ${x.laid ? `${x.laid} laid down` : 'nobody has laid down'}`;
+      return `<div class="live-table ${x.done ? 'done' : ''}"><span class="what"><b>${tableName(j, n)}</b><small>${what}</small></span>${
+        x.done ? '' : `<button data-act="watch" data-table="${j}">Watch</button>`
+      }</div>`;
+    })
+    .join('');
+  const back = t.watching != null ? '<button class="ghost" data-act="watch" data-table="">Back to my table</button>' : '';
+  return `<div class="overlay"><div class="modal framed">
+    <h2>${rr.winner != null ? `${rr.winner === v.you ? 'You' : esc(v.players[rr.winner].name)} went out!` : 'Round over'}</h2>
+    <div class="modal-body result-body">
+      <p class="muted result-sub">This round at table ${k + 1}</p>
+      ${rr.winner == null ? '<p class="muted">Nobody went out this round.</p>' : ''}
+      ${rows}
+      ${playing.length ? `<b class="waiting-head">Waiting for ${playing.length} more table${playing.length === 1 ? '' : 's'}</b>` : ''}
+      ${live}
+    </div>
+    <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Standings</button>${back}</div>
+  </div></div>`;
+}
+
+const ARROW_UP = '<svg class="arrow" viewBox="0 0 18 18" role="img" aria-label="moved up"><path d="M9 14V4M4.5 8.5L9 4l4.5 4.5"/></svg>';
+const ARROW_DOWN = `<svg class="arrow down" viewBox="0 0 18 18" role="img" aria-label="dropped from the winners' table"><path d="M9 4v10M4.5 9.5L9 14l4.5-4.5"/></svg>`;
+
+// Every table is done: next round's tables (who moved up, who dropped from the winners' table), or the standings
+function nextTablesModal(snap) {
+  const t = snap.tour;
+  const seats = snap.lobby.seats;
+  const n = t.next.length;
+  const tab = ui.nextTab;
+  const legend = `<div class="legend"><span>${ARROW_UP} Moved up</span><span>${ARROW_DOWN} Dropped from the winners' table</span><span>Numbers are totals</span></div>`;
+  const tables = t.next
+    .map((at, k) => {
+      const mine = at.includes(snap.seat);
+      const cells = at
+        .map((s) => {
+          const mv = t.moves[s];
+          const arrow = mv ? (mv.to < mv.from ? ARROW_UP : ARROW_DOWN) : '';
+          return `<span class="next-seat ${s === snap.seat ? 'me' : ''}">${arrow}${s === snap.seat ? 'You' : esc(seats[s].name)}<span class="tot">${t.totals[s]}</span></span>`;
+        })
+        .join('');
+      return `<div class="next-table ${k === 0 ? 'top' : ''} ${mine ? 'mine' : ''}"><div class="next-head"><span>${tableName(k, n)}</span>${mine ? "<small>You're here</small>" : ''}</div><div class="next-seats">${cells}</div></div>`;
+    })
+    .join('');
+  const tabs = `<div class="seg" role="tablist" aria-label="Show">
+      <button role="tab" aria-selected="${tab === 'tables'}" class="${tab === 'tables' ? 'on' : ''}" data-act="nextTab" data-tab="tables">Next round's tables</button>
+      <button role="tab" aria-selected="${tab === 'standings'}" class="${tab === 'standings' ? 'on' : ''}" data-act="nextTab" data-tab="standings">Standings</button></div>`;
+  const action = snap.isHost
+    ? `<button class="primary" data-act="nextRound">Deal round ${t.round + 2}: ${contractText(t.round + 1)}</button>`
+    : `<span class="muted">Waiting for ${esc(hostName(snap))} to deal round ${t.round + 2}…</span>`;
+  return `<div class="overlay"><div class="modal framed">
+    <h2>After round ${t.round + 1} of ${roundsIn(t.round)}</h2>
+    <div class="modal-body result-body">${tabs}${tab === 'tables' ? legend + tables : standingsHTML(snap)}</div>
+    <div class="actions">${action}</div>
+  </div></div>`;
+}
+
+// While you watch a table, in place of your cards
+function watchDockHTML(snap) {
+  const t = snap.tour;
+  if (t.phase === 'tiebreak') return '<div class="dock"><p class="muted sitting-out">You\'re watching the tiebreaker. Everyone\'s cards stay hidden.</p></div>';
+  const n = t.tables.length;
+  const others = t.tables.map((x, k) => [x, k]).filter(([x, k]) => !x.done && k !== t.watching && k !== t.table);
+  return `<div class="dock watch-dock"><p class="muted">You're watching. Everyone's cards stay hidden, and you can't buy or call Shanghai here.</p>
+    <div class="row">${others.map(([, k]) => `<button class="ghost" data-act="watch" data-table="${k}">Watch table ${k + 1}</button>`).join('')}<button class="ghost" data-act="modal" data-m="scores">Standings</button></div></div>`;
 }
 
 function inviteLink(code) {
@@ -785,7 +995,7 @@ function playerChips(v) {
     .map((p, i) => {
       const tags = [];
       if (v.phase === 'ready' && p.ready) tags.push('<span class="tag gold">ready</span>');
-      const seat = ui.snap.lobby.seats[i];
+      const seat = ui.snap.lobby.seats[lobbySeatOf(i)];
       if (seat && (!seat.connected || (seat.isHost && hostAwayText(ui.snap)))) tags.push('<span class="tag red">offline</span>');
       // one $ per buy left; none once they've laid down, since they can't buy then
       const left = p.laid ? 0 : Math.max(0, v.options.buyLimit - p.buysUsed);
@@ -875,6 +1085,7 @@ function miniCards(html) {
 
 function statusText(v) {
   const me = v.you;
+  if (!v.players[v.turn]) return '';
   const turnName = esc(v.players[v.turn].name);
   if (me == null) return `You're watching. It's <b>${turnName}</b>'s turn.`;
   if (v.players[me].out) return `${namesOf(v, v.tiebreak.seats)} are playing a tiebreaker. It's <b>${turnName}</b>'s turn.`;
@@ -932,7 +1143,7 @@ function centerHTML(v, isWild) {
   }</div><span>${pileLabel}</span></div>`;
 
   const actions = [];
-  if (p && !p.out) {
+  if (p && !p.out && v.players[v.turn]) {
     if (myTurn && v.phase === 'play')
       actions.push(
         `<button class="shanghai-btn ${ui.armed ? 'armed' : ''}" data-act="arm">${ui.armed ? 'SHANGHAI! ✓' : 'SHANGHAI!'}</button>`
@@ -941,7 +1152,7 @@ function centerHTML(v, isWild) {
   }
   // the activity box sits above the deck row: when a prompt makes it taller it grows upward over the table,
   // so the piles and your hand stay put
-  return `${activityHTML(v)}<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div>${me != null ? chatButtonHTML() : ''}</div>`;
+  return `${activityHTML(v)}<div class="center">${deck}${discard}<div class="center-actions">${actions.join('')}</div>${me != null || (ui.snap.tour && ui.snap.seat != null) ? chatButtonHTML() : ''}</div>`;
 }
 
 // One place for everything going on: what you need to do (a prompt), else your turn, else something that just
@@ -1133,7 +1344,9 @@ function handHTML(v, isWild) {
 // your cards face down. It opens again on your turn.
 function dockHTML(v, isWild) {
   const me = v.you;
-  if (me == null) return '';
+  if (me == null) return ui.snap.tour && ui.snap.seat != null ? watchDockHTML(ui.snap) : '';
+  // the whole group at the end of a Tables game: nobody holds cards
+  if (!v.players[v.turn]) return '';
   // sitting out a tiebreaker: no cards to show, just say so
   if (v.players[me].out) return `<div class="dock"><p class="muted sitting-out">You're sitting out the tiebreaker. Lowest score in it wins.</p></div>`;
   const body = stagingHTML(v, isWild) + handHTML(v, isWild);
@@ -1170,11 +1383,13 @@ function gameHTML(snap) {
     <div class="topbar">
       <span class="round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}/${roundsIn(v.round)}`}</span>
       <span class="contract">${contractText(v.round)}</span>
+      ${snap.tour && v.players[v.turn] && snap.tour.phase !== 'tiebreak' ? `<span class="table-tag">Table ${(snap.tour.watching ?? snap.tour.table) + 1}</span>` : ''}
       <span class="spacer"></span>
-      ${snap.lobby.code ? `<span class="muted" style="font-size:12px">${snap.lobby.code}</span>` : ''}
+      ${snap.lobby.code && !snap.tour ? `<span class="muted" style="font-size:12px">${snap.lobby.code}</span>` : ''}
       <button class="icon-btn" data-act="modal" data-m="scores">Scores</button>
       <button class="icon-btn" data-act="modal" data-m="menu">☰</button>
     </div>
+    ${snap.tour && snap.tour.watching != null ? `<div class="watch-bar"><span><b>Watching table ${snap.tour.watching + 1}</b>${contractText(v.round)}</span><button class="small" data-act="watch" data-table="">Back to my table</button></div>` : ''}
     <div class="players hscroll">${playerChips(v)}</div>
     <div class="table">${tableHTML(v, isWild)}</div>
     <div class="bottom">${newGroupSpotsHTML(v)}${centerHTML(v, isWild)}${dockHTML(v, isWild)}</div>
@@ -1185,14 +1400,20 @@ function gameHTML(snap) {
 // ---------- modals ----------
 function modalHTML(snap) {
   const v = snap.view;
-  if (v.phase === 'roundOver' || v.phase === 'gameOver' || v.phase === 'tieVote') {
-    if (!['scores', 'menu', 'rules', 'log', 'settings', 'install', 'feedback', 'cropPhoto', 'awards'].includes(ui.modal))
-      return v.phase === 'tieVote' ? tieModal(snap) : resultModal(snap);
+  const t = snap.tour;
+  const over = ['scores', 'menu', 'rules', 'log', 'settings', 'install', 'feedback', 'cropPhoto', 'awards'].includes(ui.modal);
+  // Tables (BETA): a finished table waits for the others, then everyone sees next round's tables
+  if (t && (t.phase === 'playing' || t.phase === 'between') && v.phase === 'roundOver') {
+    if (!over) return t.phase === 'between' ? nextTablesModal(snap) : tableDoneModal(snap);
+  } else if (v.phase === 'roundOver' || v.phase === 'gameOver' || v.phase === 'tieVote') {
+    if (!over) return v.phase === 'tieVote' ? tieModal(snap) : resultModal(snap);
   }
   switch (ui.modal) {
     case 'awards':
       return v.stats ? awardsModal(snap) : '';
     case 'scores':
+      // during a Tables game a table's own scores are just this round: the standings across every table say more
+      if (t && v.players[v.turn]) return wrapModal('Standings', standingsHTML(snap));
       return wrapModal('Scores', scoresTable(v));
     case 'rules':
       return rulesModal(v.options, v.players.some((p) => p.bot));
@@ -1337,7 +1558,7 @@ function resultModal(snap) {
     <div class="modal-body result-body">
     ${sub ? `<p class="muted result-sub">${sub}</p>` : ''}
     ${over && v.stats ? awardsCardHTML(v) : ''}
-    ${rr.winner == null ? `<p class="muted">Nobody went out this ${tb ? 'tiebreaker' : 'round'}.</p>` : ''}
+    ${rr.winner == null && !snap.tour ? `<p class="muted">Nobody went out this ${tb ? 'tiebreaker' : 'round'}.</p>` : ''}
     ${rows}
     </div>
     <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${
@@ -1837,31 +2058,48 @@ function saveCrop() {
 const CHAT_POP_MS = 5000;
 const CHAT_SEEN_KEPT = 10;
 
-function chatList() {
-  return (ui.session && ui.session.chat) || [];
+// Tables (BETA): the chat has two tabs while the tables play, Table (just the people at your table this round, or the
+// one you're watching) and Everyone. Pop-ups follow the tab you're on; the other only adds to the count.
+function chatTabs() {
+  const t = ui.snap && ui.snap.tour;
+  return !!t && (t.phase === 'playing' || t.phase === 'between');
+}
+function chatTableNow() {
+  const t = ui.snap.tour;
+  return t.watching ?? t.table;
+}
+function inChatTab(m, tab = ui.chatTab) {
+  const t = ui.snap && ui.snap.tour;
+  if (!t) return true;
+  if (!chatTabs() || tab === 'all') return m.table == null;
+  return m.table === chatTableNow() && m.round === t.round;
+}
+function chatList(tab = ui.chatTab) {
+  return ((ui.session && ui.session.chat) || []).filter((m) => inChatTab(m, tab));
 }
 function mySeat() {
-  return ui.snap && ui.snap.view ? ui.snap.view.you : null;
+  return ui.snap ? ui.snap.seat : null;
 }
-// the newest message you've seen, per game, so a count of new ones survives leaving and coming back
-function chatSeen() {
-  return store.get('chatSeen', {})[handGameKey()] ?? -1;
+// the newest message you've seen, per game (and per tab), so a count of new ones survives leaving and coming back
+const chatSeenKey = (tab) => handGameKey() + (chatTabs() ? `:${tab}` : '');
+function chatSeen(tab = ui.chatTab) {
+  return store.get('chatSeen', {})[chatSeenKey(tab)] ?? -1;
 }
 function markChatSeen() {
   const list = chatList();
   const key = handGameKey();
   if (!list.length || !key) return;
   const seen = store.get('chatSeen', {});
-  seen[key] = list[list.length - 1].id;
+  seen[chatSeenKey(ui.chatTab)] = list[list.length - 1].id;
   store.set('chatSeen', Object.fromEntries(Object.entries(seen).slice(-CHAT_SEEN_KEPT)));
 }
-function chatUnread() {
-  const seen = chatSeen();
-  return chatList().filter((m) => m.id > seen && m.seat !== mySeat()).length;
+function chatUnread(tab = ui.chatTab) {
+  const seen = chatSeen(tab);
+  return chatList(tab).filter((m) => m.id > seen && m.seat !== mySeat()).length;
 }
 
 function chatButtonHTML() {
-  const n = ui.chatOpen ? 0 : chatUnread();
+  const n = ui.chatOpen ? 0 : chatTabs() ? chatUnread('table') + chatUnread('all') : chatUnread();
   return `<button class="chat-btn ${ui.chatOpen ? 'on' : ''}" data-act="chat" aria-label="Chat${n ? `, ${n} new` : ''}">💬${
     n ? `<span class="chat-count">${n > 9 ? '9+' : n}</span>` : ''
   }</button>`;
@@ -1878,7 +2116,8 @@ function onChat(m, refused) {
     ui.chatTipAt = Date.now();
   }
   if (ui.chatOpen) markChatSeen();
-  else if (m && ui.chatPopups) {
+  // a message in the other tab only adds to its count
+  else if (m && ui.chatPopups && inChatTab(m)) {
     const live = ui.chatPops.filter((p) => !isEmojiOnly(p.m.text));
     if (isEmojiOnly(m.text) || live.length < 2) ui.chatPops.push({ m, until: Date.now() + CHAT_POP_MS, open: false });
     else {
@@ -1894,12 +2133,12 @@ function onChat(m, refused) {
 
 function sendChat(text, kind) {
   if (!ui.session) return false;
-  const res = ui.session.sendChat(text);
+  const res = ui.session.sendChat(text, chatTabs() ? ui.chatTab : undefined);
   if (!res.ok) {
     chatRefused(res.error);
     return false;
   }
-  stats.track('chat_sent', { kind, role: statsRole(ui.snap) });
+  stats.track('chat_sent', { kind, role: statsRole(ui.snap), ...(chatTabs() ? { to: ui.chatTab === 'table' ? 'table' : 'everyone' } : {}) });
   return true;
 }
 
@@ -1956,6 +2195,7 @@ function syncChatSheet() {
     return;
   }
   if (sheet) {
+    markChatTabs(sheet);
     markChatTurn(sheet);
     return markChatAway(sheet);
   }
@@ -1973,6 +2213,7 @@ function syncChatSheet() {
   sheet.innerHTML = `<div class="chat-backdrop" data-chat="close"></div>
     <div class="chat-panel" role="dialog" aria-label="Chat">
       <div class="chat-head"><b>Chat</b><button class="icon-btn" data-chat="edit" title="Change quick reactions" aria-label="Change quick reactions">${GEAR_ICON}</button><button class="icon-btn" data-chat="close" title="Close" aria-label="Close">${X_ICON}</button></div>
+      <div class="chat-tabs seg" role="tablist" aria-label="Which chat"></div>
       <div class="chat-turn"></div>
       <div class="chat-msgs"></div>
       ${tip ? `<p class="chat-tip">You can change these quick reactions in Settings, or tap <span class="tip-icon">${GEAR_ICON}</span> up top.</p>` : ''}
@@ -1985,6 +2226,13 @@ function syncChatSheet() {
     const b = e.target.closest('[data-chat]');
     if (!b) return;
     if (b.dataset.chat === 'close') return closeChat();
+    if (b.dataset.chat === 'tab') {
+      ui.chatTab = b.dataset.tab;
+      ui.chatNote = null;
+      markChatSeen();
+      fillChatSheet(true);
+      return render();
+    }
     if (b.dataset.chat === 'edit') {
       // Settings opens over the chat; closing it comes back to the chat, with the new reactions
       ui.modal = 'settings';
@@ -2001,6 +2249,7 @@ function syncChatSheet() {
     if (sendChat(input.value, 'typed')) input.value = '';
   });
   sheet.querySelector('[data-field="chatText"]').value = ui.chatDraft || '';
+  markChatTabs(sheet);
   markChatTurn(sheet);
   markChatAway(sheet);
   // the keyboard comes up and goes away with the text box; iPhones scroll the page up to make room, and don't always
@@ -2027,6 +2276,28 @@ function syncChatSheet() {
   box.addEventListener('scroll', () => (atEnd = chatAtEnd(box)), { passive: true });
   if (window.ResizeObserver) new ResizeObserver(() => atEnd && (box.scrollTop = box.scrollHeight)).observe(box);
   swipeToClose(panel);
+}
+
+// Tables (BETA): the Table and Everyone tabs, each with its count of new messages; what you type goes to the one you're on
+function markChatTabs(sheet) {
+  const el = sheet.querySelector('.chat-tabs');
+  const input = sheet.querySelector('[data-field="chatText"]');
+  if (!chatTabs()) {
+    el.hidden = true;
+    input.placeholder = 'Say something…';
+    return;
+  }
+  const k = chatTableNow();
+  const tab = (id, label) => {
+    const n = id === ui.chatTab ? 0 : chatUnread(id);
+    return `<button role="tab" aria-selected="${ui.chatTab === id}" class="${ui.chatTab === id ? 'on' : ''}" data-chat="tab" data-tab="${id}">${label}${
+      n ? `<span class="chat-count">${n > 9 ? '9+' : n}</span>` : ''
+    }</button>`;
+  };
+  const html = tab('table', `Table ${k + 1}`) + tab('all', 'Everyone');
+  if (el.dataset.html !== html) el.innerHTML = el.dataset.html = html;
+  el.hidden = false;
+  input.placeholder = ui.chatTab === 'table' ? `Message table ${k + 1}` : 'Message everyone';
 }
 
 // The chat covers the game's message box, so when the game needs you (your turn, a buy question, the next round) a bar
@@ -2251,8 +2522,12 @@ function fillChatSheet(toEnd = false) {
   if (!box) return;
   const list = chatList();
   const note = ui.chatNote;
+  const sheet = document.getElementById('chat-sheet');
+  if (sheet) markChatTabs(sheet);
   if (!list.length && !note) {
-    box.innerHTML = `<p class="chat-empty">No messages yet.${chatAway(ui.snap) ? '' : ' Say hi, or tap a quick reaction below.'}</p>`;
+    const who = chatTabs() ? (ui.chatTab === 'table' ? ` Only table ${chatTableNow() + 1} sees this tab.` : ' Everyone at every table sees this tab.') : '';
+    box.innerHTML = `<p class="chat-empty">No messages yet.${who}${chatAway(ui.snap) ? '' : ' Say hi, or tap a quick reaction below.'}</p>`;
+    box.dataset.filled = '';
     return;
   }
   const atEnd = chatAtEnd(box);
@@ -2267,6 +2542,13 @@ function fillChatSheet(toEnd = false) {
       who.className = 'who';
       who.style.color = chatColor(m.seat);
       who.textContent = m.name;
+      const tag = chatTagText(m);
+      if (tag) {
+        const t = document.createElement('span');
+        t.className = 'tag';
+        t.textContent = tag;
+        who.append(' ', t);
+      }
       row.append(who);
     }
     const text = document.createElement('span');
@@ -2293,6 +2575,15 @@ function fillChatSheet(toEnd = false) {
     ui.chatHighlight = null;
   } else if (toEnd || atEnd || box.dataset.filled !== '1') chatToEnd(box);
   box.dataset.filled = '1';
+}
+
+// Tables (BETA): a small tag after the name: the table someone's at (in Everyone), or that they're watching (in Table)
+function chatTagText(m) {
+  const t = ui.snap && ui.snap.tour;
+  if (!t) return '';
+  if (m.table != null) return m.watching ? 'watching' : '';
+  const k = tableOfSeat(t, m.seat);
+  return chatTabs() && k >= 0 ? `Table ${k + 1}` : '';
 }
 
 const chatAtEnd = (box) => box.scrollHeight - box.scrollTop - box.clientHeight < 40;
@@ -2334,7 +2625,8 @@ function placeChatPops() {
   ui.chatPops = ui.chatPops.filter((p) => p.open || p.until > now);
   if (ui.chatMoreUntil < now) ui.chatMore = 0;
   const players = $app.querySelector('.players');
-  const show = players && !ui.modal && !ui.chatOpen && ui.tour == null && (ui.chatPops.length || ui.chatMore);
+  const covered = ui.snap && ui.snap.tour && $app.querySelector('.overlay');
+  const show = players && !ui.modal && !covered && !ui.chatOpen && ui.tour == null && (ui.chatPops.length || ui.chatMore);
   if (!show) {
     if (layer) layer.remove();
     return;
@@ -2360,7 +2652,8 @@ function placeChatPops() {
       el.className = emoji ? 'chat-pop' : 'chat-bubble';
       const who = document.createElement('span');
       who.className = 'who';
-      who.textContent = p.m.name;
+      const tag = chatTagText(p.m);
+      who.textContent = tag ? `${p.m.name} · ${tag}` : p.m.name;
       const text = document.createElement('span');
       text.className = 't';
       text.textContent = p.m.text;
@@ -2369,11 +2662,13 @@ function placeChatPops() {
       layer.append(el);
     }
     el.classList.toggle('open', p.open);
-    const chip = chips[p.m.seat];
+    const t = ui.snap && ui.snap.tour;
+    const chip = chips[t ? t.viewSeats.indexOf(p.m.seat) : p.m.seat];
     const c = chip ? chip.getBoundingClientRect() : row;
     const mid = (c.left + c.right) / 2;
     const side = mid > row.right - 16 ? 'right' : mid < row.left + 16 ? 'left' : null;
-    el.classList.toggle('edge', !!side);
+    // no tile here (they're at another table, or watching): the name shows, as at an edge
+    el.classList.toggle('edge', !!side || !chip);
     el.dataset.side = side || '';
     // kept over the row of tiles (half the screen on a phone held sideways)
     const w = el.offsetWidth;
@@ -2601,6 +2896,11 @@ function rulesModal(o, bots = false) {
     <li>Made a mistake? Undo takes back plays you made this turn, until you discard. It can even put back a discard you picked up, so you can choose again.</li></ul>
     <h3>Scoring</h3>
     <ul><li>2–9: face value · 10, J, Q, K: 10 · Ace: 20 · Joker${o.twoClubsWild ? ' / 2♣' : ''}: 50</li></ul>
+    <h3>Tables <span class="beta">(BETA)</span></h3>
+    <ul><li>For a big group: the host picks Tables in the lobby, and several tables of 3 to 8 play the same ${ROUNDS.length} rounds at once.</li>
+    <li>After each round, the best 2 at each table move up a table (1 when a table has only 3). At table 1, the winners' table, they stay, and its worst 2 drop all the way to the losers' table. Everyone else stays put.</li>
+    <li>Lowest total after ${ROUNDS.length} rounds wins, wherever you finish.</li>
+    <li>Done before the other tables? Watch one. Nobody's cards show, and you can chat with that table. The chat has a Table tab (just your table this round) and an Everyone tab.</li></ul>
     </div>`,
     '',
     { headAction: '<button class="ghost small" data-act="replayTour">Show the tour</button>' }
@@ -3934,6 +4234,34 @@ function onClick(e) {
       ui.modal = null;
       send({ type: act, seat: Number(t.dataset.seat) });
       return render();
+    case 'setMode':
+      send({ type: 'setMode', mode: t.dataset.mode });
+      return render();
+    case 'setTables':
+      send({ type: 'setTables', count: Number(t.dataset.count) });
+      return render();
+    case 'shuffleTables':
+      send({ type: 'shuffleTables' });
+      return render();
+    case 'moveSeat':
+      ui.moveSeat = Number(t.dataset.seat);
+      ui.modal = 'moveSeat';
+      return render();
+    case 'moveTo':
+      ui.modal = null;
+      send({ type: 'moveSeat', seat: ui.moveSeat, table: Number(t.dataset.table) });
+      return render();
+    case 'swapWith':
+      ui.modal = null;
+      send({ type: 'moveSeat', seat: ui.moveSeat, with: Number(t.dataset.seat) });
+      return render();
+    case 'watch':
+      ui.modal = null;
+      send({ type: 'watch', table: t.dataset.table === '' ? null : Number(t.dataset.table) });
+      return render();
+    case 'nextTab':
+      ui.nextTab = t.dataset.tab;
+      return render();
     case 'buyAnswer':
       send({ type: 'buyAnswer', buy: t.dataset.buy === 'clear' ? null : t.dataset.buy === '1' });
       return render();
@@ -4082,6 +4410,7 @@ function whereInGame(snap) {
     minutes: Math.round((Date.now() - gameStats.since) / 60000),
     people,
     computers: v.players.length - people,
+    ...(snap.tour ? { tables: snap.tour.tables.length } : {}),
   };
 }
 

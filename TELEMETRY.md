@@ -25,6 +25,7 @@ they get and where they seem to get stuck. The code is `js/telemetry.js` (sendin
 
 Every event carries `version` (the stamped release, or `local`). Most in-game events also carry `role` (`vs computer`,
 `host` or `joined`), `round` (1–7; up to 11 in games saved before the game went to 7 rounds), `phase`, `minutes` (since this device opened the game), `people` and `computers`.
+In a Tables (BETA) game they also carry `tables` (how many), and `people` and `computers` count your own table.
 Every device in a game sends its own, so count games with `role` ≠ `joined`.
 
 | Event | When | Extra data |
@@ -42,7 +43,7 @@ Every device in a game sends its own, so count games with `role` ≠ `joined`.
 | `tour` | the first-game tour is finished or skipped | `finished`, `step` |
 | `tip` / `tips_off` | a one-time tip shows / tips are turned off | `tip` |
 | `feedback` | feedback is sent | `photos` |
-| `chat_sent` | you send a chat message (never what it says) | `kind` (emoji / saying / typed) |
+| `chat_sent` | you send a chat message (never what it says) | `kind` (emoji / saying / typed); in a Tables game, `to` (table / everyone) |
 | `js_error` | a code error (5 per page load at most) | `message`, `where` |
 
 ## Useful views in the dashboard
