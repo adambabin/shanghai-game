@@ -2003,9 +2003,17 @@ function syncChatSheet() {
   sheet.querySelector('[data-field="chatText"]').value = ui.chatDraft || '';
   markChatTurn(sheet);
   markChatAway(sheet);
-  // the keyboard comes up and goes away with the text box
-  sheet.addEventListener('focusin', fitChatSheet);
-  sheet.addEventListener('focusout', () => setTimeout(fitChatSheet));
+  // the keyboard comes up and goes away with the text box; iPhones scroll the page up to make room, and don't always
+  // scroll it back, so put it back where it was
+  let scrolled = 0;
+  sheet.addEventListener('focusin', () => {
+    scrolled = scrollY;
+    fitChatSheet();
+  });
+  sheet.addEventListener('focusout', () => setTimeout(() => {
+    if (!sheet.contains(document.activeElement) && scrollY !== scrolled) scrollTo(0, scrolled);
+    fitChatSheet();
+  }, 50));
   document.body.appendChild(sheet);
   const toMessage = ui.chatHighlight != null;
   fillChatSheet();
@@ -2294,17 +2302,23 @@ function chatToEnd(box) {
   requestAnimationFrame(() => (box.scrollTop = box.scrollHeight));
 }
 
-// with the keyboard up, iPhones don't shrink the page, so keep the sheet above the keyboard. The keyboard is only up while
-// the text box is being typed in: otherwise the sheet sits at the bottom, whatever the phone last said about its size
-// (it doesn't always say when the keyboard has gone, which left the chat hanging up top over a gap)
+// With the keyboard up, iPhones don't shrink the page, so the sheet goes just above it: its bottom at the bottom of what
+// you can see (visualViewport), measured from the top, since a home screen app can report innerHeight as the shrunk
+// size and the sheet then hid behind the keyboard. The keyboard is only up while the text box is being typed in:
+// otherwise the sheet sits at the bottom, whatever the phone last said about its size (it doesn't always say when the
+// keyboard has gone, which left the chat hanging up top over a gap).
 function fitChatSheet() {
   const panel = document.querySelector('#chat-sheet .chat-panel');
   const vv = window.visualViewport;
   if (!panel || !vv) return;
   const typing = document.activeElement && document.activeElement.matches('#chat-sheet input');
-  const hidden = typing ? Math.max(0, innerHeight - vv.height - vv.offsetTop) : 0;
-  panel.style.bottom = hidden ? `${hidden}px` : '';
-  panel.style.maxHeight = hidden ? `${Math.max(220, vv.height - 24)}px` : '';
+  if (!typing) {
+    panel.style.top = panel.style.bottom = panel.style.maxHeight = '';
+    return;
+  }
+  panel.style.maxHeight = `${Math.max(220, vv.height - 24)}px`;
+  panel.style.bottom = 'auto';
+  panel.style.top = `${Math.max(0, vv.offsetTop + vv.height - panel.offsetHeight)}px`;
 }
 window.visualViewport && visualViewport.addEventListener('resize', fitChatSheet);
 window.visualViewport && visualViewport.addEventListener('scroll', fitChatSheet);
