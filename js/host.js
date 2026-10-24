@@ -5,7 +5,7 @@ import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, endIfPas
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai, shanghaiReaction } from './bot.js';
 import { DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
 import { openRoom, randomCode } from './net.js';
-import { cleanChat, ChatLimit, CHAT_KEEP } from './chat.js';
+import { cleanChat, ChatLimit, CHAT_KEEP, CHAT_MAX } from './chat.js';
 
 const BOT_NAMES = ['Lucky Lou', 'Card Shark', 'Rummy Rita', 'Jolly Joker', 'Shuffles', 'Ace', 'Sir Deals-a-Lot', 'Queenie'];
 // each game you host (or play against the computer) is saved under its own key so several can be resumed
@@ -178,7 +178,8 @@ export class HostSession {
     if (msg.t === 'chat') {
       if (!this.conns.has(connId)) return;
       const res = this.say(this.conns.get(connId), msg.text);
-      if (!res.ok) this.room.send(connId, { t: 'err', msg: res.error });
+      // marked as chat, with what they typed, so it shows in their chat and the text goes back in the box
+      if (!res.ok) this.room.send(connId, { t: 'err', msg: res.error, chat: true, text: String(msg.text || '').slice(0, CHAT_MAX) });
     }
   }
 
@@ -253,7 +254,7 @@ export class HostSession {
     if (!s || s.bot || !this.lobby.started) return { ok: false, error: 'You can chat once the game starts.' };
     text = cleanChat(text);
     if (!text) return { ok: false, error: 'Type a message first.' };
-    if (!this.chatLimit.allow(seat)) return { ok: false, error: 'Hold on a second before sending another message.' };
+    if (!this.chatLimit.allow(seat)) return { ok: false, error: 'Hold on a second, then send it again.' };
     const m = { id: this.chatSeq++, seat, name: s.name, text, at: Date.now() };
     this.chat.push(m);
     if (this.chat.length > CHAT_KEEP) this.chat.splice(0, this.chat.length - CHAT_KEEP);
@@ -526,6 +527,7 @@ export class ClientSession {
       onOpen: () => this.link.send({ t: 'hello', clientId, name }),
       onMessage: (msg) => {
         if (msg.t === 'state') this.update({ ...msg.s, status: 'connected', isHost: false });
+        else if (msg.t === 'err' && msg.chat) this.chatListeners.forEach((fn) => fn(null, { error: String(msg.msg), text: String(msg.text || '') }));
         else if (msg.t === 'err') this.listeners.forEach((fn) => fn({ ...this.snap, toastError: msg.msg, errSeq: Math.random() }));
         else if (msg.t === 'kicked') this.update({ ...this.snap, status: 'kicked' });
         else if (msg.t === 'bye') this.update({ ...this.snap, hostLeft: true });
