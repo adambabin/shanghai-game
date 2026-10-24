@@ -154,5 +154,6 @@ There is no linter or formatter configured. Match the existing style: 2-space in
 ## UI gotchas
 
 - **Mobile first.** The viewport is locked at scale 1, and pinch and double-tap zoom are blocked. Inputs and selects must stay at ≥16px or iPhones auto-zoom.
+- **The page runs up behind the iPhone's clock and battery** in a home screen app (status bar style `black-translucent`). Whatever sits at the top of a screen pads by `var(--safe-top)` (0 in a browser tab and held sideways) so its own color fills that strip: the game's top bar or red banner, `.center-screen`, `.overlay`. Anything placed from JS keeps below `safeTop()`. iPhones also fade the page a little way below the status bar, so the top bar's buttons start a few pixels lower there.
 - **Gradients need a solid fallback.** Firefox on iOS can skip CSS gradients, so give any gradient a `background-color` underneath it.
 - Every visible string is user-facing copy for a family audience: plain, short, no jargon.

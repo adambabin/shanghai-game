@@ -121,6 +121,17 @@ applyCardBack();
 // ---------- add to home screen ----------
 // Opened from a home screen icon, the game gets its own storage that phones don't clear after a week away.
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+// the room the clock and battery take at the top of an iPhone home screen app, where the page runs up behind them
+// (0 in a browser tab and held sideways); things placed by hand keep below it
+let safeProbe;
+function safeTop() {
+  if (!safeProbe) {
+    safeProbe = document.createElement('div');
+    safeProbe.style.cssText = 'position: fixed; top: 0; height: var(--safe-top); visibility: hidden; pointer-events: none';
+    document.body.appendChild(safeProbe);
+  }
+  return safeProbe.offsetHeight;
+}
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const isAndroid = /Android/.test(navigator.userAgent);
 let installPrompt = null; // Chrome on Android hands us its own install prompt
@@ -2618,9 +2629,10 @@ function fitChatSheet() {
     panel.style.top = panel.style.bottom = panel.style.maxHeight = '';
     return;
   }
-  panel.style.maxHeight = `${Math.max(220, vv.height - 24)}px`;
+  const top = safeTop();
+  panel.style.maxHeight = `${Math.max(220, vv.height - 24 - top)}px`;
   panel.style.bottom = 'auto';
-  panel.style.top = `${Math.max(0, vv.offsetTop + vv.height - panel.offsetHeight)}px`;
+  panel.style.top = `${Math.max(vv.offsetTop + top, vv.offsetTop + vv.height - panel.offsetHeight)}px`;
 }
 window.visualViewport && visualViewport.addEventListener('resize', fitChatSheet);
 window.visualViewport && visualViewport.addEventListener('scroll', fitChatSheet);
@@ -3969,7 +3981,7 @@ function placeGuide() {
     spot.hidden = true;
     spot.removeAttribute('style');
     bubble.className = 'guide-bubble';
-    bubble.style.top = `${Math.max(16, (innerHeight - bubble.offsetHeight) / 2)}px`;
+    bubble.style.top = `${Math.max(16 + safeTop(), (innerHeight - bubble.offsetHeight) / 2)}px`;
     return;
   }
   const pad = 6;
@@ -3986,7 +3998,7 @@ function placeGuide() {
     left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.right - r.left + 2 * pad}px`, height: `${r.bottom - r.top + 2 * pad}px`,
   });
   const h = bubble.offsetHeight;
-  const fitsAbove = r.top - pad - 14 - h >= 8;
+  const fitsAbove = r.top - pad - 14 - h >= 8 + safeTop();
   const fitsBelow = r.bottom + pad + 14 + h <= innerHeight - 8;
   // the tour reads top to bottom; a tip goes above when it can, so it doesn't cover the cards it's about
   const below = tour ? fitsBelow || !fitsAbove : !fitsAbove;

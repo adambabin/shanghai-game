@@ -74,6 +74,10 @@
 * {
   box-sizing: border-box;
 }
+:root {
+  /* the room the clock and battery take at the top of an iPhone home screen app (0 elsewhere) */
+  --safe-top: env(safe-area-inset-top, 0px);
+}
 html,
 body {
   margin: 0;
@@ -150,7 +154,7 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px;
+  padding: calc(24px + var(--safe-top)) 16px 24px;
 }
 .panel {
   background: var(--panel-strong);
@@ -505,14 +509,28 @@ html:has(.game) body {
   padding: 8px 12px;
   background: var(--panel-strong);
 }
-/* an iPhone home screen app fades the top of the page into the status bar, which blurred the round name and ☰; start
-   them below the fade (the bar's own color fills the gap), with slimmer buttons so the bar grows only a little.
-   Sideways there's no status bar. */
+/* On an iPhone home screen app the page runs up behind the clock and battery (status bar style black-translucent), so
+   whatever is at the top fills that strip with its own color: the top bar, or the red banner above it. iPhones also
+   fade the page into the status bar a little way down, so the bar's buttons start a few pixels below it, and are a
+   bit slimmer there so the bar doesn't grow much. --safe-top is 0 in a browser tab and held sideways. */
+.game > .topbar:first-child {
+  padding-top: calc(8px + var(--safe-top) + min(var(--safe-top), 6px));
+}
+.game > .conn-banner:first-child {
+  padding-top: calc(4px + var(--safe-top) + min(var(--safe-top), 10px));
+}
+.game > .conn-banner.host-away:first-child {
+  padding-top: calc(8px + var(--safe-top) + min(var(--safe-top), 6px));
+}
 @supports (-webkit-touch-callout: none) {
   @media (display-mode: standalone) and (orientation: portrait) {
-    .topbar {
-      padding-top: 22px;
+    /* in case the phone keeps the status bar to itself (no room reported), still start below its fade */
+    .game > .topbar:first-child {
+      padding-top: max(16px, calc(8px + var(--safe-top) + 6px));
       padding-bottom: 4px;
+    }
+    .game > .conn-banner:first-child {
+      padding-top: max(16px, calc(4px + var(--safe-top) + 10px));
     }
     .topbar button {
       padding-top: 5px;
@@ -1085,7 +1103,7 @@ html:has(.game) body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: calc(16px + var(--safe-top)) 16px 16px;
   z-index: 50;
 }
 .modal {
@@ -1094,7 +1112,8 @@ html:has(.game) body {
   padding: 20px;
   width: 100%;
   max-width: 560px;
-  max-height: 90dvh;
+  /* never taller than the space between the clock and the bottom */
+  max-height: min(90dvh, 100%);
   overflow: auto;
   display: flex;
   flex-direction: column;
