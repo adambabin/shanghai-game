@@ -486,6 +486,12 @@ label.field {
 }
 
 /* ---------- game layout ---------- */
+/* the game screen fits the screen exactly, so the page itself never scrolls (unscrollGame() in main.js backs this up
+   for iPhones turned sideways and back) */
+html:has(.game),
+html:has(.game) body {
+  overflow: hidden;
+}
 .game {
   height: 100dvh;
   display: flex;

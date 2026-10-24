@@ -4398,7 +4398,25 @@ window.addEventListener('resize', () => {
   placeTapSpots();
   placeChatPops();
   placeGuide();
+  unscrollGame();
 });
+// The game screen is exactly the screen's height and never scrolls the page. An iPhone turned sideways and back can
+// leave the page scrolled anyway (the top bar and ☰ under the status bar, a blank strip under the hand), so put it
+// back at the top, also a little later since the phone settles its size after the turn. Not while typing: the
+// keyboard scrolls the page on purpose.
+function unscrollGame() {
+  const fix = () => {
+    const el = document.activeElement;
+    if (!$app.querySelector('.game') || (el && el.matches('input, textarea, select'))) return;
+    if (scrollX || scrollY) scrollTo(0, 0);
+  };
+  fix();
+  setTimeout(fix, 150);
+  setTimeout(fix, 600);
+}
+window.addEventListener('orientationchange', unscrollGame);
+window.addEventListener('scroll', () => scrollY > 0 && unscrollGame(), { passive: true });
+window.visualViewport && visualViewport.addEventListener('resize', unscrollGame);
 // Keep the page at 100%: Safari ignores user-scalable=no, so block pinch gestures directly
 for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
 document.addEventListener('touchmove', (e) => e.touches.length > 1 && e.preventDefault(), { passive: false });
