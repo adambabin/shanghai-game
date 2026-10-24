@@ -1,11 +1,24 @@
 // Runs in the host's browser: owns the lobby and the game, drives the bots, and sends each
 // player their own view of the game.
 
-import { createGame, applyAction, viewFor, nextRound, endRoundNoWinner, endIfPastLastRound, buyTimeout, beginPlay, sittingOut } from './engine.js';
+import {
+  createGame,
+  applyAction,
+  viewFor,
+  nextRound,
+  endRoundNoWinner,
+  endIfPastLastRound,
+  buyTimeout,
+  beginPlay,
+  sittingOut,
+  startRound,
+  newStats,
+} from './engine.js';
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai, shanghaiReaction } from './bot.js';
-import { DEFAULT_OPTIONS, MAX_PLAYERS } from './rules.js';
+import { DEFAULT_OPTIONS, MAX_PLAYERS, isLastRound } from './rules.js';
 import { openRoom, randomCode } from './net.js';
 import { cleanChat, ChatLimit, CHAT_KEEP, CHAT_MAX } from './chat.js';
+import { MAX_TOUR_PLAYERS, MIN_TABLE, MAX_TABLE, tableRange, suggestTables, dealTables, rankTable, nextTables, tableStats } from './tournament.js';
 
 const BOT_NAMES = ['Lucky Lou', 'Card Shark', 'Rummy Rita', 'Jolly Joker', 'Shuffles', 'Ace', 'Sir Deals-a-Lot', 'Queenie'];
 // each game you host (or play against the computer) is saved under its own key so several can be resumed
@@ -13,13 +26,20 @@ const SAVE_PREFIX = 'shanghai.hostGame.';
 const OLD_SAVE_KEY = 'shanghai.hostGame'; // the single save slot older versions used
 const newGameId = () => Math.random().toString(36).slice(2, 10);
 
+// fields a game saved by an older version may lack (stats: null, so a game saved before they were counted shows no
+// "How everyone played" rather than wrong numbers), and what never carries over a reload
+function restoreGame(g) {
+  return Object.assign(g, { mustPlay: [], buyOffered: false, stats: null, ...g, buyWindow: null, earlyBuy: null });
+}
+
 export class HostSession {
   // solo: no network room, just you against bots
   constructor({ name, clientId, solo = false, restore = null }) {
     this.listeners = new Set();
     this.conns = new Map(); // connId -> seat (or null while in lobby without a seat yet)
     this.timers = new Set();
-    this.reacted = new Set();
+    this.drivers = new WeakMap(); // game -> the computers' timers and notes for it
+    this.touched = new Set(); // games changed since the computers were last scheduled (none: all of them)
     this.chatListeners = new Set();
     this.chatLimit = new ChatLimit();
     this.chat = Array.isArray(restore && restore.chat) ? restore.chat : [];
@@ -32,12 +52,16 @@ export class HostSession {
       this.gameId = restore.id || newGameId();
       this.lobby = restore.lobby;
       this.lobby.options = { ...DEFAULT_OPTIONS, ...this.lobby.options };
-      this.game = restore.game;
-      // games saved by an older version are missing newer fields
-      // (stats: null, so a game saved before they were counted shows no "How everyone played" rather than wrong numbers)
-      Object.assign(this.game, { mustPlay: [], buyOffered: false, stats: null, ...this.game, buyWindow: null, earlyBuy: null });
+      this.lobby.mode = this.lobby.mode || 'one';
+      this.game = restore.game ? restoreGame(restore.game) : null;
+      this.tour = restore.tour || null;
+      if (this.tour) {
+        this.tour.games.forEach(restoreGame);
+        if (this.tour.tbGame) restoreGame(this.tour.tbGame);
+        this.tour.watching = {};
+      }
       // saved between rounds when there were 11: past round 7 it goes straight to the final scores
-      endIfPastLastRound(this.game);
+      if (this.game) endIfPastLastRound(this.game);
       this.lobby.seats.forEach((s) => {
         if (!s.bot && !s.isHost) s.connected = false;
       });
@@ -47,9 +71,12 @@ export class HostSession {
         code: solo ? null : randomCode(),
         started: false,
         options: { ...DEFAULT_OPTIONS },
+        mode: 'one', // or 'tables': Tables (BETA), see tournament.js
+        tableCount: null,
         seats: [{ name, clientId, isHost: true, connected: true }],
       };
       this.game = null;
+      this.tour = null;
       if (solo) {
         this.addBot();
         this.addBot();
@@ -85,6 +112,7 @@ export class HostSession {
   }
 
   snapshot(seat) {
+    const tour = this.tour ? this.tourSnapshot(seat) : null;
     return {
       status: this.status,
       error: this.error,
@@ -94,16 +122,20 @@ export class HostSession {
         code: this.lobby.code,
         started: this.lobby.started,
         options: this.lobby.options,
+        mode: this.lobby.mode,
+        tableCount: this.lobby.mode === 'tables' ? this.lobbyTableCount() : null,
         seats: this.lobby.seats.map((s) => ({
           name: s.name,
           bot: !!s.bot,
           standIn: !!s.botStandIn,
           isHost: !!s.isHost,
           connected: !!s.connected || !!s.bot,
+          table: this.lobby.mode === 'tables' ? (s.table ?? 0) : null,
         })),
       },
       seat,
-      view: this.game ? viewFor(this.game, seat) : null,
+      view: tour ? tour.view : this.game ? viewFor(this.game, seat) : null,
+      tour: tour ? tour.info : null,
     };
   }
 
@@ -116,15 +148,16 @@ export class HostSession {
   }
 
   changed() {
+    if (!this.lobby.started) this.fitLobbyTables();
     this.save();
     this.emit();
     this.scheduleBots();
   }
 
   save() {
-    if (!this.game) return;
+    if (!this.game && !this.tour) return;
     try {
-      const data = { id: this.gameId, lobby: this.lobby, game: this.game, chat: this.chat, solo: this.solo, savedAt: Date.now() };
+      const data = { id: this.gameId, lobby: this.lobby, game: this.game, tour: this.tour, chat: this.chat, solo: this.solo, savedAt: Date.now() };
       localStorage.setItem(SAVE_PREFIX + this.gameId, JSON.stringify(data));
     } catch {}
   }
@@ -147,7 +180,8 @@ export class HostSession {
         if (!key.startsWith(SAVE_PREFIX)) continue;
         try {
           const s = JSON.parse(localStorage.getItem(key));
-          if (s && s.game && s.game.phase !== 'gameOver') games.push({ ...s, id: key.slice(SAVE_PREFIX.length) });
+          const going = s && ((s.tour && s.tour.phase !== 'gameOver') || (!s.tour && s.game && s.game.phase !== 'gameOver'));
+          if (going) games.push({ ...s, id: key.slice(SAVE_PREFIX.length) });
         } catch {}
       }
     } catch {}
@@ -177,10 +211,14 @@ export class HostSession {
     }
     if (msg.t === 'chat') {
       if (!this.conns.has(connId)) return;
-      const res = this.say(this.conns.get(connId), msg.text);
+      const res = this.say(this.conns.get(connId), msg.text, msg.to);
       // marked as chat, with what they typed, so it shows in their chat and the text goes back in the box
       if (!res.ok) this.room.send(connId, { t: 'err', msg: res.error, chat: true, text: String(msg.text || '').slice(0, CHAT_MAX) });
     }
+  }
+
+  maxSeats() {
+    return this.lobby.mode === 'tables' ? MAX_TOUR_PLAYERS : MAX_PLAYERS;
   }
 
   onHello(connId, { clientId, name }) {
@@ -196,12 +234,13 @@ export class HostSession {
       if (this.lobby.started) {
         this.room.send(connId, { t: 'err', msg: 'That game has already started. You can watch, or ask the host to let you take a seat.' });
         seat = null;
-      } else if (seats.length >= MAX_PLAYERS) {
+      } else if (seats.length >= this.maxSeats()) {
         this.room.send(connId, { t: 'err', msg: 'The table is full.' });
         return;
       } else {
         seats.push({ name: this.uniqueName(name), clientId, connected: true });
         seat = seats.length - 1;
+        this.seatAtTable(seat);
       }
     }
     if (seat != null) {
@@ -213,13 +252,13 @@ export class HostSession {
         // they're back: hand the seat over from the computer
         s.bot = false;
         s.botStandIn = false;
-        if (this.game) this.game.players[seat].bot = false;
+        this.setBot(seat, false);
       }
     }
     this.conns.set(connId, seat);
     this.changed();
     // the whole chat so far, so someone coming back sees what they missed
-    this.room.send(connId, { t: 'chatAll', list: this.chat });
+    this.sendChatAll(connId, seat);
   }
 
   onClose(connId) {
@@ -248,26 +287,47 @@ export class HostSession {
   // ---------- chat ----------
 
   // A message from a seat. It never goes near the game: the sender and their name come from the seat (for players who
-  // joined, the connection it arrived on), and the text is cleaned up and kept short.
-  say(seat, text) {
+  // joined, the connection it arrived on), and the text is cleaned up and kept short. In a Tables game it goes to
+  // everyone, or (to: 'table') just the table they're at or watching this round.
+  say(seat, text, to = 'all') {
     const s = seat != null && this.lobby.seats[seat];
     if (!s || s.bot || !this.lobby.started) return { ok: false, error: 'You can chat once the game starts.' };
     text = cleanChat(text);
     if (!text) return { ok: false, error: 'Type a message first.' };
     if (!this.chatLimit.allow(seat)) return { ok: false, error: 'Hold on a second, then send it again.' };
     const m = { id: this.chatSeq++, seat, name: s.name, text, at: Date.now() };
+    const table = to === 'table' ? this.chatTable(seat) : null;
+    if (table != null) Object.assign(m, { table, round: this.tour.round, watching: this.tour.watching[seat] != null });
     this.chat.push(m);
     if (this.chat.length > CHAT_KEEP) this.chat.splice(0, this.chat.length - CHAT_KEEP);
     this.save();
     // each message goes out once, on its own: it never rides along with the game updates sent after every move
-    if (this.room) for (const connId of this.conns.keys()) this.room.send(connId, { t: 'chat', m });
-    this.chatListeners.forEach((fn) => fn(m));
+    if (this.room) for (const [connId, seat] of this.conns) if (this.canSeeChat(m, seat)) this.room.send(connId, { t: 'chat', m });
+    if (this.canSeeChat(m, this.mySeat)) this.chatListeners.forEach((fn) => fn(m));
     return { ok: true };
   }
 
-  sendChat(text) {
-    const res = this.say(this.mySeat, text);
+  sendChat(text, to) {
+    const res = this.say(this.mySeat, text, to);
     return res.ok ? { ...res, sent: true } : res;
+  }
+
+  // the table whose chat a seat is in: the one they're watching, else their own (none outside a Tables round)
+  chatTable(seat) {
+    const t = this.tour;
+    if (!t || (t.phase !== 'playing' && t.phase !== 'between')) return null;
+    const at = t.watching[seat] ?? this.tableAt(seat);
+    return at >= 0 ? at : null;
+  }
+
+  canSeeChat(m, seat) {
+    if (m.table == null) return true;
+    const t = this.tour;
+    return !!t && seat != null && m.round === t.round && (this.tableAt(seat) === m.table || t.watching[seat] === m.table);
+  }
+
+  sendChatAll(connId, seat) {
+    this.room.send(connId, { t: 'chatAll', list: this.chat.filter((m) => this.canSeeChat(m, seat)) });
   }
 
   // fn(message) for each new message
@@ -284,7 +344,7 @@ export class HostSession {
 
   act(seat, a) {
     if (!a || typeof a !== 'object') return { ok: false, error: 'Bad request.' };
-    const hostOnly = ['addBot', 'removeSeat', 'setOption', 'start', 'nextRound', 'endRound', 'playAgain', 'toggleBot', 'startNow'];
+    const hostOnly = ['addBot', 'removeSeat', 'setOption', 'start', 'nextRound', 'endRound', 'playAgain', 'toggleBot', 'startNow', 'setMode', 'setTables', 'shuffleTables', 'moveSeat'];
     if (hostOnly.includes(a.type) && seat !== 0) return { ok: false, error: 'Only the host can do that.' };
     let res;
     switch (a.type) {
@@ -306,63 +366,448 @@ export class HostSession {
         this.lobby.options[a.key] = a.value;
         res = { ok: true };
         break;
+      case 'setMode':
+      case 'setTables':
+      case 'shuffleTables':
+      case 'moveSeat':
+        res = this.lobbyTables(a);
+        break;
       case 'start':
         if (this.lobby.started) return { ok: false, error: 'Already started.' };
+        if (this.lobby.mode === 'tables') {
+          res = this.startTour();
+          break;
+        }
         if (this.lobby.seats.length < 2) return { ok: false, error: 'You need at least 2 players. Add a computer player!' };
+        if (this.lobby.seats.length > MAX_PLAYERS) return { ok: false, error: `One table seats up to ${MAX_PLAYERS}. Try Tables, or remove some players.` };
         this.lobby.started = true;
         this.game = createGame(this.lobby.seats.map((s) => ({ name: s.name, bot: !!s.bot })), this.lobby.options);
         res = { ok: true };
         break;
       case 'nextRound':
-        res = nextRound(this.game);
+        res = this.tour ? this.nextTourRound() : nextRound(this.game);
         break;
       case 'endRound':
-        res = endRoundNoWinner(this.game);
+      case 'startNow': {
+        const g = this.tour ? this.hostTableGame() : this.game;
+        if (!g) return { ok: false, error: 'No round in progress.' };
+        this.touch(g);
+        res = a.type === 'endRound' ? endRoundNoWinner(g) : beginPlay(g);
         break;
-      case 'startNow':
-        res = beginPlay(this.game);
-        break;
+      }
       case 'toggleBot': {
         // let the computer play for someone who dropped off (or hand the seat back)
         const s = this.lobby.seats[a.seat];
         if (!s || s.isHost) return { ok: false, error: "Can't do that." };
         s.bot = !s.bot;
         s.botStandIn = s.bot && !!s.clientId;
-        if (this.game) {
-          this.game.players[a.seat].bot = s.bot;
-          if (s.bot && this.game.phase === 'ready') applyAction(this.game, a.seat, { type: 'ready' });
-        }
+        this.setBot(a.seat, s.bot);
         res = { ok: true };
         break;
       }
       case 'playAgain':
         this.game = null;
+        this.tour = null;
         this.lobby.started = false;
         this.lobby.seats = this.lobby.seats.filter((s) => s.isHost || s.bot || s.connected);
         this.lobby.seats.forEach((s) => s.botStandIn && ((s.bot = false), (s.botStandIn = false)));
+        this.fitLobbyTables();
         HostSession.clearSaved(this.gameId);
         res = { ok: true };
         break;
-      default:
-        if (!this.game || seat == null) return { ok: false, error: 'The game has not started.' };
+      case 'watch':
+        res = this.watch(seat, a.table);
+        break;
+      default: {
+        if (this.tour && a.type === 'tieVote' && this.tour.phase === 'tieVote') {
+          res = this.tourTieVote(seat, a.choice);
+          break;
+        }
+        const at = this.tour ? this.gameFor(seat) : this.game && seat != null ? { g: this.game, local: seat } : null;
+        if (!at) return { ok: false, error: this.tour ? "You're not at a table right now." : 'The game has not started.' };
+        this.touch(at.g);
         try {
-          res = applyAction(this.game, seat, a);
+          res = applyAction(at.g, at.local, a);
         } catch (e) {
           console.error(e);
           res = { ok: false, error: 'Something went wrong with that move.' };
         }
+      }
     }
-    if (res.ok) this.changed();
+    if (res.ok) {
+      if (this.tour) this.checkTour();
+      this.changed();
+    }
     return res;
   }
 
   addBot() {
     if (this.lobby.started) return { ok: false, error: 'The game has already started.' };
-    if (this.lobby.seats.length >= MAX_PLAYERS) return { ok: false, error: 'The table is full.' };
+    if (this.lobby.seats.length >= this.maxSeats()) return { ok: false, error: 'The table is full.' };
     const used = new Set(this.lobby.seats.map((s) => s.name));
     const name = BOT_NAMES.find((n) => !used.has(n)) || this.uniqueName('Computer');
     this.lobby.seats.push({ name, bot: true });
+    this.seatAtTable(this.lobby.seats.length - 1);
     return { ok: true };
+  }
+
+  // a seat's computer switched on or off, in whichever game they're playing
+  setBot(seat, bot) {
+    const at = this.tour ? this.gameFor(seat) : this.game ? { g: this.game, local: seat } : null;
+    if (!at) return;
+    at.g.players[at.local].bot = bot;
+    this.touch(at.g);
+    if (bot && at.g.phase === 'ready') applyAction(at.g, at.local, { type: 'ready' });
+  }
+
+  // ---------- Tables (BETA): the lobby ----------
+
+  // How many tables the lobby is set for: the host's pick, kept within what the players can make
+  lobbyTableCount() {
+    const n = this.lobby.seats.length;
+    const r = tableRange(n);
+    const want = this.lobby.tableCount ?? suggestTables(n);
+    return r ? Math.min(r.max, Math.max(r.min, want)) : Math.max(2, Math.min(want, 2));
+  }
+
+  // Every seat at one of the tables: anyone without one (or at a table that's gone) goes to the smallest
+  fitLobbyTables() {
+    if (this.lobby.mode !== 'tables') return;
+    const k = this.lobbyTableCount();
+    this.lobby.seats.forEach((s, i) => {
+      if (!(s.table >= 0 && s.table < k)) {
+        delete s.table;
+        this.seatAtTable(i);
+      }
+    });
+  }
+
+  seatAtTable(seat) {
+    if (this.lobby.mode !== 'tables') return;
+    const k = this.lobbyTableCount();
+    // until the host arranges the tables themselves, they're dealt again whenever there are enough people for one more
+    if (this.lobby.tableCount == null && k !== this.lobby.autoTables) return this.shuffleLobbyTables();
+    const sizes = Array.from({ length: k }, (_, t) => this.lobby.seats.filter((s, i) => i !== seat && s.table === t).length);
+    this.lobby.seats[seat].table = sizes.indexOf(Math.min(...sizes));
+  }
+
+  shuffleLobbyTables() {
+    const seats = this.lobby.seats;
+    this.lobby.autoTables = this.lobbyTableCount();
+    dealTables(seats.map((_, i) => i), this.lobby.autoTables).forEach((t, k) => t.forEach((i) => (seats[i].table = k)));
+  }
+
+  lobbyTables(a) {
+    if (this.lobby.started) return { ok: false, error: 'The game has already started.' };
+    const seats = this.lobby.seats;
+    if (a.type === 'setMode') {
+      if (a.mode !== 'one' && a.mode !== 'tables') return { ok: false, error: 'Unknown choice.' };
+      this.lobby.mode = a.mode;
+      if (a.mode === 'tables') this.shuffleLobbyTables();
+      return { ok: true };
+    }
+    if (this.lobby.mode !== 'tables') return { ok: false, error: 'Pick Tables first.' };
+    if (a.type === 'setTables') {
+      const r = tableRange(seats.length);
+      if (!r || !(a.count >= r.min && a.count <= r.max)) return { ok: false, error: r ? `${seats.length} players can make ${r.min} to ${r.max} tables.` : 'Tables needs at least 6 players.' };
+      this.lobby.tableCount = a.count;
+      this.shuffleLobbyTables();
+      return { ok: true };
+    }
+    // once the host shuffles or moves anyone, the number of tables stays as it is while people join
+    this.lobby.tableCount = this.lobbyTableCount();
+    if (a.type === 'shuffleTables') {
+      this.shuffleLobbyTables();
+      return { ok: true };
+    }
+    // moveSeat: to another table, or swap places with someone (with: their seat)
+    const s = seats[a.seat];
+    if (!s) return { ok: false, error: "Can't move that player." };
+    if (a.with != null) {
+      const o = seats[a.with];
+      if (!o) return { ok: false, error: "Can't move that player." };
+      [s.table, o.table] = [o.table, s.table];
+      return { ok: true };
+    }
+    if (!(a.table >= 0 && a.table < this.lobbyTableCount())) return { ok: false, error: 'There is no table like that.' };
+    if (seats.filter((x) => x.table === a.table).length >= MAX_TABLE) return { ok: false, error: `A table seats up to ${MAX_TABLE}.` };
+    s.table = a.table;
+    return { ok: true };
+  }
+
+  // ---------- Tables (BETA): the game ----------
+  // this.tour: { round, tables (seats at each table this round, winners' table first), games (each table's game of
+  // this one round, its players in the table's order), history (round -> seat -> table), scores (seat -> points per
+  // round), stats (seat -> counts, for How everyone played), phase ('playing' | 'between' | 'tieVote' | 'tiebreak' |
+  // 'gameOver'), next and moves (next round's tables, once every table is done), watching (seat -> table), tiebreak,
+  // tbGame (a tiebreaker's game, just the tied players), winners }
+
+  startTour() {
+    const seats = this.lobby.seats;
+    const r = tableRange(seats.length);
+    if (!r) return { ok: false, error: 'Tables needs at least 6 players. Add computer players, or pick One table.' };
+    this.fitLobbyTables();
+    const k = this.lobbyTableCount();
+    const tables = Array.from({ length: k }, (_, t) => seats.map((_, i) => i).filter((i) => seats[i].table === t));
+    const small = tables.findIndex((t) => t.length < MIN_TABLE);
+    if (small >= 0) return { ok: false, error: `Table ${small + 1} needs at least ${MIN_TABLE} players.` };
+    const big = tables.findIndex((t) => t.length > MAX_TABLE);
+    if (big >= 0) return { ok: false, error: `Table ${big + 1} has more than ${MAX_TABLE} players.` };
+    this.lobby.started = true;
+    this.tour = {
+      round: 0,
+      tables,
+      games: [],
+      history: [],
+      scores: seats.map(() => []),
+      stats: seats.map(() => ({ ...newStats(), topRounds: 0, longestStay: 0 })),
+      phase: 'playing',
+      next: null,
+      moves: null,
+      watching: {},
+      tiebreak: null,
+      tbGame: null,
+      winners: null,
+    };
+    this.dealTour();
+    return { ok: true };
+  }
+
+  // each table's game of this round, and who sat where
+  dealTour() {
+    const t = this.tour;
+    const seats = this.lobby.seats;
+    t.games = t.tables.map((at) => createGame(at.map((i) => ({ name: seats[i].name, bot: !!seats[i].bot })), this.lobby.options, Math.random, { round: t.round, oneRound: true }));
+    const where = seats.map(() => null);
+    t.tables.forEach((at, k) => at.forEach((i) => (where[i] = k)));
+    t.history[t.round] = where;
+    t.watching = {};
+    t.phase = 'playing';
+    // a table of computers has nobody to look over their cards: it starts at once
+    for (const g of t.games) if (g.ready.every(Boolean)) beginPlay(g);
+  }
+
+  tableAt(seat) {
+    return this.tour ? this.tour.tables.findIndex((at) => at.includes(seat)) : -1;
+  }
+
+  // the game a seat plays in right now, and their seat in it
+  gameFor(seat) {
+    const t = this.tour;
+    if (!t || seat == null) return null;
+    if (t.phase === 'tiebreak') {
+      const local = t.tiebreak.seats.indexOf(seat);
+      return local >= 0 ? { g: t.tbGame, local } : null;
+    }
+    if (t.phase !== 'playing' && t.phase !== 'between') return null;
+    const k = this.tableAt(seat);
+    return k >= 0 ? { g: t.games[k], local: t.tables[k].indexOf(seat) } : null;
+  }
+
+  // the host's Start now and End round work on the table they're watching, else their own
+  hostTableGame() {
+    const t = this.tour;
+    if (t.phase === 'tiebreak') return t.tbGame;
+    if (t.phase !== 'playing') return null;
+    return t.games[t.watching[0] ?? this.tableAt(0)] || null;
+  }
+
+  watch(seat, table) {
+    const t = this.tour;
+    if (!t || t.phase !== 'playing' || seat == null) return { ok: false, error: 'There is nothing to watch right now.' };
+    if (table == null) delete t.watching[seat];
+    else {
+      const own = this.tableAt(seat);
+      if (!t.games[table] || table === own) return { ok: false, error: 'There is no table like that.' };
+      if (own >= 0 && !t.games[own].counted) return { ok: false, error: 'Finish your own round first.' };
+      t.watching[seat] = table;
+    }
+    // their chat changes with it: the table's messages this round
+    if (this.room) for (const [connId, s] of this.conns) if (s === seat) this.sendChatAll(connId, seat);
+    return { ok: true };
+  }
+
+  // After every change: take each finished table's points, and once every table is done, work out next round's tables
+  checkTour() {
+    const t = this.tour;
+    if (t.phase === 'playing') {
+      t.games.forEach((g, k) => g.phase === 'roundOver' && !g.counted && this.countTable(k));
+      if (t.games.every((g) => g.counted)) this.endTourRound();
+    } else if (t.phase === 'tiebreak' && t.tbGame.phase === 'gameOver') {
+      const g = t.tbGame;
+      const seats = t.tiebreak.seats;
+      this.addStats(g, seats);
+      t.tiebreak.points = this.lobby.seats.map((_, i) => (seats.includes(i) ? g.tiebreak.points[seats.indexOf(i)] : null));
+      t.tiebreak.playing = false;
+      t.winners = g.winners.map((l) => seats[l]);
+      t.phase = 'gameOver';
+    }
+  }
+
+  addStats(g, seats) {
+    if (!g.stats) return;
+    g.stats.forEach((st, l) => {
+      const into = this.tour.stats[seats[l]];
+      for (const key of Object.keys(st)) into[key] = (into[key] || 0) + st[key];
+    });
+  }
+
+  countTable(k) {
+    const t = this.tour;
+    const g = t.games[k];
+    g.counted = true;
+    g.roundResult.points.forEach((p, l) => (t.scores[t.tables[k][l]][t.round] = p));
+    this.addStats(g, t.tables[k]);
+  }
+
+  tourTotals() {
+    return this.tour.scores.map((s) => s.reduce((a, b) => a + (b || 0), 0));
+  }
+
+  endTourRound() {
+    const t = this.tour;
+    const totals = this.tourTotals();
+    if (isLastRound(t.round)) return this.settleTour(totals);
+    const points = t.scores.map((s) => s[t.round] || 0);
+    const ranked = t.tables.map((at, k) => {
+      const w = t.games[k].roundResult.winner;
+      return rankTable(at, { points, totals, wentOut: w == null ? null : at[w] });
+    });
+    // this round's tables stay as they are until the host deals the next one
+    const { tables, moves } = nextTables(ranked);
+    Object.assign(t, { next: tables, moves, phase: 'between' });
+  }
+
+  nextTourRound() {
+    const t = this.tour;
+    if (t.phase !== 'between') return { ok: false, error: 'The round is not over.' };
+    t.tables = t.next;
+    t.next = null;
+    t.moves = null;
+    t.round++;
+    this.dealTour();
+    return { ok: true };
+  }
+
+  // After the last round: lowest total wins. A tie for it goes to a vote among the tied people, as in a one-table game.
+  settleTour(totals) {
+    const t = this.tour;
+    t.stats.forEach((st, i) => Object.assign(st, tableStats(t.history, i)));
+    const best = Math.min(...totals);
+    const tied = totals.map((_, i) => i).filter((i) => totals[i] === best);
+    if (tied.length > 1 && tied.some((i) => !this.lobby.seats[i].bot)) {
+      t.tiebreak = { seats: tied, votes: {}, playing: false, points: null };
+      t.phase = 'tieVote';
+      return;
+    }
+    t.winners = tied;
+    t.phase = 'gameOver';
+  }
+
+  tourTieVote(seat, choice) {
+    const t = this.tour;
+    const tb = t.tiebreak;
+    if (!tb.seats.includes(seat) || this.lobby.seats[seat].bot) return { ok: false, error: 'Only the tied players choose.' };
+    if (choice !== 'share' && choice !== 'tiebreak') return { ok: false, error: 'Unknown choice.' };
+    tb.votes[seat] = choice;
+    if (choice === 'share') {
+      t.winners = tb.seats;
+      t.phase = 'gameOver';
+      return { ok: true };
+    }
+    if (tb.seats.every((i) => this.lobby.seats[i].bot || tb.votes[i] === 'tiebreak')) {
+      // the last round's contract again, just the tied players at one table
+      const seats = this.lobby.seats;
+      const g = createGame(tb.seats.map((i) => ({ name: seats[i].name, bot: !!seats[i].bot })), this.lobby.options, Math.random, { round: t.round });
+      g.tiebreak = { seats: tb.seats.map((_, l) => l), votes: {}, playing: true, points: null };
+      g.stats = g.players.map(() => newStats());
+      startRound(g, { tiebreaker: true });
+      t.tbGame = g;
+      tb.playing = true;
+      t.phase = 'tiebreak';
+    }
+    return { ok: true };
+  }
+
+  // What a seat sees of a Tables game: their table's game (or the one they're watching, with every hand hidden), or at
+  // the end the whole group as one game, so the end screens and score sheet work as they do for one table
+  tourSnapshot(seat) {
+    const t = this.tour;
+    const own = this.tableAt(seat);
+    let view;
+    let viewSeats;
+    if (t.phase === 'playing' || t.phase === 'between') {
+      const w = t.phase === 'playing' ? t.watching[seat] : undefined;
+      const k = w ?? own;
+      if (k >= 0) {
+        viewSeats = t.tables[k];
+        view = viewFor(t.games[k], w == null ? t.tables[k].indexOf(seat) : null);
+      }
+    } else if (t.phase === 'tiebreak') {
+      viewSeats = t.tiebreak.seats;
+      const local = viewSeats.indexOf(seat);
+      view = viewFor(t.tbGame, local >= 0 ? local : null);
+    }
+    if (!view) {
+      viewSeats = this.lobby.seats.map((_, i) => i);
+      view = this.summaryView(seat);
+    }
+    const info = {
+      round: t.round,
+      phase: t.phase,
+      table: own,
+      watching: t.phase === 'playing' ? (t.watching[seat] ?? null) : null,
+      viewSeats,
+      tables: t.tables.map((at, k) => {
+        const g = t.games[k];
+        const rr = g.roundResult;
+        return { seats: at, done: !!g.counted, phase: g.phase, turn: at[g.turn], laid: g.laid.filter(Boolean).length, wentOut: rr && rr.winner != null ? at[rr.winner] : null };
+      }),
+      points: t.scores.map((s) => s[t.round] ?? null),
+      totals: this.tourTotals(),
+      next: t.next,
+      moves: t.moves,
+      history: t.history,
+    };
+    return { view, info };
+  }
+
+  summaryView(seat) {
+    const t = this.tour;
+    const n = this.lobby.seats.length;
+    const over = t.phase === 'gameOver';
+    return {
+      you: seat,
+      options: this.lobby.options,
+      players: this.lobby.seats.map((s) => ({ name: s.name, bot: !!s.bot, out: false, cards: 0, laid: false, buysUsed: 0, blocked: false, ready: true })),
+      scores: t.scores.map((s) => Array.from({ length: t.round + 1 }, (_, r) => s[r] ?? 0)),
+      round: t.round,
+      dealer: -1,
+      turn: -1,
+      phase: over ? 'gameOver' : 'tieVote',
+      deckCount: 0,
+      discardTop: null,
+      discardBelow: null,
+      discardCount: 0,
+      topDead: false,
+      lastDiscard: null,
+      melds: [],
+      hand: [],
+      turnPlays: 0,
+      canUndo: false,
+      mustPlay: [],
+      buyOffered: false,
+      buyEligible: [],
+      mustDecide: false,
+      earlyBuy: null,
+      buyWindow: null,
+      roundResult: { winner: null, points: Array.from({ length: n }, (_, i) => t.scores[i][t.round] ?? 0), hands: null },
+      log: [],
+      seq: 0,
+      tiebreak: t.tiebreak,
+      winners: t.winners,
+      stats: over ? t.stats : null,
+    };
   }
 
   // ---------- bots ----------
@@ -381,6 +826,11 @@ export class HostSession {
     this.timers.clear();
   }
 
+  // a game changed: its computers get a fresh look at it next time they're scheduled
+  touch(g) {
+    if (g) this.touched.add(g);
+  }
+
   // With one person playing against the computer, opening a pop-up (the menu, Settings, Scores…) pauses the game:
   // the computers wait and the buy countdown stops, then picks up where it was
   canPause() {
@@ -393,85 +843,102 @@ export class HostSession {
     if (on) {
       this.pausedAt = Date.now();
       this.clearTimers();
-      clearTimeout(this.turnTimer);
       return;
     }
-    const g = this.game;
-    if (g && g.buyWindow) g.buyWindow.deadline += Date.now() - this.pausedAt;
+    for (const { g } of this.botGames()) if (g.buyWindow) g.buyWindow.deadline += Date.now() - this.pausedAt;
     this.pausedAt = null;
     // the cleared timers are set up again: buy answers, and the computers' Shanghai calls on this discard
-    this.askArmed = null;
-    this.askFast = null;
-    this.reacted.clear();
+    this.drivers = new WeakMap();
     this.changed();
   }
 
-  stillAsking(seat) {
-    const w = this.game && this.game.buyWindow;
+  // the games computers might be playing in right now, each with its seats in the lobby (null: the same numbers)
+  botGames() {
+    const t = this.tour;
+    if (!t) return this.game ? [{ g: this.game, seats: null }] : [];
+    if (t.phase === 'playing') return t.games.map((g, k) => ({ g, seats: t.tables[k] }));
+    if (t.phase === 'tiebreak') return [{ g: t.tbGame, seats: t.tiebreak.seats }];
+    return [];
+  }
+
+  driver(g) {
+    if (!this.drivers.has(g)) this.drivers.set(g, { reacted: new Set(), memos: new Map(), memoKey: null });
+    return this.drivers.get(g);
+  }
+
+  stillAsking(g, seat) {
+    const w = g.buyWindow;
     return !!w && w.order.includes(seat) && w.answers[seat] === undefined;
   }
 
   // every person in the buy window has answered (the computers still to go don't count)
-  peopleAnswered(w) {
-    return w.order.every((seat) => this.game.players[seat].bot || w.answers[seat] !== undefined);
-  }
-
-  botBuyAnswer(seat, ms) {
-    const g = this.game;
-    const w = g.buyWindow;
-    this.later(ms, () => this.game === g && g.buyWindow === w && this.stillAsking(seat) && this.act(seat, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, seat)) }));
+  peopleAnswered(g, w) {
+    return w.order.every((seat) => g.players[seat].bot || w.answers[seat] !== undefined);
   }
 
   scheduleBots() {
-    const g = this.game;
     if (this.pausedAt) return;
+    // only the games that changed: the others' timers carry on (a busy table doesn't hold the others up)
+    const only = this.touched.size ? this.touched : null;
+    this.touched = new Set();
+    for (const { g, seats } of this.botGames()) if (!only || only.has(g)) this.scheduleGame(g, seats);
+  }
+
+  // seats: the lobby seat of each of the game's players (null when they're the same numbers)
+  scheduleGame(g, seats) {
+    const d = this.driver(g);
+    const lobbySeat = (local) => (seats ? seats[local] : local);
+    const act = (local, a) => this.act(lobbySeat(local), a);
     // reaction timers re-check themselves when they fire; only the turn timer is reset on every change
-    clearTimeout(this.turnTimer);
-    this.timers.delete(this.turnTimer);
-    if (!g || (g.phase !== 'draw' && g.phase !== 'play')) return;
+    clearTimeout(d.turnTimer);
+    this.timers.delete(d.turnTimer);
+    if (g.phase !== 'draw' && g.phase !== 'play') return;
     const bots = g.players.map((p, i) => (p.bot ? i : -1)).filter((i) => i >= 0);
+    const botBuyAnswer = (seat, ms, w) =>
+      this.later(ms, () => g.buyWindow === w && this.stillAsking(g, seat) && act(seat, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, seat)) }));
 
     // everyone eligible is asked at once: computers answer, players who dropped off pass,
     // and anyone who hasn't answered when the 10 seconds run out passes
     const w = g.buyWindow;
     const askKey = w && `${w.cardId}:${w.deadline}`;
-    if (w && this.askArmed !== askKey) {
-      this.askArmed = askKey;
-      const peopleDone = this.peopleAnswered(w);
+    if (w && d.askArmed !== askKey) {
+      d.askArmed = askKey;
+      const peopleDone = this.peopleAnswered(g, w);
       for (const seat of w.order) {
-        const s = this.lobby.seats[seat];
+        const s = this.lobby.seats[lobbySeat(seat)];
         if (g.players[seat].bot) {
-          if (!peopleDone) this.botBuyAnswer(seat, 900 + Math.random() * 1200);
-        } else if (s && !s.isHost && !s.connected) this.later(300, () => this.stillAsking(seat) && this.act(seat, { type: 'buyAnswer', buy: false }));
+          if (!peopleDone) botBuyAnswer(seat, 900 + Math.random() * 1200, w);
+        } else if (s && !s.isHost && !s.connected) this.later(300, () => this.stillAsking(g, seat) && act(seat, { type: 'buyAnswer', buy: false }));
       }
       const t = setTimeout(() => {
         this.timers.delete(t);
-        if (this.game === g && g.buyWindow === w && w.deadline <= Date.now() + 50) {
+        if (g.buyWindow === w && w.deadline <= Date.now() + 50 && this.botGames().some((b) => b.g === g)) {
           buyTimeout(g);
+          this.touch(g);
+          if (this.tour) this.checkTour();
           this.changed();
         }
       }, Math.max(0, w.deadline - Date.now()) + 250);
       this.timers.add(t);
     }
     // once every person being asked has answered, the computers answer quickly: nobody is left needing time to think
-    if (w && this.askFast !== askKey && this.peopleAnswered(w)) {
-      this.askFast = askKey;
-      for (const seat of w.order) if (g.players[seat].bot) this.botBuyAnswer(seat, 400 + Math.random() * 500);
+    if (w && d.askFast !== askKey && this.peopleAnswered(g, w)) {
+      d.askFast = askKey;
+      for (const seat of w.order) if (g.players[seat].bot) botBuyAnswer(seat, 400 + Math.random() * 500, w);
     }
 
     // Shanghai calls on the latest discard, decided once per discard per bot
     if (g.phase === 'draw') {
       const key = `${g.round}:${g.discard.length}:${g.discard[g.discard.length - 1]?.id}`;
       for (const seat of bots) {
-        if (seat === g.turn || sittingOut(g, seat) || this.reacted.has(key + ':' + seat)) continue;
+        if (seat === g.turn || sittingOut(g, seat) || d.reacted.has(key + ':' + seat)) continue;
         const v = viewFor(g, seat);
         if (!seesShanghai(v)) continue;
-        this.reacted.add(key + ':' + seat);
+        d.reacted.add(key + ':' + seat);
         const { calls, delay } = shanghaiReaction(g.options);
-        if (calls)
-          this.later(delay, () => this.game === g && seesShanghai(viewFor(g, seat)) && this.act(seat, { type: 'shanghai' }));
+        if (calls) this.later(delay, () => this.botGames().some((b) => b.g === g) && seesShanghai(viewFor(g, seat)) && act(seat, { type: 'shanghai' }));
       }
-      if (this.reacted.size > 500) this.reacted.clear();
+      if (d.reacted.size > 500) d.reacted.clear();
     }
 
     if (!g.players[g.turn].bot) return;
@@ -483,17 +950,17 @@ export class HostSession {
       // (after a buy, the usual pause lets the bought card fly to the buyer first)
       const callable = g.lastDiscard && g.lastDiscard.open && !g.buyOffered && g.melds.length > 0;
       const wait = callable ? 6000 : g.buyOffered ? 800 : 1500;
-      this.turnTimer = this.later(wait, () => {
+      d.turnTimer = this.later(wait, () => {
         const a = chooseDraw(viewFor(g, seat), this.botMemo(g, seat));
-        if (a) this.act(seat, a);
+        if (a) act(seat, a);
       });
     } else {
-      this.turnTimer = this.later(900, () => {
-        const res = this.act(seat, choosePlay(viewFor(g, seat), Math.random, this.botMemo(g, seat)));
+      d.turnTimer = this.later(900, () => {
+        const res = act(seat, choosePlay(viewFor(g, seat), Math.random, this.botMemo(g, seat)));
         // never let a confused bot freeze the table
         if (!res.ok) {
           const hand = g.hands[seat];
-          if (g.phase === 'play' && g.turn === seat && hand.length > 1) this.act(seat, { type: 'discard', id: hand[0].id });
+          if (g.phase === 'play' && g.turn === seat && hand.length > 1) act(seat, { type: 'discard', id: hand[0].id });
         }
       });
     }
@@ -501,10 +968,11 @@ export class HostSession {
 
   // a computer's notes for this round (whether it's holding its lay down to stump people); not saved with the game
   botMemo(g, seat) {
+    const d = this.driver(g);
     const key = `${g.round}:${g.tiebreak ? 't' : ''}`;
-    if (this.memoGame !== g || this.memoKey !== key) Object.assign(this, { memoGame: g, memoKey: key, memos: new Map() });
-    if (!this.memos.has(seat)) this.memos.set(seat, {});
-    return this.memos.get(seat);
+    if (d.memoKey !== key) Object.assign(d, { memoKey: key, memos: new Map() });
+    if (!d.memos.has(seat)) d.memos.set(seat, {});
+    return d.memos.get(seat);
   }
 
   close() {
@@ -555,12 +1023,12 @@ export class ClientSession {
     this.chatListeners.forEach((fn) => fn(live ? ok[ok.length - 1] : null));
   }
 
-  sendChat(text) {
+  sendChat(text, to) {
     text = cleanChat(text);
     if (!text) return { ok: false, error: 'Type a message first.' };
     // messages go through the host's phone: with them away it would just be lost
     if (this.snap.status !== 'connected' || this.snap.hostLeft) return { ok: false, error: 'Chat is paused until the host is back.' };
-    this.link.send({ t: 'chat', text });
+    this.link.send({ t: 'chat', text, to });
     return { ok: true, pending: true, sent: true };
   }
 

@@ -8,13 +8,16 @@ import { ROUNDS, roundCfg, isLastRound, DEFAULT_OPTIONS, decksFor, contractText 
 // How long players get to decide whether to buy once the current player allows it.
 export const BUY_WINDOW_MS = 10000; // one countdown shared by everyone being asked
 
-export function createGame(players, options = {}, rng = Math.random) {
+// A Tables game (see tournament.js) plays each table's rounds as games of one round each: round is which of the 7 to
+// deal, and oneRound stops it at roundOver, where the host takes the points and moves people between tables.
+export function createGame(players, options = {}, rng = Math.random, { round = 0, oneRound = false } = {}) {
   const state = {
     options: { ...DEFAULT_OPTIONS, ...options },
     players: players.map((p) => ({ name: p.name, bot: !!p.bot })),
     scores: players.map(() => []),
     stats: players.map(() => newStats()),
-    round: -1,
+    round: round - 1,
+    oneRound,
     dealer: Math.floor(rng() * players.length),
     phase: 'draw',
     log: [],
@@ -28,7 +31,7 @@ export function createGame(players, options = {}, rng = Math.random) {
 
 // Counted all game for "How everyone played" at the end (only shown then). Games saved before these were kept have
 // none, and show nothing.
-function newStats() {
+export function newStats() {
   return { caught: 0, caughtBy: 0, shanghaiCards: 0, ownShanghais: 0, falseCalls: 0, buys: 0, buyExtra: 0, jokerSwaps: 0, wentOut: 0 };
 }
 function bump(state, seat, key, n = 1) {
@@ -238,7 +241,7 @@ function finishRound(state, winner) {
   if (winner != null) bump(state, winner, 'wentOut');
   if (winner != null) log(state, `${state.players[winner].name} went out and won ${what}!`, 'win', { seat: winner });
   else log(state, `${what[0].toUpperCase() + what.slice(1)} ended with nobody going out.`, 'win');
-  if (!isLastRound(state.round)) {
+  if (!isLastRound(state.round) || state.oneRound) {
     state.phase = 'roundOver';
     return;
   }
