@@ -91,7 +91,8 @@ const ui = {
   quickEmoji: quickEmoji(store.get('quickEmoji')), // your quick reactions in the chat (Settings › Quick reactions)
   quickSayings: quickSayings(store.get('quickSayings')),
   chatNote: null, // a line in the chat only you see, when a message of yours didn't go: { text, after: message id }
-  quickEdit: null, // changing one in its own sheet (#quick-sheet): { kind: 'emoji', i } or { kind: 'saying' }
+  quickEdit: null, // changing one in its own sheet (#quick-sheet): { kind: 'emoji', i }, { kind: 'saying', i } or { kind: 'saying' } to add
+  sayingDrag: null, // moving a saying in Settings by its dots (startSayingDrag)
   revealQuick: false, // Settings opened from the chat's Edit: scroll to the quick reactions
 };
 
@@ -499,7 +500,7 @@ function send(action) {
 
 // ---------- rendering ----------
 function render() {
-  if (ui.drag || ui.swiping) {
+  if (ui.drag || ui.swiping || ui.sayingDrag) {
     ui.pendingRender = true;
     return;
   }
@@ -1492,14 +1493,18 @@ function quickSettingsHTML() {
   const emoji = ui.quickEmoji
     .map((e, i) => `<button class="ghost" data-act="quickEmoji" data-i="${i}" aria-label="Change ${esc(e)}">${esc(e)}</button>`)
     .join('');
+  // tap a saying to change it; drag it by the dots to move it (sayingDrag)
   const sayings = ui.quickSayings
-    .map((t, i) => `<div class="quick-saying"><span>${esc(t)}</span><button class="ghost small" data-act="quickRemove" data-i="${i}" aria-label="Remove ${esc(t)}">✕</button></div>`)
+    .map((t, i) => `<div class="quick-saying" data-saying="${i}"><span class="quick-grip" data-grip="${i}" title="Drag to move">${GRIP_ICON}</span>
+      <button class="quick-text" data-act="quickChange" data-i="${i}" aria-label="Change ${esc(t)}">${esc(t)}</button>
+      <button class="ghost small" data-act="quickRemove" data-i="${i}" aria-label="Remove ${esc(t)}">✕</button></div>`)
     .join('');
   const n = ui.quickSayings.length;
   return `<h3 id="quick-chat">Quick reactions</h3>
     <p class="muted quick-note">Tap one to change it to any emoji on your keyboard.</p>
     <div class="quick-emoji">${emoji}</div>
     <h3>Quick sayings</h3>
+    ${n > 1 ? '<p class="muted quick-note">Tap one to change it. Drag the dots to move it.</p>' : n ? '<p class="muted quick-note">Tap it to change it.</p>' : ''}
     <div class="quick-sayings">${sayings}${
       n < QUICK_COUNT
         ? `<button class="ghost quick-add" data-act="quickAdd">+ Add a saying (${n} of ${QUICK_COUNT})</button>`
@@ -1508,18 +1513,67 @@ function quickSettingsHTML() {
     ${custom ? '<button class="link-btn" data-act="quickReset">Reset to default options</button>' : ''}`;
 }
 
+const GRIP_ICON = '<svg class="grip-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
+
+// Moving a saying: drag it by its dots, and the others make room as it passes them. Redraws wait until it's dropped.
+function startSayingDrag(e, grip) {
+  const row = grip.closest('.quick-saying');
+  const rows = [...row.parentNode.querySelectorAll('.quick-saying')];
+  if (rows.length < 2) return;
+  e.preventDefault();
+  const from = rows.indexOf(row);
+  const tops = rows.map((r) => r.getBoundingClientRect().top);
+  const step = rows.length > 1 ? tops[1] - tops[0] : row.offsetHeight;
+  const d = { pointerId: e.pointerId, row, rows, from, to: from, startY: e.clientY, tops, step };
+  ui.sayingDrag = d;
+  row.classList.add('lifted');
+  rows.forEach((r) => r !== row && (r.style.transition = 'transform 0.15s ease-out'));
+  const move = (ev) => {
+    if (ev.pointerId !== d.pointerId) return;
+    // kept within the list
+    const dy = Math.max(tops[0] - tops[from], Math.min(tops[rows.length - 1] - tops[from], ev.clientY - d.startY));
+    row.style.transform = `translateY(${dy}px)`;
+    d.to = Math.max(0, Math.min(rows.length - 1, Math.round(from + dy / step)));
+    rows.forEach((r, i) => {
+      if (r === row) return;
+      const shift = from < d.to && i > from && i <= d.to ? -step : from > d.to && i < from && i >= d.to ? step : 0;
+      r.style.transform = shift ? `translateY(${shift}px)` : '';
+    });
+  };
+  const end = (ev) => {
+    if (ev.pointerId !== d.pointerId) return;
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', end);
+    window.removeEventListener('pointercancel', end);
+    ui.sayingDrag = null;
+    if (d.to !== d.from) {
+      const list = [...ui.quickSayings];
+      list.splice(d.to, 0, ...list.splice(d.from, 1));
+      ui.quickSayings = list;
+      saveQuick();
+    }
+    ui.swallowClick = true;
+    render();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+}
+
 function saveQuick() {
   store.set('quickEmoji', ui.quickEmoji);
   store.set('quickSayings', ui.quickSayings);
 }
 
-// a saying from the ideas or typed in; says why when it can't go in
+// a saying from the ideas or typed in, added or in place of the one being changed; says why when it can't go in
 function addSaying(text) {
   const clean = cleanSaying(text);
+  const at = ui.quickEdit && ui.quickEdit.i;
   if (!clean) return 'Write something first.';
-  if (ui.quickSayings.some((t) => t.toLowerCase() === clean.toLowerCase())) return 'You already have that one.';
-  if (ui.quickSayings.length >= QUICK_COUNT) return 'Remove one to add another.';
-  ui.quickSayings = [...ui.quickSayings, clean];
+  if (ui.quickSayings.some((t, i) => i !== at && t.toLowerCase() === clean.toLowerCase())) return 'You already have that one.';
+  if (at != null) ui.quickSayings = ui.quickSayings.map((t, i) => (i === at ? clean : t));
+  else if (ui.quickSayings.length >= QUICK_COUNT) return 'Remove one to add another.';
+  else ui.quickSayings = [...ui.quickSayings, clean];
   saveQuick();
   ui.quickEdit = null;
   render();
@@ -1544,6 +1598,17 @@ function syncQuickSheet() {
     body = `<p>Open your emoji keyboard and pick one. It takes the place of ${esc(ui.quickEmoji[q.i])}.</p>
       <input class="quick-input quick-emoji-input" data-field="quickEmoji" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Emoji">`;
     actions = '<button class="ghost" data-act="quickCancel">Cancel</button>';
+  } else if (q.i != null) {
+    const ideas = CHAT_IDEAS.filter((t) => !ui.quickSayings.some((s) => s.toLowerCase() === t.toLowerCase()));
+    const now = ui.quickSayings[q.i];
+    title = 'Change saying';
+    body = `<div class="quick-own"><input class="quick-input" data-field="quickSaying" maxlength="${SAYING_MAX}" autocomplete="off" enterkeyhint="done"
+        value="${esc(now)}" aria-label="Your saying"><span class="quick-count muted">${Array.from(now).length}/${SAYING_MAX}</span></div>
+      ${ideas.length ? `<p class="muted">Or pick one</p><div class="quick-ideas">${ideas
+        .map((t) => `<button class="say" data-act="quickIdea">${esc(t)}</button>`)
+        .join('')}</div>` : ''}`;
+    actions = `<button class="link-btn quick-delete" data-act="quickRemove" data-i="${q.i}">Remove</button>
+      <button class="ghost" data-act="quickCancel">Cancel</button><button class="primary" data-act="quickOwn">Save</button>`;
   } else {
     const ideas = CHAT_IDEAS.filter((t) => !ui.quickSayings.some((s) => s.toLowerCase() === t.toLowerCase()));
     title = 'Add a saying';
@@ -1566,8 +1631,10 @@ function syncQuickSheet() {
     }
   });
   document.body.appendChild(sheet);
-  // straight away, inside the tap, so phones bring up the keyboard
-  sheet.querySelector('input').focus();
+  // straight away, inside the tap, so phones bring up the keyboard (at the end of a saying being changed)
+  const input = sheet.querySelector('input');
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
 }
 
 function quickMsg(text) {
@@ -2614,6 +2681,8 @@ function handGeo(hand) {
 
 function onPointerDown(e) {
   ui.swallowClick = false;
+  const grip = !ui.sayingDrag && e.target.closest('[data-grip]');
+  if (grip) return startSayingDrag(e, grip);
   // one drag at a time, and not while the last drop is still sliding into place
   if (ui.drag || $app.querySelector('.hand .settling')) return;
   const pile = e.target.closest('[data-drag]');
@@ -3795,8 +3864,12 @@ function onClick(e) {
       return quickMsg(addSaying(t.textContent));
     case 'quickOwn':
       return quickMsg(addSaying(document.querySelector('#quick-sheet [data-field="quickSaying"]').value));
+    case 'quickChange':
+      ui.quickEdit = { kind: 'saying', i: Number(t.dataset.i) };
+      return render();
     case 'quickRemove':
       ui.quickSayings = ui.quickSayings.filter((_, i) => i !== Number(t.dataset.i));
+      ui.quickEdit = null;
       saveQuick();
       return render();
     case 'quickReset':
