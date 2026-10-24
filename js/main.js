@@ -2205,15 +2205,19 @@ function syncChatSheet() {
     ...ui.quickSayings.map((t) => `<button class="say" data-chat="saying">${esc(t)}</button>`)].join('');
   // one time: these can be changed (shown in the sheet itself, since tips wait while the chat is open)
   const seen = store.get('tipsSeen', []);
-  const tip = !store.get('tipsOff', false) && !seen.includes('quickChat') && !chatAway(ui.snap);
-  if (tip) {
-    store.set('tipsSeen', [...seen, 'quickChat']);
-    stats.track('tip', { tip: 'quickChat' });
+  // Tables (BETA): the first time there are tabs, what each one is (the quick reactions line waits for another time)
+  const tabsTip = !store.get('tipsOff', false) && chatTabs() && !seen.includes('chatTabs');
+  const tip = !tabsTip && !store.get('tipsOff', false) && !seen.includes('quickChat') && !chatAway(ui.snap);
+  if (tip || tabsTip) {
+    const key = tabsTip ? 'chatTabs' : 'quickChat';
+    store.set('tipsSeen', [...seen, key]);
+    stats.track('tip', { tip: key });
   }
   sheet.innerHTML = `<div class="chat-backdrop" data-chat="close"></div>
     <div class="chat-panel" role="dialog" aria-label="Chat">
       <div class="chat-head"><b>Chat</b><button class="icon-btn" data-chat="edit" title="Change quick reactions" aria-label="Change quick reactions">${GEAR_ICON}</button><button class="icon-btn" data-chat="close" title="Close" aria-label="Close">${X_ICON}</button></div>
       <div class="chat-tabs seg" role="tablist" aria-label="Which chat"></div>
+      ${tabsTip ? '<p class="chat-tip">Table is just the people at your table this round. Everyone goes to every table.</p>' : ''}
       <div class="chat-turn"></div>
       <div class="chat-msgs"></div>
       ${tip ? `<p class="chat-tip">You can change these quick reactions in Settings, or tap <span class="tip-icon">${GEAR_ICON}</span> up top.</p>` : ''}
@@ -3881,6 +3885,16 @@ const TIPS = {
     html: () => `Someone sent a message! Tap <b>💬</b> to chat or send a quick reaction. If you'd rather not see messages pop up, turn
       off <b>Chat pop-ups</b> in Settings.`,
   },
+  // Tables (BETA): your table finished before the others
+  tablesWatch: {
+    when: (v) => {
+      const t = ui.snap.tour;
+      return !!t && t.phase === 'playing' && t.watching == null && v.phase === 'roundOver' && t.tables.some((x, k) => k !== t.table && !x.done);
+    },
+    at: ['.live-table [data-act="watch"]'],
+    reveal: true,
+    html: () => "Your table is done. Tap <b>Watch</b> to see another table play. Nobody's cards show.",
+  },
 };
 
 function guideTarget(selectors) {
@@ -3926,7 +3940,8 @@ function placeGuide() {
   }
   const tour = ui.tour != null;
   const item = tour ? TOUR[ui.tour] : TIPS[ui.tip];
-  if (layer.dataset.showing !== showing) {
+  const fresh = layer.dataset.showing !== showing;
+  if (fresh) {
     layer.dataset.showing = showing;
     layer.className = tour ? 'tour' : 'tip';
     const last = tour && ui.tour === TOUR.length - 1;
@@ -3940,6 +3955,8 @@ function placeGuide() {
   const spot = layer.querySelector('.guide-spot');
   const bubble = layer.querySelector('.guide-bubble');
   const els = guideTarget(item.at);
+  // a target in a pop-up's scrolling middle is brought into view when the tip first shows
+  if (els && fresh && item.reveal) els[0].scrollIntoView({ block: 'center' });
   if (!els) {
     // nothing to point at (e.g. scrolled away): just the note, in the middle
     spot.hidden = true;
