@@ -2489,6 +2489,13 @@ function slideHand(dock, y, drop, ms = 0) {
     el.style.transition = ms ? `transform ${ms}ms ease-out` : 'none';
     el.style.transform = by ? `translateY(${by}px)` : '';
   }
+  // the table grows into the room the bottom area leaves, in step with it, so the piles it uncovers show as it goes
+  // instead of plain felt till the slide is over
+  const table = !SIDEWAYS.matches && $app.querySelector('.table');
+  if (table) {
+    table.style.transition = ms ? `margin-bottom ${ms}ms ease-out` : 'none';
+    table.style.marginBottom = along ? `${-along}px` : '';
+  }
 }
 
 function lowerHand(dock, drop) {
