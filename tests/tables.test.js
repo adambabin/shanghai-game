@@ -204,3 +204,30 @@ test('a tie for the win goes to the vote, then a tiebreaker table of just the ti
   assert.deepEqual(end.winners, t.winners);
   h.close();
 });
+
+test("playing alone, a pop-up pauses only the person's own table: the computers' tables play on", async () => {
+  data.clear();
+  const h = tablesLobby(12);
+  h.lobby.options.botSpeed = 0.002;
+  assert.ok(h.act(0, { type: 'start' }).ok);
+  assert.ok(h.act(0, { type: 'startNow' }).ok);
+  const t = h.tour;
+  const mine = h.gameFor(0).g;
+  const others = t.games.filter((g) => g !== mine);
+  assert.equal(mine.phase, 'draw');
+  // let the computers play a little first, so it's somebody's turn mid-game
+  await sleep(30);
+  h.setPaused(true);
+  assert.ok(h.pausedAt, 'paused');
+  const frozen = JSON.stringify(mine);
+  const before = others.map((g) => JSON.stringify(g));
+  await sleep(150);
+  assert.equal(JSON.stringify(mine), frozen, 'nothing happens at my table while paused');
+  assert.ok(
+    others.every((g, k) => JSON.stringify(g) !== before[k]),
+    'the tables of only computers keep playing',
+  );
+  h.setPaused(false);
+  assert.ok(!h.pausedAt && !h.pausedGame);
+  h.close();
+});

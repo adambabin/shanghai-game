@@ -460,12 +460,16 @@ function syncHand(v) {
 }
 
 // Playing alone against the computer, these pop-ups pause the game (HostSession.setPaused): the computers wait and the
-// buy countdown stops, so changing a setting can't cost you a buy. Games with other people never pause.
+// buy countdown stops, so changing a setting can't cost you a buy. Games with other people never pause. In Tables (BETA)
+// only your own table waits (the computers' tables play on), and watching another table pauses nothing.
 const PAUSING_MODALS = ['menu', 'settings', 'scores', 'rules', 'log', 'feedback', 'cropPhoto', 'install'];
 function gamePaused() {
   const s = ui.session;
   const v = ui.snap && ui.snap.view;
-  return !!(s && s.setPaused && s.canPause() && v && (v.phase === 'draw' || v.phase === 'play') && PAUSING_MODALS.includes(ui.modal));
+  const watching = ui.snap && ui.snap.tour && ui.snap.tour.watching != null;
+  return !!(
+    s && s.setPaused && s.canPause() && v && !watching && (v.phase === 'draw' || v.phase === 'play') && PAUSING_MODALS.includes(ui.modal)
+  );
 }
 function syncPause() {
   const s = ui.session;
@@ -1392,9 +1396,12 @@ function gameHTML(snap) {
   return `<div class="game">
     ${banner}
     <div class="topbar">
-      <span class="round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}/${roundsIn(v.round)}`}</span>
-      <span class="contract">${contractText(v.round)}</span>
-      ${snap.tour && v.players[v.turn] && snap.tour.phase !== 'tiebreak' ? `<span class="table-tag">Table ${(snap.tour.watching ?? snap.tour.table) + 1}</span>` : ''}
+      ${
+        snap.tour && v.players[v.turn] && snap.tour.phase !== 'tiebreak'
+          ? `<span class="round at-table">Round ${v.round + 1}/${roundsIn(v.round)}<span class="table-tag">Table ${(snap.tour.watching ?? snap.tour.table) + 1}</span></span>`
+          : `<span class="round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}/${roundsIn(v.round)}`}</span>`
+      }
+      <span class="contract" data-act="showContract">${contractText(v.round)}</span>
       <span class="spacer"></span>
       ${snap.lobby.code && !snap.tour ? `<span class="muted" style="font-size:12px">${snap.lobby.code}</span>` : ''}
       <button class="icon-btn" data-act="modal" data-m="scores">Scores</button>
@@ -1466,7 +1473,9 @@ function wrapModal(title, body, actions = '', { closeFirst = false, headAction =
   const close = `<button class="ghost" data-act="closeModal">${closeLabel}</button>`;
   const head = headAction ? `<div class="modal-head"><h2>${title}</h2>${headAction}</div>` : `<h2>${title}</h2>`;
   // playing alone against the computer, these pop-ups pause the game (see gamePaused); say so
-  const paused = gamePaused() ? '<p class="muted paused-note">The game is paused while this is open.</p>' : '';
+  const paused = gamePaused()
+    ? `<p class="muted paused-note">${ui.snap.tour ? 'Your table is' : 'The game is'} paused while this is open.</p>`
+    : '';
   return `<div class="overlay" data-act="closeModal"><div class="modal framed" data-stop>
     ${head}<div class="modal-body">${paused}${body}</div>
     <div class="actions">${closeFirst ? close + actions : actions + close}</div></div></div>`;
@@ -2879,11 +2888,13 @@ async function sendFeedback(button) {
 
 function rulesModal(o, bots = false) {
   const level = BOT_LEVELS.find(([k]) => k === botLevelFor(o));
-  const rounds = ROUNDS.map((r, i) => `<li>Round ${i + 1}: ${contractText(i)} (${r.deal} cards)</li>`).join('');
+  // every round deals the same number of cards: say it once instead of on each round
+  const sameDeal = ROUNDS.every((r) => r.deal === ROUNDS[0].deal);
+  const rounds = ROUNDS.map((r, i) => `<li>Round ${i + 1}: ${contractText(i)}${sameDeal ? '' : ` (${r.deal} cards)`}</li>`).join('');
   return wrapModal(
     'How to play',
     `<div class="rules">
-    <p>Lowest score after ${ROUNDS.length} rounds wins. Each round has a contract you must lay down before you can play on any piles.
+    <p>Lowest score after ${ROUNDS.length} rounds wins. ${sameDeal ? `Everyone gets ${ROUNDS[0].deal} cards each round, and each` : 'Each'} round has a contract you must lay down before you can play on any piles.
     If players tie for the win, they can share it or play a tiebreaker: round ${ROUNDS.length} again, just them.</p>
     <ul>${rounds}</ul>
     <h3>Around the table</h3>
@@ -4191,6 +4202,10 @@ function onClick(e) {
       ui.modal = null;
       ui.wildPrompt = null;
       return render();
+    case 'showContract':
+      // the contract is cut short on a narrow phone: tapping it says it in full
+      if (t.scrollWidth > t.clientWidth + 1) toast(`This round: ${t.textContent}`);
+      return;
     case 'toggleDock':
       if (ui.dockCollapsed) return raiseHand();
       return lowerHand(t.closest('.dock'));

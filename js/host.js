@@ -819,12 +819,15 @@ export class HostSession {
 
   // ---------- bots ----------
 
-  later(ms, fn) {
+  // g: the game the timer belongs to, so pausing one table clears only its timers
+  later(ms, fn, g) {
     const t = setTimeout(() => {
       this.timers.delete(t);
+      if (g) this.driver(g).timers.delete(t);
       fn();
     }, ms * (this.lobby.options.botSpeed || 1));
     this.timers.add(t);
+    if (g) this.driver(g).timers.add(t);
     return t;
   }
 
@@ -839,23 +842,42 @@ export class HostSession {
   }
 
   // With one person playing against the computer, opening a pop-up (the menu, Settings, Scores…) pauses the game:
-  // the computers wait and the buy countdown stops, then picks up where it was
+  // the computers wait and the buy countdown stops, then picks up where it was. In Tables (BETA) only their own table
+  // waits: the tables of only computers play on
   canPause() {
     return this.lobby.seats.filter((s) => !s.bot).length === 1;
+  }
+
+  // the game a pause holds: the one the person (the host, seat 0) is playing in, while it's mid-turn
+  pauseTarget() {
+    const g = this.tour ? this.gameFor(0)?.g : this.game;
+    return g && (g.phase === 'draw' || g.phase === 'play') ? g : null;
   }
 
   setPaused(on) {
     on = on && this.canPause();
     if (on === !!this.pausedAt) return;
     if (on) {
+      const g = this.pauseTarget();
+      if (!g) return;
       this.pausedAt = Date.now();
-      this.clearTimers();
+      this.pausedGame = g;
+      const d = this.driver(g);
+      clearTimeout(d.turnTimer);
+      d.timers.forEach((t) => {
+        clearTimeout(t);
+        this.timers.delete(t);
+      });
+      d.timers.clear();
       return;
     }
-    for (const { g } of this.botGames()) if (g.buyWindow) g.buyWindow.deadline += Date.now() - this.pausedAt;
+    const g = this.pausedGame;
+    if (g.buyWindow) g.buyWindow.deadline += Date.now() - this.pausedAt;
     this.pausedAt = null;
+    this.pausedGame = null;
     // the cleared timers are set up again: buy answers, and the computers' Shanghai calls on this discard
-    this.drivers = new WeakMap();
+    this.drivers.delete(g);
+    this.touch(g);
     this.changed();
   }
 
@@ -869,7 +891,7 @@ export class HostSession {
   }
 
   driver(g) {
-    if (!this.drivers.has(g)) this.drivers.set(g, { reacted: new Set(), memos: new Map(), memoKey: null });
+    if (!this.drivers.has(g)) this.drivers.set(g, { reacted: new Set(), memos: new Map(), memoKey: null, timers: new Set() });
     return this.drivers.get(g);
   }
 
@@ -884,11 +906,10 @@ export class HostSession {
   }
 
   scheduleBots() {
-    if (this.pausedAt) return;
     // only the games that changed: the others' timers carry on (a busy table doesn't hold the others up)
     const only = this.touched.size ? this.touched : null;
     this.touched = new Set();
-    for (const { g, seats } of this.botGames()) if (!only || only.has(g)) this.scheduleGame(g, seats);
+    for (const { g, seats } of this.botGames()) if ((!only || only.has(g)) && g !== this.pausedGame) this.scheduleGame(g, seats);
   }
 
   // seats: the lobby seat of each of the game's players (null when they're the same numbers)
@@ -902,7 +923,7 @@ export class HostSession {
     if (g.phase !== 'draw' && g.phase !== 'play') return;
     const bots = g.players.map((p, i) => (p.bot ? i : -1)).filter((i) => i >= 0);
     const botBuyAnswer = (seat, ms, w) =>
-      this.later(ms, () => g.buyWindow === w && this.stillAsking(g, seat) && act(seat, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, seat)) }));
+      this.later(ms, () => g.buyWindow === w && this.stillAsking(g, seat) && act(seat, { type: 'buyAnswer', buy: wantsToBuy(viewFor(g, seat)) }), g);
 
     // everyone eligible is asked at once: computers answer, players who dropped off pass,
     // and anyone who hasn't answered when the 10 seconds run out passes
@@ -915,10 +936,11 @@ export class HostSession {
         const s = this.lobby.seats[lobbySeat(seat)];
         if (g.players[seat].bot) {
           if (!peopleDone) botBuyAnswer(seat, 900 + Math.random() * 1200, w);
-        } else if (s && !s.isHost && !s.connected) this.later(300, () => this.stillAsking(g, seat) && act(seat, { type: 'buyAnswer', buy: false }));
+        } else if (s && !s.isHost && !s.connected) this.later(300, () => this.stillAsking(g, seat) && act(seat, { type: 'buyAnswer', buy: false }), g);
       }
       const t = setTimeout(() => {
         this.timers.delete(t);
+        d.timers.delete(t);
         if (g.buyWindow === w && w.deadline <= Date.now() + 50 && this.botGames().some((b) => b.g === g)) {
           buyTimeout(g);
           this.touch(g);
@@ -927,6 +949,7 @@ export class HostSession {
         }
       }, Math.max(0, w.deadline - Date.now()) + 250);
       this.timers.add(t);
+      d.timers.add(t);
     }
     // once every person being asked has answered, the computers answer quickly: nobody is left needing time to think
     if (w && d.askFast !== askKey && this.peopleAnswered(g, w)) {
@@ -943,7 +966,7 @@ export class HostSession {
         if (!seesShanghai(v)) continue;
         d.reacted.add(key + ':' + seat);
         const { calls, delay } = shanghaiReaction(g.options);
-        if (calls) this.later(delay, () => this.botGames().some((b) => b.g === g) && seesShanghai(viewFor(g, seat)) && act(seat, { type: 'shanghai' }));
+        if (calls) this.later(delay, () => this.botGames().some((b) => b.g === g) && seesShanghai(viewFor(g, seat)) && act(seat, { type: 'shanghai' }), g);
       }
       if (d.reacted.size > 500) d.reacted.clear();
     }
@@ -960,7 +983,7 @@ export class HostSession {
       d.turnTimer = this.later(wait, () => {
         const a = chooseDraw(viewFor(g, seat), this.botMemo(g, seat));
         if (a) act(seat, a);
-      });
+      }, g);
     } else {
       d.turnTimer = this.later(900, () => {
         const res = act(seat, choosePlay(viewFor(g, seat), Math.random, this.botMemo(g, seat)));
@@ -969,7 +992,7 @@ export class HostSession {
           const hand = g.hands[seat];
           if (g.phase === 'play' && g.turn === seat && hand.length > 1) act(seat, { type: 'discard', id: hand[0].id });
         }
-      });
+      }, g);
     }
   }
 
