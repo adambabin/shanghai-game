@@ -1396,13 +1396,14 @@ function gameHTML(snap) {
   return `<div class="game">
     ${banner}
     <div class="topbar">
+      <span class="heading"><span class="round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}/${roundsIn(v.round)}`}</span><span
+        class="contract" data-act="showContract">${contractText(v.round)}</span></span>
+      <span class="spacer"></span>
       ${
         snap.tour && v.players[v.turn] && snap.tour.phase !== 'tiebreak'
-          ? `<span class="round at-table">Round ${v.round + 1}/${roundsIn(v.round)}<span class="table-tag">Table ${(snap.tour.watching ?? snap.tour.table) + 1}</span></span>`
-          : `<span class="round">${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}/${roundsIn(v.round)}`}</span>`
+          ? `<span class="table-tag">Table ${(snap.tour.watching ?? snap.tour.table) + 1}</span>`
+          : ''
       }
-      <span class="contract" data-act="showContract">${contractText(v.round)}</span>
-      <span class="spacer"></span>
       ${snap.lobby.code && !snap.tour ? `<span class="muted" style="font-size:12px">${snap.lobby.code}</span>` : ''}
       <button class="icon-btn" data-act="modal" data-m="scores">Scores</button>
       <button class="icon-btn" data-act="modal" data-m="menu">☰</button>
