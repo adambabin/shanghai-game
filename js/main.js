@@ -97,7 +97,9 @@ const ui = {
   revealQuick: false, // Settings opened from the chat's Edit: scroll to the quick reactions
   chatTab: 'table', // Tables (BETA): the chat tab you're on, 'table' or 'all' (pop-ups follow it)
   moveSeat: null, // Tables (BETA): the lobby seat the host is moving to another table
-  nextTab: 'tables', // Tables (BETA): between rounds, 'tables' (next round's) or 'standings'
+  nextTab: 'tables', // Tables (BETA): between rounds, 'mine' (your table's round), 'tables' (next round's) or 'standings'
+  nextFor: null, // the round nextTab was last picked for
+  tableSeen: null, // the round whose results you saw at your own table while others played on
 };
 
 // card back colors you can pick in Settings (the CSS for each lives in style.css)
@@ -900,13 +902,12 @@ function tableMoves(t, k) {
   return Object.fromEntries(Object.entries(to).map(([s, d]) => [s, { to: d, how: d < k ? 'up' : d > k ? 'down' : 'stay' }]));
 }
 
-// Your table (or the one you're watching) has finished the round while others play on
-function tableDoneModal(snap) {
+// Each person's round at table k (the one in view), best first: points, total, where they go next and the cards
+// they were left holding
+function tableResultHTML(snap, k) {
   const v = snap.view;
   const t = snap.tour;
   const isWild = wildTest(v.options);
-  const k = t.watching ?? t.table;
-  const n = t.tables.length;
   const rr = v.roundResult;
   const moves = tableMoves(t, k);
   const order = (t.tables[k].ranked || t.tables[k].seats).map((s) => t.tables[k].seats.indexOf(s));
@@ -920,6 +921,17 @@ function tableDoneModal(snap) {
       ${hand.length ? `<div class="mini-hand">${hand.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>` : ''}</div>`;
     })
     .join('');
+  return `${rr.winner == null ? '<p class="muted">Nobody went out this round.</p>' : ''}${rows}`;
+}
+
+// Your table (or the one you're watching) has finished the round while others play on
+function tableDoneModal(snap) {
+  const v = snap.view;
+  const t = snap.tour;
+  const k = t.watching ?? t.table;
+  const n = t.tables.length;
+  const rr = v.roundResult;
+  if (k === t.table) ui.tableSeen = t.round;
   const others = t.tables.map((x, j) => [x, j]).filter(([, j]) => j !== k);
   const playing = others.filter(([x]) => !x.done);
   const live = others
@@ -940,8 +952,7 @@ function tableDoneModal(snap) {
     <h2>${rr.winner != null ? `${rr.winner === v.you ? 'You' : esc(v.players[rr.winner].name)} went out!` : 'Round over'}</h2>
     <div class="modal-body result-body">
       <p class="muted result-sub">This round at table ${k + 1}</p>
-      ${rr.winner == null ? '<p class="muted">Nobody went out this round.</p>' : ''}
-      ${rows}
+      ${tableResultHTML(snap, k)}
       ${playing.length ? `<b class="waiting-head">Waiting for ${playing.length} more table${playing.length === 1 ? '' : 's'}</b>` : ''}
       ${live}
     </div>
@@ -957,6 +968,11 @@ function nextTablesModal(snap) {
   const t = snap.tour;
   const seats = snap.lobby.seats;
   const n = t.next.length;
+  // the last table to finish never saw its own round's results, so it opens on them
+  if (ui.nextFor !== t.round) {
+    ui.nextFor = t.round;
+    ui.nextTab = ui.tableSeen === t.round ? 'tables' : 'mine';
+  }
   const tab = ui.nextTab;
   const legend = `<div class="legend"><span>${ARROW_UP} Moved up</span><span>${ARROW_DOWN} Dropped from the winners' table</span><span>Numbers are totals</span></div>`;
   const tables = t.next
@@ -972,15 +988,22 @@ function nextTablesModal(snap) {
       return `<div class="next-table ${k === 0 ? 'top' : ''} ${mine ? 'mine' : ''}"><div class="next-head"><span>${tableName(k, n)}</span>${mine ? "<small>You're here</small>" : ''}</div><div class="next-seats">${cells}</div></div>`;
     })
     .join('');
-  const tabs = `<div class="seg" role="tablist" aria-label="Show">
-      <button role="tab" aria-selected="${tab === 'tables'}" class="${tab === 'tables' ? 'on' : ''}" data-act="nextTab" data-tab="tables">Next round's tables</button>
+  const tabs = `<div class="seg three" role="tablist" aria-label="Show">
+      <button role="tab" aria-selected="${tab === 'mine'}" class="${tab === 'mine' ? 'on' : ''}" data-act="nextTab" data-tab="mine">Your table</button>
+      <button role="tab" aria-selected="${tab === 'tables'}" class="${tab === 'tables' ? 'on' : ''}" data-act="nextTab" data-tab="tables">Next round</button>
       <button role="tab" aria-selected="${tab === 'standings'}" class="${tab === 'standings' ? 'on' : ''}" data-act="nextTab" data-tab="standings">Standings</button></div>`;
+  const body =
+    tab === 'mine' && snap.view.roundResult
+      ? `<p class="muted result-sub">This round at table ${t.table + 1}</p>${tableResultHTML(snap, t.table)}`
+      : tab === 'standings'
+        ? standingsHTML(snap)
+        : legend + tables;
   const action = snap.isHost
     ? `<button class="primary" data-act="nextRound">Deal round ${t.round + 2}: ${contractText(t.round + 1)}</button>`
     : `<span class="muted">Waiting for ${esc(hostName(snap))} to deal round ${t.round + 2}…</span>`;
   return `<div class="overlay"><div class="modal framed">
     <h2>After round ${t.round + 1} of ${roundsIn(t.round)}</h2>
-    <div class="modal-body result-body">${tabs}${tab === 'tables' ? legend + tables : standingsHTML(snap)}</div>
+    <div class="modal-body result-body">${tabs}${body}</div>
     <div class="actions">${action}</div>
   </div></div>`;
 }
@@ -3530,13 +3553,12 @@ function dropOn(v, target, ids, x) {
   if (meld) playOn(v, meld, cards, isWild, dropSpot(target, meld, x, isWild));
 }
 
-// Where on a pile something was dropped: on a joker, or which half of it
+// Whether something was dropped on a pile's joker
 function dropSpot(target, meld, x, isWild) {
-  const r = target.getBoundingClientRect();
   const shown = [...target.querySelectorAll('.card')];
   const over = shown.filter((c) => c.getBoundingClientRect().left <= x).length - 1;
   const onWild = over >= 0 && x <= shown[over].getBoundingClientRect().right && isWild(meld.cards[over]);
-  return { onWild, side: x < r.left + r.width / 2 ? 'low' : 'high' };
+  return { onWild };
 }
 
 // Takes the discard straight onto a staged group, a New set / New run spot or a pile on the table. The card is
@@ -3654,8 +3676,8 @@ function addToStaged(v, i, added, isWild) {
 }
 
 // Plays cards on a pile on the table. A tap asks when it's unclear what you meant (swap the joker or add to the
-// run, which end a joker goes on); a drag answers from where you dropped: on a joker swaps it, and the left or
-// right half of a run is its low or high end.
+// run, which end a joker goes on); a drag answers the first from where you dropped (on a joker swaps it), but a
+// joker that could go on either end of a run still asks, like a tap.
 function playOn(v, meld, cards, isWild, drop = null) {
   if (!meld || !cards.length) return;
   const ids = cards.map((c) => c.id);
@@ -3675,7 +3697,6 @@ function playOn(v, meld, cards, isWild, drop = null) {
     const lowOk = addCards(meld, cards, isWild, 'low');
     const highOk = addCards(meld, cards, isWild, 'high');
     if (lowOk && highOk && lowOk.lo !== highOk.lo) {
-      if (drop) return done(send({ type: 'addToMeld', meldId: meld.id, ids, wildEnd: drop.side }));
       ui.wildPrompt = { meldId: meld.id, ids };
       ui.modal = 'wild';
       return;

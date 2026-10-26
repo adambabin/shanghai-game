@@ -2601,7 +2601,7 @@ button.link-btn {
   letter-spacing: 0.5px;
   vertical-align: 1px;
 }
-/* a pair of buttons that works like a switch (the lobby's One table / Tables, the chat's tabs, between rounds) */
+/* a pair of buttons that works like a switch (the lobby's One table / Tables, the chat's tabs), or three (between rounds) */
 .mode-switch,
 .seg {
   display: grid;
@@ -2610,6 +2610,13 @@ button.link-btn {
   padding: 4px;
   border-radius: 12px;
   background-color: rgba(0, 0, 0, 0.3);
+}
+.seg.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.seg.three button {
+  padding: 8px 4px;
+  font-size: 15px;
 }
 .mode-switch button,
 .seg button {
