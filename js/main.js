@@ -338,7 +338,10 @@ function onSnapshot(snap) {
     }
     processLog(v);
     trackMeldChanges(v);
-    ui.windowDeadline = v.buyWindow ? Date.now() + v.buyWindow.msLeft : null;
+    // a tie's draw at your table counts down the same way (Tables, BETA)
+    const tie = t && t.phase === 'playing' && t.table >= 0 ? t.tables[t.table].tie : null;
+    const tieLeft = tie && !tie.done && tie.seats.includes(snap.seat) && !tie.tries[tie.tries.length - 1][snap.seat] ? tie.msLeft : null;
+    ui.windowDeadline = v.buyWindow ? Date.now() + v.buyWindow.msLeft : tieLeft != null ? Date.now() + tieLeft : null;
     const turnKey = `${v.round}:${v.turn}:${v.phase}`;
     if (turnKey !== ui.lastTurnKey) {
       if (v.turn !== (prev && prev.view && prev.view.turn)) ui.armed = false;
@@ -902,6 +905,57 @@ function tableMoves(t, k) {
   return Object.fromEntries(Object.entries(to).map(([s, d]) => [s, { to: d, how: d < k ? 'up' : d > k ? 'down' : 'stay' }]));
 }
 
+// "Lou", "Lou and Ann", "Lou, Ann and You"
+function andList(names) {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+// A tie at table k that decides who moves (tieAtLine in tournament.js): everyone in it draws a card, high card loses.
+// You tap your face-down card; a card is drawn for you when the countdown runs out.
+function tieDrawHTML(snap, k) {
+  const t = snap.tour;
+  const tie = t.tables[k].tie;
+  if (!tie) return '';
+  const isWild = wildTest(snap.view.options);
+  const me = snap.seat;
+  const name = (s) => (s === me ? 'You' : esc(snap.lobby.seats[s].name));
+  const goal = k === 0 ? 'stay at table 1' : `move up to table ${k}`;
+  const s0 = tie.all[0];
+  const level = t.totals[s0] === t.points[s0] ? `${t.points[s0]} points` : `${t.points[s0]} points and ${t.totals[s0]} in all`;
+  const intro = `${andList(tie.all.map(name))} tied with ${level}. Only ${tie.places} can ${goal}, so each draws a card: high card loses.`;
+  const cards = tie.tries[tie.tries.length - 1];
+  const rows = tie.tries
+    .map((drawn, i) => {
+      const last = i === tie.tries.length - 1;
+      const who = last && !tie.done ? tie.seats : Object.keys(drawn).map(Number);
+      const cells = who
+        .map((s) => {
+          const c = drawn[s];
+          const face = c
+            ? cardHTML(c, { sm: true, isWild })
+            : s === me
+              ? '<button class="tie-pick" data-act="tieDraw" aria-label="Draw a card"><span class="card-back">Tap</span></button>'
+              : '<span class="card-back"></span>';
+          return `<span class="tie-seat ${s === me ? 'me' : ''}">${face}<small>${name(s)}</small></span>`;
+        })
+        .join('');
+      return `<div class="tie-cards ${last ? '' : 'earlier'}">${cells}</div>`;
+    })
+    .join('');
+  let status;
+  if (tie.done) {
+    const one = tie.good.length === 1 && tie.good[0] !== me;
+    status = `<b>${andList(tie.good.map(name))} ${k === 0 ? (one ? 'stays' : 'stay') : one ? 'moves up' : 'move up'}.</b>`;
+  } else {
+    const again = tie.tries.length > 1 ? `Same number! ${andList(tie.seats.map(name))} draw again. ` : '';
+    const waiting = tie.seats.filter((s) => !cards[s]);
+    status = waiting.includes(me)
+      ? `${again}<b>Tap your card to draw.</b> One is drawn for you in <span class="countdown" data-countdown>${secondsLeft()}</span>`
+      : `${again}Waiting for ${andList(waiting.map(name))} to draw…`;
+  }
+  return `<div class="tie-draw"><b class="tie-head">A tie for who ${k === 0 ? 'stays' : 'moves up'}</b><p class="muted">${intro}</p>${rows}<p class="tie-status">${status}</p></div>`;
+}
+
 // Each person's round at table k (the one in view), best first: points, total, where they go next and the cards
 // they were left holding
 function tableResultHTML(snap, k) {
@@ -915,8 +969,9 @@ function tableResultHTML(snap, k) {
     .map((i) => {
       const s = lobbySeatOf(i);
       const hand = rr.hands ? rr.hands[i] : [];
-      const mv = moves[s];
-      const move = mv ? `<span class="move ${mv.how}">${mv.how === 'up' ? 'Up to' : mv.how === 'down' ? 'Down to' : 'Stays at'} table ${mv.to + 1}</span>` : '';
+      const tie = t.tables[k].tie;
+      const mv = tie && !tie.done && tie.all.includes(s) ? { how: 'drawing' } : moves[s];
+      const move = mv && mv.how === 'drawing' ? '<span class="move">Drawing cards for it</span>' : mv ? `<span class="move ${mv.how}">${mv.how === 'up' ? 'Up to' : mv.how === 'down' ? 'Down to' : 'Stays at'} table ${mv.to + 1}</span>` : '';
       return `<div class="result-row ${s === snap.seat ? 'mine' : ''}"><div class="top"><span>${s === snap.seat ? 'You' : esc(v.players[i].name)}${rr.winner === i ? ' went out!' : ''}</span><span>+${rr.points[i]} · total ${t.totals[s]}</span></div>${move}
       ${hand.length ? `<div class="mini-hand">${hand.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>` : ''}</div>`;
     })
@@ -937,11 +992,14 @@ function tableDoneModal(snap) {
   const live = others
     .map(([x, j]) => {
       const name = (s) => (s === snap.seat ? 'You' : esc(snap.lobby.seats[s].name));
-      const what = x.done
-        ? `Done${x.wentOut != null ? `: ${name(x.wentOut)} went out` : ''}`
-        : x.phase === 'ready'
-          ? 'Looking over their cards'
-          : `${name(x.turn)}'s turn · ${x.laid ? `${x.laid} laid down` : 'nobody has laid down'}`;
+      const what =
+        x.tie && !x.tie.done
+          ? 'Drawing cards for a tie'
+          : x.done
+            ? `Done${x.wentOut != null ? `: ${name(x.wentOut)} went out` : ''}`
+            : x.phase === 'ready'
+              ? 'Looking over their cards'
+              : `${name(x.turn)}'s turn · ${x.laid ? `${x.laid} laid down` : 'nobody has laid down'}`;
       return `<div class="live-table ${x.done ? 'done' : ''}"><span class="what"><b>${tableName(j, n)}</b><small>${what}</small></span>${
         x.done ? '' : `<button data-act="watch" data-table="${j}">Watch</button>`
       }</div>`;
@@ -952,6 +1010,7 @@ function tableDoneModal(snap) {
     <h2>${rr.winner != null ? `${rr.winner === v.you ? 'You' : esc(v.players[rr.winner].name)} went out!` : 'Round over'}</h2>
     <div class="modal-body result-body">
       <p class="muted result-sub">This round at table ${k + 1}</p>
+      ${tieDrawHTML(snap, k)}
       ${tableResultHTML(snap, k)}
       ${playing.length ? `<b class="waiting-head">Waiting for ${playing.length} more table${playing.length === 1 ? '' : 's'}</b>` : ''}
       ${live}
@@ -994,7 +1053,7 @@ function nextTablesModal(snap) {
       <button role="tab" aria-selected="${tab === 'standings'}" class="${tab === 'standings' ? 'on' : ''}" data-act="nextTab" data-tab="standings">Standings</button></div>`;
   const body =
     tab === 'mine' && snap.view.roundResult
-      ? `<p class="muted result-sub">This round at table ${t.table + 1}</p>${tableResultHTML(snap, t.table)}`
+      ? `<p class="muted result-sub">This round at table ${t.table + 1}</p>${tieDrawHTML(snap, t.table)}${tableResultHTML(snap, t.table)}`
       : tab === 'standings'
         ? standingsHTML(snap)
         : legend + tables;
@@ -4331,6 +4390,9 @@ function onClick(e) {
     case 'watch':
       ui.modal = null;
       send({ type: 'watch', table: t.dataset.table === '' ? null : Number(t.dataset.table) });
+      return render();
+    case 'tieDraw':
+      send({ type: 'tieDraw' });
       return render();
     case 'nextTab':
       ui.nextTab = t.dataset.tab;

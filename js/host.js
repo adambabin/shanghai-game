@@ -18,13 +18,29 @@ import { chooseDraw, choosePlay, wantsToBuy, seesShanghai, shanghaiReaction } fr
 import { DEFAULT_OPTIONS, MAX_PLAYERS, isLastRound } from './rules.js';
 import { openRoom, randomCode } from './net.js';
 import { cleanChat, ChatLimit, CHAT_KEEP, CHAT_MAX } from './chat.js';
-import { MAX_TOUR_PLAYERS, MIN_TABLE, MAX_TABLE, tableRange, suggestTables, dealTables, rankTable, nextTables, tableStats } from './tournament.js';
+import {
+  MAX_TOUR_PLAYERS,
+  MIN_TABLE,
+  MAX_TABLE,
+  tableRange,
+  suggestTables,
+  dealTables,
+  rankTable,
+  nextTables,
+  tableStats,
+  moveCount,
+  moveLine,
+  tieAtLine,
+  drawCard,
+  settleDraw,
+} from './tournament.js';
 
 const BOT_NAMES = ['Lucky Lou', 'Card Shark', 'Rummy Rita', 'Jolly Joker', 'Shuffles', 'Ace', 'Sir Deals-a-Lot', 'Queenie'];
 // each game you host (or play against the computer) is saved under its own key so several can be resumed
 const SAVE_PREFIX = 'shanghai.hostGame.';
 const OLD_SAVE_KEY = 'shanghai.hostGame'; // the single save slot older versions used
 const newGameId = () => Math.random().toString(36).slice(2, 10);
+export const TIE_DRAW_MS = 10000; // Tables (BETA): how long the people in a tie have to draw before a card is drawn for them
 
 // fields a game saved by an older version may lack (stats: null, so a game saved before they were counted shows no
 // "How everyone played" rather than wrong numbers), and what never carries over a reload
@@ -57,6 +73,8 @@ export class HostSession {
       this.tour = restore.tour || null;
       if (this.tour) {
         this.tour.games.forEach(restoreGame);
+        // a draw for a tie that was under way starts its 10 seconds again
+        for (const g of this.tour.games) if (g.tie && !g.tie.done) g.tie.deadline = Date.now() + TIE_DRAW_MS;
         if (this.tour.tbGame) restoreGame(this.tour.tbGame);
         this.tour.watching = {};
       }
@@ -418,6 +436,9 @@ export class HostSession {
       case 'watch':
         res = this.watch(seat, a.table);
         break;
+      case 'tieDraw':
+        res = this.tieDraw(seat);
+        break;
       default: {
         if (this.tour && a.type === 'tieVote' && this.tour.phase === 'tieVote') {
           res = this.tourTieVote(seat, a.choice);
@@ -632,7 +653,7 @@ export class HostSession {
     const t = this.tour;
     if (t.phase === 'playing') {
       t.games.forEach((g, k) => g.phase === 'roundOver' && !g.counted && this.countTable(k));
-      if (t.games.every((g) => g.counted)) this.endTourRound();
+      if (t.games.every((g) => g.counted && !(g.tie && !g.tie.done))) this.endTourRound();
     } else if (t.phase === 'tiebreak' && t.tbGame.phase === 'gameOver') {
       const g = t.tbGame;
       const seats = t.tiebreak.seats;
@@ -661,7 +682,39 @@ export class HostSession {
     // best to worst this round, so everyone at the table can see at once where they're going next
     const totals = this.tourTotals();
     const w = g.roundResult.winner;
-    g.ranked = rankTable(t.tables[k], { points: t.scores.map((s) => s[t.round] || 0), totals, wentOut: w == null ? null : t.tables[k][w] });
+    const points = t.scores.map((s) => s[t.round] || 0);
+    g.ranked = rankTable(t.tables[k], { points, totals, wentOut: w == null ? null : t.tables[k][w] });
+    // people level on points and total across the line between moving and staying draw cards for it (nobody moves
+    // after the last round)
+    if (isLastRound(t.round)) return;
+    const tie = tieAtLine(g.ranked, moveLine(k, g.ranked.length, moveCount(t.tables)), { points, totals });
+    if (tie) g.tie = { ...tie, places: tie.need, all: tie.seats, tries: [{}], good: [], bad: [], deadline: Date.now() + TIE_DRAW_MS, done: false };
+  }
+
+  // Someone in a tie at their table draws a card (high card loses). Once they all have, the ones level on the card
+  // right at the line draw again; when it's settled, the table's ranking takes their order.
+  tieDraw(seat) {
+    const t = this.tour;
+    const g = t && t.phase === 'playing' ? t.games[this.tableAt(seat)] : null;
+    const tie = g && g.tie;
+    if (!tie || tie.done || !tie.seats.includes(seat)) return { ok: false, error: 'There is no card to draw.' };
+    const cards = tie.tries[tie.tries.length - 1];
+    if (cards[seat]) return { ok: false, error: 'You already drew a card.' };
+    cards[seat] = drawCard(Object.values(cards));
+    if (tie.seats.every((s) => cards[s])) {
+      const r = settleDraw(tie.seats, cards, tie.need);
+      tie.good.push(...r.good);
+      tie.bad.unshift(...r.bad);
+      if (r.again.length) {
+        Object.assign(tie, { seats: r.again, need: r.need, deadline: Date.now() + TIE_DRAW_MS });
+        tie.tries.push({});
+      } else {
+        tie.done = true;
+        g.ranked.splice(Math.min(...tie.all.map((s) => g.ranked.indexOf(s))), tie.all.length, ...tie.good, ...tie.bad);
+      }
+    }
+    this.touch(g);
+    return { ok: true };
   }
 
   tourTotals() {
@@ -768,6 +821,7 @@ export class HostSession {
           laid: g.laid.filter(Boolean).length,
           wentOut: rr && rr.winner != null ? at[rr.winner] : null,
           ranked: g.ranked || null,
+          tie: g.tie ? { ...g.tie, msLeft: Math.max(0, g.tie.deadline - Date.now()) } : null,
         };
       }),
       points: t.scores.map((s) => s[t.round] ?? null),
@@ -920,6 +974,7 @@ export class HostSession {
     // reaction timers re-check themselves when they fire; only the turn timer is reset on every change
     clearTimeout(d.turnTimer);
     this.timers.delete(d.turnTimer);
+    if (g.tie && !g.tie.done) return this.scheduleTie(g, d);
     if (g.phase !== 'draw' && g.phase !== 'play') return;
     const bots = g.players.map((p, i) => (p.bot ? i : -1)).filter((i) => i >= 0);
     const botBuyAnswer = (seat, ms, w) =>
@@ -994,6 +1049,30 @@ export class HostSession {
         }
       }, g);
     }
+  }
+
+  // A draw for a tie at a finished table: computers draw after a moment, and so does anyone who dropped off; whoever
+  // hasn't drawn when the 10 seconds are up gets a card drawn for them
+  scheduleTie(g, d) {
+    const tie = g.tie;
+    const key = `${this.tour.round}:${tie.tries.length}`;
+    if (d.tieArmed === key) return;
+    d.tieArmed = key;
+    const cards = tie.tries[tie.tries.length - 1];
+    const still = (s) => g.tie === tie && !tie.done && tie.tries[tie.tries.length - 1] === cards && !cards[s];
+    const draw = (s) => still(s) && this.act(s, { type: 'tieDraw' });
+    for (const s of tie.seats) {
+      const p = this.lobby.seats[s];
+      if (p.bot) this.later(800 + Math.random() * 1000, () => draw(s), g);
+      else if (!p.isHost && !p.connected) this.later(300, () => draw(s), g);
+    }
+    const t = setTimeout(() => {
+      this.timers.delete(t);
+      d.timers.delete(t);
+      tie.seats.forEach(draw);
+    }, Math.max(0, tie.deadline - Date.now()) + 250);
+    this.timers.add(t);
+    d.timers.add(t);
   }
 
   // a computer's notes for this round (whether it's holding its lay down to stump people); not saved with the game

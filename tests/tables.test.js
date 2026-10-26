@@ -231,3 +231,66 @@ test("playing alone, a pop-up pauses only the person's own table: the computers'
   assert.ok(!h.pausedAt && !h.pausedGame);
   h.close();
 });
+
+// my table (seat 0's) ends with seat 0 and one other level on points: 10, 20, 20, 30 at a table of 4, 2 moving
+function tieAtMyTable(h) {
+  const t = h.tour;
+  const k = h.tableAt(0);
+  const g = t.games[k];
+  endRoundNoWinner(g);
+  const other = t.tables[k].find((s) => s !== 0);
+  const rest = t.tables[k].filter((s) => s !== 0 && s !== other);
+  g.roundResult.points = t.tables[k].map((s) => (s === 0 || s === other ? 20 : s === rest[0] ? 10 : 30));
+  return { g, k, other };
+}
+
+test('a tie for who moves is drawn for: the round waits, high card loses, and the ranking follows', async () => {
+  data.clear();
+  const h = tablesLobby(8);
+  h.lobby.options.botSpeed = 0.01;
+  assert.ok(h.act(0, { type: 'start' }).ok);
+  const t = h.tour;
+  const { g, k, other } = tieAtMyTable(h);
+  endRoundNoWinner(t.games[1 - k]);
+  t.games[1 - k].roundResult.points = [1, 2, 3, 4];
+  h.checkTour();
+  h.changed();
+  assert.deepEqual([...g.tie.all].sort(), [0, other].sort());
+  assert.equal(g.tie.places, 1);
+  assert.equal(t.phase, 'playing', 'next round waits for the draw');
+  const snap = h.snapshot(0);
+  assert.ok(snap.tour.tables[k].tie.msLeft > 9000);
+  assert.ok(!h.act(t.tables[1 - k][0], { type: 'tieDraw' }).ok, 'only the tied people draw');
+  assert.ok(h.act(0, { type: 'tieDraw' }).ok);
+  assert.ok(!h.act(0, { type: 'tieDraw' }).ok, 'one card each');
+  // the computer draws by itself; a level card means both draw again
+  for (let i = 0; i < 200 && !g.tie.done; i++) {
+    await sleep(10);
+    const cards = g.tie.tries[g.tie.tries.length - 1];
+    if (g.tie.seats.includes(0) && !cards[0]) h.act(0, { type: 'tieDraw' });
+  }
+  assert.ok(g.tie.done);
+  const last = g.tie.tries[g.tie.tries.length - 1];
+  const [good] = g.tie.good;
+  const bad = good === 0 ? other : 0;
+  assert.ok((last[good].r === 1 ? 14 : last[good].r) < (last[bad].r === 1 ? 14 : last[bad].r), 'the lower card wins');
+  assert.deepEqual(g.ranked.slice(1, 3), [good, bad]);
+  assert.equal(t.phase, 'between');
+  assert.equal(t.moves[good] ? t.moves[good].to : k, k === 0 ? 0 : k - 1, 'the winner of the draw gets the better side');
+  h.close();
+});
+
+test("a card is drawn for anyone who hasn't when the time is up", async () => {
+  data.clear();
+  const h = tablesLobby(8);
+  h.lobby.options.botSpeed = 0.01;
+  assert.ok(h.act(0, { type: 'start' }).ok);
+  const { g } = tieAtMyTable(h);
+  h.checkTour();
+  g.tie.deadline = Date.now();
+  h.touch(g);
+  h.changed();
+  for (let i = 0; i < 100 && !g.tie.done; i++) await sleep(10);
+  assert.ok(g.tie.tries.some((cards) => cards[0]), 'drawn for the host');
+  h.close();
+});

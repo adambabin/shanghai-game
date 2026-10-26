@@ -1,7 +1,22 @@
 // Tables (BETA): splitting a big group into tables, ranking a table's round, and who moves where after it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tableRange, suggestTables, tableSizes, dealTables, moveCount, rankTable, nextTables, tableOf, tableStats } from '../js/tournament.js';
+import {
+  tableRange,
+  suggestTables,
+  tableSizes,
+  dealTables,
+  moveCount,
+  rankTable,
+  nextTables,
+  tableOf,
+  tableStats,
+  moveLine,
+  tieAtLine,
+  drawCard,
+  drawValue,
+  settleDraw,
+} from '../js/tournament.js';
 import { gameAwards, playerFacts } from '../js/awards.js';
 
 function seeded(seed) {
@@ -128,4 +143,36 @@ test('Penthouse and Regular go to the most rounds at the winners table and the l
   const plain = [{ ...blank }, { ...blank, buys: 1 }];
   assert.ok(!gameAwards(plain, [[], []]).some((a) => a.key === 'penthouse' || a.key === 'regular'));
   assert.ok(!playerFacts(plain, [[], []], 0).some((f) => f.key === 'topRounds' || f.key === 'longestStay'));
+});
+
+test('a tie is drawn for only when it decides who moves', () => {
+  const totals = [50, 50, 50, 50, 50];
+  // 2 move up from table 2: 2nd and 3rd level on points and total
+  assert.equal(moveLine(1, 4, 2), 2);
+  assert.deepEqual(tieAtLine([0, 1, 2, 3], 2, { points: [10, 20, 20, 30], totals }), { seats: [1, 2], need: 1 });
+  // level points but a lower total wins it, as before
+  assert.equal(tieAtLine([0, 1, 2, 3], 2, { points: [10, 20, 20, 30], totals: [50, 40, 50, 50] }), null);
+  // a tie that doesn't cross the line doesn't matter
+  assert.equal(tieAtLine([0, 1, 2, 3], 2, { points: [10, 10, 20, 30], totals }), null);
+  assert.equal(tieAtLine([0, 1, 2, 3], 2, { points: [10, 20, 30, 30], totals }), null);
+  // at the winners' table the line is above the worst 2: 2 of 3 level ones stay
+  assert.equal(moveLine(0, 5, 2), 3);
+  assert.deepEqual(tieAtLine([0, 1, 2, 3, 4], 3, { points: [0, 20, 20, 20, 40], totals }), { seats: [1, 2, 3], need: 2 });
+});
+
+test('drawing for a tie: high card loses, aces are high, level cards at the line draw again', () => {
+  const c = (r, s = 'S') => ({ r, s });
+  assert.equal(drawValue(c(1)), 14);
+  assert.deepEqual(settleDraw([1, 2], { 1: c(13), 2: c(4) }, 1), { good: [2], bad: [1], again: [], need: 0 });
+  assert.deepEqual(settleDraw([1, 2], { 1: c(1), 2: c(13) }, 1).good, [2], 'an ace is the highest card');
+  assert.deepEqual(settleDraw([1, 2], { 1: c(9, 'S'), 2: c(9, 'H') }, 1), { good: [], bad: [], again: [1, 2], need: 1 });
+  // 3 for 2 places: the low card is in, the two level 9s draw again for the last place
+  assert.deepEqual(settleDraw([1, 2, 3], { 1: c(9), 2: c(3), 3: c(9, 'H') }, 2), { good: [2], bad: [], again: [1, 3], need: 1 });
+  // level cards away from the line don't matter
+  assert.deepEqual(settleDraw([1, 2, 3], { 1: c(9), 2: c(3), 3: c(9, 'H') }, 1), { good: [2], bad: [1, 3], again: [], need: 0 });
+  // one deck without jokers, never a card already drawn
+  const taken = [];
+  for (let i = 0; i < 52; i++) taken.push(drawCard(taken, seeded(i + 1)));
+  assert.equal(new Set(taken.map((x) => x.r + x.s)).size, 52);
+  assert.ok(taken.every((x) => x.r >= 1 && x.r <= 13 && x.s !== 'J'));
 });

@@ -3,7 +3,7 @@
 // worst at the winners' table, who drop all the way to the losers' table. Lowest total over the 7 rounds wins.
 // Tables are numbered from 0 here (0 is the winners' table); seats are the lobby's seat numbers.
 
-import { shuffle } from './cards.js';
+import { shuffle, SUITS } from './cards.js';
 
 export const MIN_TABLE = 3;
 export const MAX_TABLE = 8;
@@ -41,11 +41,50 @@ export function moveCount(tables) {
 }
 
 // A table's seats from best to worst this round: lowest points, then lowest total, then whoever went out, then chance
+// (a tie that decides who moves is drawn for instead: tieAtLine)
 export function rankTable(seats, { points, totals, wentOut = null }, rng = Math.random) {
   const luck = new Map(seats.map((s) => [s, rng()]));
   return [...seats].sort(
     (a, b) => points[a] - points[b] || totals[a] - totals[b] || (b === wentOut) - (a === wentOut) || luck.get(a) - luck.get(b)
   );
+}
+
+// How many at a table end up on the better side of the line between moving and staying: at the winners' table
+// everyone but the worst m stays, at any other table the best m move up
+export function moveLine(k, size, m) {
+  return k === 0 ? size - m : m;
+}
+
+// A tie across that line: the people level on both this round's points and their total, with some of them on each
+// side. They draw cards for it. need: how many of them get the better side. null when there's no such tie.
+export function tieAtLine(ranked, line, { points, totals }) {
+  if (line <= 0 || line >= ranked.length) return null;
+  const level = (a, b) => points[a] === points[b] && totals[a] === totals[b];
+  const at = ranked[line - 1];
+  if (!level(at, ranked[line])) return null;
+  const seats = ranked.filter((s) => level(s, at));
+  return { seats, need: line - ranked.indexOf(seats[0]) };
+}
+
+// A card drawn for a tie, from one deck without jokers; aces are high
+export const drawValue = (c) => (c.r === 1 ? 14 : c.r);
+
+// A card for a tie's draw from one deck without jokers, not one already drawn (taken)
+export function drawCard(taken, rng = Math.random) {
+  const left = [];
+  for (const s of SUITS) for (let r = 1; r <= 13; r++) if (!taken.some((c) => c.r === r && c.s === s)) left.push({ id: -1 - left.length, r, s });
+  return left[Math.floor(rng() * left.length)];
+}
+
+// After everyone tied has drawn: high card loses, so the lowest cards take the better side. Those level on the card
+// right at the line draw again (again, for need more places); everyone else is settled, best first.
+export function settleDraw(seats, cards, need) {
+  const v = (s) => drawValue(cards[s]);
+  const sorted = [...seats].sort((a, b) => v(a) - v(b));
+  const cut = v(sorted[need - 1]);
+  if (cut !== v(sorted[need])) return { good: sorted.slice(0, need), bad: sorted.slice(need), again: [], need: 0 };
+  const good = sorted.filter((s) => v(s) < cut);
+  return { good, bad: sorted.filter((s) => v(s) > cut), again: sorted.filter((s) => v(s) === cut), need: need - good.length };
 }
 
 // Next round's tables from this round's, each already ranked best first (rankTable). Everyone who stays keeps their
