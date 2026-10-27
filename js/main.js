@@ -1,7 +1,7 @@
 import { HostSession, ClientSession } from './host.js';
 import { joinRoom } from './net.js';
 import { SUITS, SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
-import { buildSet, buildRun, addCards, wildSlotFor, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
+import { buildSet, buildRun, addCards, wildSlotFor, fitsAnyMeld, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
 import { browserTracker, plainError } from './telemetry.js';
 import { gameAwards, playerFacts } from './awards.js';
 import { MAX_TOUR_PLAYERS, tableRange, moveCount, movesFrom } from './tournament.js';
@@ -1211,8 +1211,15 @@ function statusText(v) {
   }
   if (v.mustPlay.some((id) => v.hand.some((c) => c.id === id)))
     return '<span class="warn">Play the wild card you swapped out before you discard.</span>';
-  if (v.hand.length === 1) return `<span class="warn">You can't discard your last card. Play it on a pile, or Undo.</span>`;
+  if (lastCardStuck(v)) return `<span class="warn">You can't discard your last card. Play it on a pile, or Undo.</span>`;
+  // the last card fits a pile, so this is the winning move, not a mistake
+  if (v.hand.length === 1) return miniCards(`<b>Play ${esc(cardLabel(v.hand[0]))} on a pile to go out!</b>`);
   return '<b>Your turn</b>';
+}
+
+// one card left that can't go on any pile: since you can't go out on a discard, all that's left is Undo
+function lastCardStuck(v) {
+  return v.hand.length === 1 && !fitsAnyMeld(v.hand[0], v.melds, wildTest(v.options));
 }
 
 function centerHTML(v, isWild) {
@@ -1270,7 +1277,7 @@ function activityHTML(v) {
   if (main && f && f.bad) main = `<div class="buy-bar flash bad"><span>${miniCards(esc(f.text))}</span></div>${main}`;
   if (!main && showFlash) main = `<div class="buy-bar flash tappable ${f.bad ? 'bad' : ''}" ${log}><span>${miniCards(esc(f.text))}</span></div>`;
   if (!main) {
-    const warn = mine && v.phase === 'play' && (v.hand.length === 1 || v.mustPlay.some((id) => v.hand.some((c) => c.id === id)));
+    const warn = mine && v.phase === 'play' && (lastCardStuck(v) || v.mustPlay.some((id) => v.hand.some((c) => c.id === id)));
     main = `<div class="buy-bar tappable ${mine ? 'ask' : ''} ${warn ? 'warn' : ''}" ${log}><span>${statusText(v)}</span></div>`;
   }
   return `<div class="activity">${main}</div>`;
