@@ -1388,12 +1388,12 @@ function stagingHTML(v, isWild) {
       const movable = (c) => run && isWild(c) && wildSpots(run.cards, run.places, run.cards.indexOf(c), isWild).length > 1;
       const cardAttrs = (c) =>
         `data-staged-card="${c.id}"` +
-        (movable(c) && JOKER_MOVES.tap ? ` data-act="moveWild" data-i="${i}" data-id="${c.id}" title="Tap to move it"` : '');
+        (movable(c) ? ` data-act="moveWild" data-i="${i}" data-id="${c.id}" title="Tap to move it"` : '');
       return `<div class="staged ${built ? 'done' : ''} ${adding ? 'target' : ''}" data-act="addToStaged" data-drop="staged" data-i="${i}" title="Select cards and tap to add them">
         <div class="staged-head"><span class="kind ${why ? 'why' : ''}" ${why}>${g.type.toUpperCase()} ${status}</span>
         <button class="unstage" data-act="unstage" data-i="${i}" title="Put these cards back">✕</button></div>
         <div class="staged-cards">${shown
-          .map((c) => cardHTML(c, { sm: true, isWild, cls: movable(c) && JOKER_MOVES.tap ? 'can-move' : '', attrs: cardAttrs(c) }))
+          .map((c) => cardHTML(c, { sm: true, isWild, cls: movable(c) ? 'can-move' : '', attrs: cardAttrs(c) }))
           .join('')}</div></div>`;
     })
     .join('');
@@ -3633,7 +3633,7 @@ function dropOn(v, target, ids, x, preview) {
     addToStaged(v, i, cards, isWild);
     // one joker dropped on a run goes where it was let go
     const g = ui.staged[i];
-    if (JOKER_MOVES.drag && cards.length === 1 && isWild(cards[0]) && g && g.ids.includes(cards[0].id)) placeWildAt(v, i, cards[0].id, x, isWild, preview);
+    if (cards.length === 1 && isWild(cards[0]) && g && g.ids.includes(cards[0].id)) placeWildAt(v, i, cards[0].id, x, isWild, preview);
     return;
   }
   if (kind === 'newGroup') return stageGroup(target.dataset.type, cards, isWild);
@@ -3698,7 +3698,7 @@ function takeOutOfStaged(v, d, target) {
   const kind = target.dataset.drop;
   if (kind === 'staged' && Number(target.dataset.i) === d.i) {
     // a joker dragged along its own run lands where it's let go
-    if (JOKER_MOVES.drag && isWild(card)) placeWildAt(v, d.i, card.id, d.aimX, isWild, d.wildPreview);
+    if (isWild(card)) placeWildAt(v, d.i, card.id, d.aimX, isWild, d.wildPreview);
     return;
   }
   const remove = () => {
@@ -3786,9 +3786,6 @@ function stagedRun(g, cards, isWild) {
   return { cards: pairs.map((p) => p[0]), places: pairs.map((p) => p[1]) };
 }
 
-// How a joker in a staged run can be moved: tapped (to the next spot) or dragged along the run (to where it's let go)
-const JOKER_MOVES = { tap: true, drag: true };
-
 // Puts a joker of a staged run at a place, keeping the other jokers where they are
 function setWildAt(g, run, id, place, isWild) {
   g.at = {};
@@ -3864,7 +3861,7 @@ function wildPreview(d) {
   const over = d.hover && d.hover.dataset.drop === 'staged' ? Number(d.hover.dataset.i) : null;
   const p = d.wildPreview;
   if (p && p.i !== over) clearWildPreview(d);
-  if (!v || !JOKER_MOVES.drag || id == null || over == null) return;
+  if (!v || id == null || over == null) return;
   const isWild = wildTest(v.options);
   if (!d.wildPreview) {
     const t = wildTarget(v, over, id, isWild);
