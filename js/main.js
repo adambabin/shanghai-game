@@ -3719,7 +3719,9 @@ function discard(id) {
 function stageGroup(type, cards, isWild) {
   const ok = cards.length === 1 || (type === 'set' ? couldBeSet(cards, isWild) : couldBeRun(cards, isWild));
   if (!ok) return toast(type === 'set' ? "Those cards can't make a set." : "Those cards can't make a run.", true);
-  ui.staged.push({ type, ids: cards.map((c) => c.id) });
+  // a run is put in order straight away, whatever order the cards were in your hand
+  const ordered = type === 'run' ? arrangeRun([], cards, isWild) : cards;
+  ui.staged.push({ type, ids: ordered.map((c) => c.id) });
   for (const c of cards) ui.selected.delete(c.id);
   ui.revealStaged = true;
 }
