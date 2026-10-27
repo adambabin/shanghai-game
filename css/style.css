@@ -1730,6 +1730,22 @@ body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
   font-weight: 800;
   line-height: 13px;
 }
+/* where a joker held over a staged run would land, like the space that opens in the hand */
+.staged-cards .wild-slot {
+  flex: none;
+  width: var(--sw);
+  height: var(--sh);
+  box-sizing: border-box;
+  border: 2px dashed var(--gold);
+  border-radius: 6px;
+  background-color: var(--felt-dark);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.staged-cards .card + .wild-slot,
+.staged-cards .wild-slot + .card {
+  margin-left: 3px;
+}
 /* RUN 3/4 or RUN ! says what's missing when tapped */
 .staged .staged-head .kind.why {
   text-decoration: underline dotted;

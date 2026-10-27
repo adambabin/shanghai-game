@@ -3444,6 +3444,7 @@ function moveGhost(d) {
   d.aimX = card.left + card.width / 2;
   d.aimY = card.top + card.height / 2;
   setHover(d, dropTarget(d));
+  wildPreview(d);
 }
 
 function movePileDrag(d) {
@@ -3554,6 +3555,11 @@ function endDrag(d) {
   ui.drag = null;
   document.body.classList.remove('cards-lifted');
   if (d.ghost) d.ghost.remove();
+  // the joker's space goes, but the drop still uses the spot it showed
+  if (d.wildPreview) {
+    d.wildPreview.slot.remove();
+    if (d.wildPreview.own) d.wildPreview.own.style.display = '';
+  }
   ui.swallowClick = d.moved;
 }
 
@@ -3585,7 +3591,7 @@ function onPointerUp(e) {
   }
   const groupIds = d.group.map((el) => Number(el.dataset.card));
   if (d.out) {
-    if (v && d.hover) dropOn(v, d.hover, groupIds, d.aimX);
+    if (v && d.hover) dropOn(v, d.hover, groupIds, d.aimX, d.wildPreview);
     return render();
   }
   const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
@@ -3614,7 +3620,7 @@ function drawTo(from, at) {
   if (!res.ok) ui.drawTo = null;
 }
 
-function dropOn(v, target, ids, x) {
+function dropOn(v, target, ids, x, preview) {
   const isWild = wildTest(v.options);
   const cards = ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
   const kind = target.dataset.drop;
@@ -3627,7 +3633,7 @@ function dropOn(v, target, ids, x) {
     addToStaged(v, i, cards, isWild);
     // one joker dropped on a run goes where it was let go
     const g = ui.staged[i];
-    if (JOKER_MOVES.drag && cards.length === 1 && isWild(cards[0]) && g && g.ids.includes(cards[0].id)) placeWildAt(v, i, cards[0].id, x, isWild);
+    if (JOKER_MOVES.drag && cards.length === 1 && isWild(cards[0]) && g && g.ids.includes(cards[0].id)) placeWildAt(v, i, cards[0].id, x, isWild, preview);
     return;
   }
   if (kind === 'newGroup') return stageGroup(target.dataset.type, cards, isWild);
@@ -3692,7 +3698,7 @@ function takeOutOfStaged(v, d, target) {
   const kind = target.dataset.drop;
   if (kind === 'staged' && Number(target.dataset.i) === d.i) {
     // a joker dragged along its own run lands where it's let go
-    if (JOKER_MOVES.drag && isWild(card)) placeWildAt(v, d.i, card.id, d.aimX, isWild);
+    if (JOKER_MOVES.drag && isWild(card)) placeWildAt(v, d.i, card.id, d.aimX, isWild, d.wildPreview);
     return;
   }
   const remove = () => {
@@ -3801,23 +3807,36 @@ function moveWild(v, i, id, isWild) {
   setWildAt(g, run, id, spots.find((p) => p > run.places[j]) ?? spots[0], isWild);
 }
 
-// A joker dropped on its staged run (dragged along it, or in from your hand) goes to the spot nearest where it was
-// let go, of the spots it could take. Called before the redraw, so the group's cards are still where they were.
-function placeWildAt(v, i, id, x, isWild) {
+// A joker dropped on a staged run (dragged along it, or in from your hand) goes to the spot nearest where it was let
+// go, of the spots it could take. While it's held over the run, a dashed space opens where it would land, like in
+// the hand (wildPreview()); the drop then uses that same spot.
+
+// The run as it would be with this joker in it, and where the run's other cards show on screen (measured once, before
+// any space opens, so the space moving doesn't move the aim)
+function wildTarget(v, i, id, isWild) {
   const g = ui.staged[i];
   const el = document.querySelector(`.staged[data-i="${i}"]`);
-  if (!g || g.type !== 'run' || !el) return;
-  const run = stagedRun(g, stagedCards(v, g), isWild);
+  const joker = v.hand.find((c) => c.id === id);
+  if (!g || g.type !== 'run' || !el || !joker || !isWild(joker)) return null;
+  const inRun = g.ids.includes(id);
+  if (!inRun && !stagedWith(v, g, [joker], isWild)) return null;
+  // in from the hand, the run's jokers place themselves again with the new one in, as they will once it's added
+  const run = inRun ? stagedRun(g, stagedCards(v, g), isWild) : stagedRun({ ...g, at: null }, [...stagedCards(v, g), joker], isWild);
   const j = run.cards.findIndex((c) => c.id === id);
-  if (j < 0) return;
   const placeOf = new Map(run.cards.map((c, k) => [c.id, run.places[k]]));
-  // where each other card shows: the middle of the part not covered by the next card
-  const shown = [...el.querySelectorAll('[data-staged-card]')].filter((c) => placeOf.has(Number(c.dataset.stagedCard)) && Number(c.dataset.stagedCard) !== id);
+  const shown = [...el.querySelectorAll('[data-staged-card]')].filter((c) => Number(c.dataset.stagedCard) !== id);
   const others = shown.map((c, k) => {
     const r = c.getBoundingClientRect();
-    return { x: r.left + r.width * (k === shown.length - 1 ? 0.5 : 0.28), p: placeOf.get(Number(c.dataset.stagedCard)) };
+    // the middle of the part not covered by the next card
+    return { el: c, x: r.left + r.width * (k === shown.length - 1 ? 0.5 : 0.28), p: placeOf.get(Number(c.dataset.stagedCard)) };
   });
-  if (!others.length) return;
+  if (!others.length) return null;
+  return { i, id, el, run, j, others, spots: wildSpots(run.cards, run.places, j, isWild) };
+}
+
+// The spot nearest where the joker is held, going by the run's cards either side of it
+function wildAim(t, x) {
+  const { others } = t;
   const last = others[others.length - 1];
   const dir = others.length > 1 ? Math.sign(last.p - others[0].p) : ui.sortDesc ? -1 : 1;
   let aim = x <= others[0].x ? others[0].p - dir : last.p + dir;
@@ -3826,9 +3845,51 @@ function placeWildAt(v, i, id, x, isWild) {
     const b = others[k + 1];
     if (x > a.x && x <= b.x) aim = a.p + ((b.p - a.p) * (x - a.x)) / (b.x - a.x);
   }
-  const spots = wildSpots(run.cards, run.places, j, isWild);
-  const best = spots.reduce((p, q) => (Math.abs(q - aim) < Math.abs(p - aim) ? q : p));
-  setWildAt(g, run, id, best, isWild);
+  return t.spots.reduce((p, q) => (Math.abs(q - aim) < Math.abs(p - aim) ? q : p));
+}
+
+function placeWildAt(v, i, id, x, isWild, preview) {
+  const t = preview && preview.i === i && preview.id === id ? preview : wildTarget(v, i, id, isWild);
+  if (!t) return;
+  const g = ui.staged[i];
+  const at = t.place != null ? t.place : wildAim(t, x);
+  // the run as it is now (in from the hand, with the new joker added and the others placed again)
+  setWildAt(g, stagedRun(g, stagedCards(v, g), isWild), id, at, isWild);
+}
+
+// While a joker is held over a staged run it could go in, a dashed space opens where it would land
+function wildPreview(d) {
+  const v = ui.snap && ui.snap.view;
+  const id = d.kind === 'pile' ? (d.from === 'staged' ? d.id : null) : d.group && d.group.length === 1 ? Number(d.group[0].dataset.card) : null;
+  const over = d.hover && d.hover.dataset.drop === 'staged' ? Number(d.hover.dataset.i) : null;
+  const p = d.wildPreview;
+  if (p && p.i !== over) clearWildPreview(d);
+  if (!v || !JOKER_MOVES.drag || id == null || over == null) return;
+  const isWild = wildTest(v.options);
+  if (!d.wildPreview) {
+    const t = wildTarget(v, over, id, isWild);
+    if (!t) return;
+    // its own card steps out of the row while the space shows where it goes
+    t.own = t.el.querySelector(`[data-staged-card="${id}"]`);
+    if (t.own) t.own.style.display = 'none';
+    t.slot = Object.assign(document.createElement('div'), { className: 'wild-slot' });
+    d.wildPreview = t;
+  }
+  const t = d.wildPreview;
+  t.place = wildAim(t, d.aimX);
+  // displayed low to high, or high to low with that sort
+  const before = t.others.filter((o) => (ui.sortDesc ? o.p > t.place : o.p < t.place)).length;
+  const row = t.el.querySelector('.staged-cards');
+  const next = t.others[before] ? t.others[before].el : null;
+  if (t.slot.nextSibling !== next || t.slot.parentNode !== row) row.insertBefore(t.slot, next);
+}
+
+function clearWildPreview(d) {
+  const t = d.wildPreview;
+  if (!t) return;
+  t.slot.remove();
+  if (t.own) t.own.style.display = '';
+  d.wildPreview = null;
 }
 
 // What a staged group still needs, said when you tap its 3/4 or !
