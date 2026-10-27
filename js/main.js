@@ -1387,12 +1387,13 @@ function stagingHTML(v, isWild) {
       // a joker in a run that could sit somewhere else moves along when tapped
       const movable = (c) => run && isWild(c) && wildSpots(run.cards, run.places, run.cards.indexOf(c), isWild).length > 1;
       const cardAttrs = (c) =>
-        `data-staged-card="${c.id}"` + (movable(c) ? ` data-act="moveWild" data-i="${i}" data-id="${c.id}" title="Tap to move it"` : '');
+        `data-staged-card="${c.id}"` +
+        (movable(c) && JOKER_MOVES.tap ? ` data-act="moveWild" data-i="${i}" data-id="${c.id}" title="Tap to move it"` : '');
       return `<div class="staged ${built ? 'done' : ''} ${adding ? 'target' : ''}" data-act="addToStaged" data-drop="staged" data-i="${i}" title="Select cards and tap to add them">
         <div class="staged-head"><span class="kind ${why ? 'why' : ''}" ${why}>${g.type.toUpperCase()} ${status}</span>
         <button class="unstage" data-act="unstage" data-i="${i}" title="Put these cards back">✕</button></div>
         <div class="staged-cards">${shown
-          .map((c) => cardHTML(c, { sm: true, isWild, cls: movable(c) ? 'can-move' : '', attrs: cardAttrs(c) }))
+          .map((c) => cardHTML(c, { sm: true, isWild, cls: movable(c) && JOKER_MOVES.tap ? 'can-move' : '', attrs: cardAttrs(c) }))
           .join('')}</div></div>`;
     })
     .join('');
@@ -3621,7 +3622,14 @@ function dropOn(v, target, ids, x) {
     if (cards.length > 1) return toast('Discard one card at a time.', true);
     return discard(cards[0].id);
   }
-  if (kind === 'staged') return addToStaged(v, Number(target.dataset.i), cards, isWild);
+  if (kind === 'staged') {
+    const i = Number(target.dataset.i);
+    addToStaged(v, i, cards, isWild);
+    // one joker dropped on a run goes where it was let go
+    const g = ui.staged[i];
+    if (JOKER_MOVES.drag && cards.length === 1 && isWild(cards[0]) && g && g.ids.includes(cards[0].id)) placeWildAt(v, i, cards[0].id, x, isWild);
+    return;
+  }
   if (kind === 'newGroup') return stageGroup(target.dataset.type, cards, isWild);
   const meld = v.melds.find((m) => m.id === Number(target.dataset.meld));
   if (meld) playOn(v, meld, cards, isWild, dropSpot(target, meld, x, isWild));
@@ -3682,7 +3690,11 @@ function takeOutOfStaged(v, d, target) {
   const card = v.hand.find((c) => c.id === d.id);
   if (!from || !card || !from.ids.includes(card.id)) return;
   const kind = target.dataset.drop;
-  if (kind === 'staged' && Number(target.dataset.i) === d.i) return;
+  if (kind === 'staged' && Number(target.dataset.i) === d.i) {
+    // a joker dragged along its own run lands where it's let go
+    if (JOKER_MOVES.drag && isWild(card)) placeWildAt(v, d.i, card.id, d.aimX, isWild);
+    return;
+  }
   const remove = () => {
     from.ids = from.ids.filter((id) => id !== card.id);
     delete from.at;
@@ -3768,6 +3780,16 @@ function stagedRun(g, cards, isWild) {
   return { cards: pairs.map((p) => p[0]), places: pairs.map((p) => p[1]) };
 }
 
+// How a joker in a staged run can be moved: tapped (to the next spot) or dragged along the run (to where it's let go)
+const JOKER_MOVES = { tap: true, drag: true };
+
+// Puts a joker of a staged run at a place, keeping the other jokers where they are
+function setWildAt(g, run, id, place, isWild) {
+  g.at = {};
+  run.cards.forEach((c, k) => isWild(c) && (g.at[c.id] = run.places[k]));
+  g.at[id] = place;
+}
+
 // Tapping a joker in a staged run moves it to the next spot it could go, low to high and round again
 function moveWild(v, i, id, isWild) {
   const g = ui.staged[i];
@@ -3776,9 +3798,37 @@ function moveWild(v, i, id, isWild) {
   const j = run.cards.findIndex((c) => c.id === id);
   if (j < 0) return;
   const spots = wildSpots(run.cards, run.places, j, isWild);
-  g.at = {};
-  run.cards.forEach((c, k) => isWild(c) && (g.at[c.id] = run.places[k]));
-  g.at[id] = spots.find((p) => p > run.places[j]) ?? spots[0];
+  setWildAt(g, run, id, spots.find((p) => p > run.places[j]) ?? spots[0], isWild);
+}
+
+// A joker dropped on its staged run (dragged along it, or in from your hand) goes to the spot nearest where it was
+// let go, of the spots it could take. Called before the redraw, so the group's cards are still where they were.
+function placeWildAt(v, i, id, x, isWild) {
+  const g = ui.staged[i];
+  const el = document.querySelector(`.staged[data-i="${i}"]`);
+  if (!g || g.type !== 'run' || !el) return;
+  const run = stagedRun(g, stagedCards(v, g), isWild);
+  const j = run.cards.findIndex((c) => c.id === id);
+  if (j < 0) return;
+  const placeOf = new Map(run.cards.map((c, k) => [c.id, run.places[k]]));
+  // where each other card shows: the middle of the part not covered by the next card
+  const shown = [...el.querySelectorAll('[data-staged-card]')].filter((c) => placeOf.has(Number(c.dataset.stagedCard)) && Number(c.dataset.stagedCard) !== id);
+  const others = shown.map((c, k) => {
+    const r = c.getBoundingClientRect();
+    return { x: r.left + r.width * (k === shown.length - 1 ? 0.5 : 0.28), p: placeOf.get(Number(c.dataset.stagedCard)) };
+  });
+  if (!others.length) return;
+  const last = others[others.length - 1];
+  const dir = others.length > 1 ? Math.sign(last.p - others[0].p) : ui.sortDesc ? -1 : 1;
+  let aim = x <= others[0].x ? others[0].p - dir : last.p + dir;
+  for (let k = 0; k + 1 < others.length; k++) {
+    const a = others[k];
+    const b = others[k + 1];
+    if (x > a.x && x <= b.x) aim = a.p + ((b.p - a.p) * (x - a.x)) / (b.x - a.x);
+  }
+  const spots = wildSpots(run.cards, run.places, j, isWild);
+  const best = spots.reduce((p, q) => (Math.abs(q - aim) < Math.abs(p - aim) ? q : p));
+  setWildAt(g, run, id, best, isWild);
 }
 
 // What a staged group still needs, said when you tap its 3/4 or !
