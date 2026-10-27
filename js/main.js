@@ -1213,7 +1213,7 @@ function statusText(v) {
     return '<span class="warn">Play the wild card you swapped out before you discard.</span>';
   if (lastCardStuck(v)) return `<span class="warn">You can't discard your last card. Play it on a pile, or Undo.</span>`;
   // the last card fits a pile, so this is the winning move, not a mistake
-  if (v.hand.length === 1) return miniCards(`<b>Play ${esc(cardLabel(v.hand[0]))} on a pile to go out!</b>`);
+  if (v.hand.length === 1) return miniCards(`<b>Last card! Play ${esc(cardLabel(v.hand[0]))} on a pile to win the round.</b>`);
   return '<b>Your turn</b>';
 }
 
