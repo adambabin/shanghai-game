@@ -1,7 +1,7 @@
 import { HostSession, ClientSession } from './host.js';
 import { joinRoom } from './net.js';
 import { SUITS, SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
-import { buildSet, buildRun, addCards, wildSlotFor, fitsAnyMeld, couldBeSet, couldBeRun, arrangeRun } from './melds.js';
+import { buildSet, buildRun, addCards, wildSlotFor, fitsAnyMeld, couldBeSet, couldBeRun, arrangeRun, runValue, runPlaces, layoutRun, wildSpots } from './melds.js';
 import { browserTracker, plainError } from './telemetry.js';
 import { gameAwards, playerFacts } from './awards.js';
 import { MAX_TOUR_PLAYERS, tableRange, moveCount, movesFrom } from './tournament.js';
@@ -1374,18 +1374,26 @@ function stagingHTML(v, isWild) {
   const adding = ui.selected.size > 0;
   const groups = ui.staged
     .map((g, i) => {
-      const cards = g.ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
-      const built = g.type === 'set' ? buildSet(cards, isWild) : buildRun(cards, isWild);
+      const cards = stagedCards(v, g);
+      const run = g.type === 'run' ? stagedRun(g, cards, isWild) : null;
+      const built = g.type === 'set' ? buildSet(cards, isWild) : buildRun(run.cards, isWild);
       const min = g.type === 'set' ? SET_MIN : RUN_MIN;
-      // complete, still short of cards, or enough cards that don't work yet (e.g. too many jokers)
+      // complete, still short of cards, or enough cards that don't work yet (e.g. too many jokers); tap to hear why
       const status = built ? '✓' : cards.length < min ? `${cards.length}/${min}` : '!';
+      const why = built ? '' : `data-act="stagedWhy" data-i="${i}"`;
       // a run reads in your Sort cards order (high to low too); its cards keep their places, only the reading turns round
-      const ordered = built ? built.cards : cards;
-      const shown = g.type === 'run' && ui.sortDesc ? [...ordered].reverse() : ordered;
+      const ordered = run ? run.cards : cards;
+      const shown = run && ui.sortDesc ? [...ordered].reverse() : ordered;
+      // a joker in a run that could sit somewhere else moves along when tapped
+      const movable = (c) => run && isWild(c) && wildSpots(run.cards, run.places, run.cards.indexOf(c), isWild).length > 1;
+      const cardAttrs = (c) =>
+        `data-staged-card="${c.id}"` + (movable(c) ? ` data-act="moveWild" data-i="${i}" data-id="${c.id}" title="Tap to move it"` : '');
       return `<div class="staged ${built ? 'done' : ''} ${adding ? 'target' : ''}" data-act="addToStaged" data-drop="staged" data-i="${i}" title="Select cards and tap to add them">
-        <div class="staged-head"><span class="kind">${g.type.toUpperCase()} ${status}</span>
+        <div class="staged-head"><span class="kind ${why ? 'why' : ''}" ${why}>${g.type.toUpperCase()} ${status}</span>
         <button class="unstage" data-act="unstage" data-i="${i}" title="Put these cards back">✕</button></div>
-        <div class="staged-cards">${shown.map((c) => cardHTML(c, { sm: true, isWild, attrs: `data-staged-card="${c.id}"` })).join('')}</div></div>`;
+        <div class="staged-cards">${shown
+          .map((c) => cardHTML(c, { sm: true, isWild, cls: movable(c) ? 'can-move' : '', attrs: cardAttrs(c) }))
+          .join('')}</div></div>`;
     })
     .join('');
   // tappable for your whole turn, ready or not: deciding you're ready is part of the game, and the game says what's
@@ -3677,6 +3685,7 @@ function takeOutOfStaged(v, d, target) {
   if (kind === 'staged' && Number(target.dataset.i) === d.i) return;
   const remove = () => {
     from.ids = from.ids.filter((id) => id !== card.id);
+    delete from.at;
     ui.staged = ui.staged.filter((g) => g.ids.length);
   };
   if (kind === 'staged') {
@@ -3739,8 +3748,56 @@ function addToStaged(v, i, added, isWild) {
   const all = stagedWith(v, g, added, isWild);
   if (!all) return toast(`${added.map(cardLabel).join(' ')} can't go in that ${g.type}.`, true);
   g.ids = all.map((c) => c.id);
+  delete g.at; // the jokers place themselves again
   for (const c of added) ui.selected.delete(c.id);
   if (ui.flash && ui.flash.bad) ui.flash = null; // an earlier "can't go there" no longer applies
+}
+
+function stagedCards(v, g) {
+  return g.ids.map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
+}
+
+// A staged run low to high, with the number each card stands for. The jokers place themselves (layoutRun) until
+// you tap one to move it; g.at then keeps where each one sits, until a card goes in or comes out.
+function stagedRun(g, cards, isWild) {
+  if (!g.at || !cards.every((c) => !isWild(c) || g.at[c.id] != null)) {
+    const auto = layoutRun(cards, isWild);
+    return { cards: auto, places: runPlaces(auto, isWild) };
+  }
+  const pairs = cards.map((c) => [c, isWild(c) ? g.at[c.id] : runValue(c)]).sort((a, b) => a[1] - b[1]);
+  return { cards: pairs.map((p) => p[0]), places: pairs.map((p) => p[1]) };
+}
+
+// Tapping a joker in a staged run moves it to the next spot it could go, low to high and round again
+function moveWild(v, i, id, isWild) {
+  const g = ui.staged[i];
+  if (!g) return;
+  const run = stagedRun(g, stagedCards(v, g), isWild);
+  const j = run.cards.findIndex((c) => c.id === id);
+  if (j < 0) return;
+  const spots = wildSpots(run.cards, run.places, j, isWild);
+  g.at = {};
+  run.cards.forEach((c, k) => isWild(c) && (g.at[c.id] = run.places[k]));
+  g.at[id] = spots.find((p) => p > run.places[j]) ?? spots[0];
+}
+
+// What a staged group still needs, said when you tap its 3/4 or !
+function stagedProblem(v, g, isWild) {
+  const cards = stagedCards(v, g);
+  const min = g.type === 'set' ? SET_MIN : RUN_MIN;
+  if (cards.length < min) return `A ${g.type} needs at least ${min} cards.`;
+  const wilds = cards.filter(isWild).length;
+  if (cards.length - wilds <= wilds) return `A ${g.type} needs more real cards than jokers.`;
+  if (g.type === 'set') return "These cards don't make a set yet.";
+  const real = cards.filter((c) => !isWild(c));
+  const nums = real.map(runValue).sort((a, b) => a - b);
+  const missing = [];
+  for (let n = nums[0] + 1; n < nums[nums.length - 1]; n++) if (!nums.includes(n)) missing.push(`${RANK_LABEL[n === 14 ? 1 : n]}${SUIT_SYMBOL[real[0].s]}`);
+  if (missing.length > wilds)
+    return `This run is missing ${andList(missing)}${wilds ? `, and there's only ${wilds === 1 ? '1 joker' : `${wilds} jokers`} to fill in` : ''}.`;
+  const shown = stagedRun(g, cards, isWild).cards;
+  if (shown.some((c, k) => k && isWild(c) && isWild(shown[k - 1]))) return "Two jokers can't sit side by side in a run.";
+  return "These cards don't make a run yet.";
 }
 
 // Plays cards on a pile on the table. A tap asks when it's unclear what you meant (swap the joker or add to the
@@ -4435,6 +4492,16 @@ function onClick(e) {
     case 'stage':
       stageGroup(t.dataset.type, selectedCards(v), isWild);
       return render();
+    case 'moveWild':
+    case 'stagedWhy':
+      // with cards selected, a tap on the group still adds them to it
+      if (ui.selected.size) {
+        addToStaged(v, Number(t.dataset.i), selectedCards(v), isWild);
+        return render();
+      }
+      if (t.dataset.act === 'stagedWhy') return toast(stagedProblem(v, ui.staged[Number(t.dataset.i)], isWild), false, undefined, true);
+      moveWild(v, Number(t.dataset.i), Number(t.dataset.id), isWild);
+      return render();
     case 'addToStaged': {
       const added = selectedCards(v);
       if (!added.length) return toast('Select cards to add to this group. Drag a card out to take it back, or tap ✕ to put them all back.');
@@ -4445,7 +4512,11 @@ function onClick(e) {
       ui.staged.splice(Number(t.dataset.i), 1);
       return render();
     case 'layDown':
-      send({ type: 'layDown', groups: ui.staged.map((g) => ({ type: g.type, ids: g.ids })) });
+      // a run goes down as it's shown, jokers where they sit
+      send({
+        type: 'layDown',
+        groups: ui.staged.map((g) => ({ type: g.type, ids: g.type === 'run' ? stagedRun(g, stagedCards(v, g), isWild).cards.map((c) => c.id) : g.ids })),
+      });
       return render();
     case 'discard':
       discard([...ui.selected][0]);

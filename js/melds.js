@@ -195,3 +195,62 @@ export function arrangeRun(existing, added, isWild) {
 export function meldLabel(meld) {
   return meld.type === 'set' ? 'Set' : 'Run';
 }
+
+// ---------- Staged runs: where the wild cards sit ----------
+
+// The number each card stands for in a run laid out low to high (gaps allowed): a real card its own, a wild card
+// counted on from the nearest real card before it (or back from the one after it).
+export function runPlaces(cards, isWild) {
+  const at = cards.map((c) => (isWild(c) ? null : runValue(c)));
+  return at.map((v, i) => {
+    if (v != null) return v;
+    for (let j = i - 1; j >= 0; j--) if (at[j] != null) return at[j] + (i - j);
+    for (let j = i + 1; j < at.length; j++) if (at[j] != null) return at[j] - (j - i);
+    return null;
+  });
+}
+
+// A staged run laid out as well as it can be, low to high: as it would be laid down if it's already a run,
+// otherwise the real cards in order with wild cards filling the gaps from the bottom, then going on the high end
+// (the low end once it reaches the ace).
+export function layoutRun(cards, isWild) {
+  const naturals = cards.filter((c) => !isWild(c)).sort((a, b) => runValue(a) - runValue(b));
+  const wilds = cards.filter(isWild);
+  if (!naturals.length) return cards;
+  const built = buildRun([...naturals, ...wilds], isWild);
+  if (built) return built.cards;
+  const out = [];
+  naturals.forEach((c, i) => {
+    if (i) for (let v = runValue(naturals[i - 1]) + 1; v < runValue(c) && wilds.length; v++) out.push(wilds.shift());
+    out.push(c);
+  });
+  let hi = runPlaces(out, isWild).at(-1);
+  while (wilds.length) {
+    if (hi < HIGH) {
+      out.push(wilds.shift());
+      hi++;
+    } else out.unshift(wilds.shift());
+  }
+  return out;
+}
+
+// Do these cards, in exactly this order, make a run so far (however short)?
+function inOrderSoFar(cards, isWild) {
+  return enoughNaturals(cards, isWild) && noAdjacentWilds(cards, isWild) && !!runInOrder(cards, isWild);
+}
+
+// Where the wild card at index i of a staged run (cards low to high, places from runPlaces) could move to:
+// a gap between the other cards or either end. If the run can work, only the spots where it still does.
+export function wildSpots(cards, places, i, isWild) {
+  const others = places.filter((p, j) => j !== i);
+  const lo = Math.max(LOW, Math.min(...others) - 1);
+  const hi = Math.min(HIGH, Math.max(...others) + 1);
+  const spots = [];
+  for (let v = lo; v <= hi; v++) if (!others.includes(v)) spots.push(v);
+  const order = (v) => {
+    const at = places.map((p, j) => (j === i ? v : p));
+    return cards.map((c, j) => [c, at[j]]).sort((a, b) => a[1] - b[1]).map(([c]) => c);
+  };
+  const working = spots.filter((v) => inOrderSoFar(order(v), isWild));
+  return working.length ? working : spots;
+}

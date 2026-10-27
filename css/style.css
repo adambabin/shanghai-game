@@ -1716,6 +1716,26 @@ body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
 .staged-cards .card + .card {
   margin-left: calc(var(--sw) * -0.45);
 }
+/* a joker in a staged run that moves along when tapped; the mark sits on the part the next card doesn't cover */
+.staged-cards .card.can-move::after {
+  content: '↔';
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  padding: 0 3px;
+  border-radius: 5px;
+  background-color: var(--gold);
+  color: var(--felt-dark);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 13px;
+}
+/* RUN 3/4 or RUN ! says what's missing when tapped */
+.staged .staged-head .kind.why {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
 
 /* the discard pile when it's where your selected card will go */
 .pile.discard-target .stack > :first-child {

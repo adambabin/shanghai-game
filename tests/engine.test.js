@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSet, buildRun, addCards, fitsAnyMeld, runHi, placements, couldBeSet, couldBeRun, arrangeRun } from '../js/melds.js';
+import { buildSet, buildRun, addCards, fitsAnyMeld, runHi, placements, couldBeSet, couldBeRun, arrangeRun, layoutRun, runPlaces, wildSpots } from '../js/melds.js';
 import { wildTest } from '../js/cards.js';
 import { ROUNDS } from '../js/rules.js';
 import { createGame, applyAction, endIfPastLastRound, viewFor, totals, nextRound, buyTimeout, buyAsking, mustDecideOnDiscard, startRound, endRoundNoWinner, buyEligible } from '../js/engine.js';
@@ -343,6 +343,32 @@ test('staging partial groups', () => {
   assert.equal(buildRun(order, isWild).lo, 7);
   // adding a lower card slots it in before
   assert.deepEqual(arrangeRun([c(8, 'H'), c(9, 'H')], [c(6, 'H'), J()], isWild).map((x) => x.r), [6, 8, 9, 0]);
+});
+
+test('staged runs: jokers place themselves, and can move to the spots that work', () => {
+  const ranks = (cards) => cards.map((x) => x.r);
+  const spotsOf = (cards) => {
+    const laid = layoutRun(cards, isWild);
+    return wildSpots(laid, runPlaces(laid, isWild), laid.findIndex(isWild), isWild);
+  };
+  // a joker fills the gap, even before the run is long enough
+  assert.deepEqual(ranks(layoutRun([c(8, 'H'), J(), c(5, 'H'), c(6, 'H')], isWild)), [5, 6, 0, 8]);
+  assert.deepEqual(ranks(layoutRun([J(), c(9, 'H'), c(7, 'H')], isWild)), [7, 0, 9]);
+  // no gap: it goes on the high end, or the low end past an ace
+  assert.deepEqual(ranks(layoutRun([J(), c(6, 'H'), c(5, 'H'), c(7, 'H'), c(8, 'H')], isWild)), [5, 6, 7, 8, 0]);
+  assert.deepEqual(ranks(layoutRun([J(), c(1, 'H'), c(13, 'H'), c(12, 'H')], isWild)), [0, 12, 13, 1]);
+  // a run that can't work yet still lays out, joker in the lowest gap
+  const broken = layoutRun([c(3, 'H'), c(5, 'H'), c(6, 'H'), c(8, 'H'), J(), c(9, 'H')], isWild);
+  assert.deepEqual(ranks(broken), [3, 0, 5, 6, 8, 9]);
+  assert.deepEqual(runPlaces(broken, isWild), [3, 4, 5, 6, 8, 9]);
+  // where the joker can go: only spots that keep a run working, else any gap or end
+  assert.deepEqual(spotsOf([c(5, 'H'), c(6, 'H'), c(8, 'H'), J()]), [7]);
+  assert.deepEqual(spotsOf([c(5, 'H'), c(6, 'H'), c(7, 'H'), c(8, 'H'), J()]), [4, 9]);
+  assert.deepEqual(spotsOf([c(12, 'H'), c(13, 'H'), c(1, 'H'), J()]), [11]);
+  assert.deepEqual(spotsOf([c(3, 'H'), c(5, 'H'), c(6, 'H'), c(8, 'H'), J(), c(9, 'H')]), [2, 4, 7, 10]);
+  // a run laid down in the order shown keeps the joker where it was put
+  const low = [J(), c(5, 'H'), c(6, 'H'), c(7, 'H'), c(8, 'H')];
+  assert.equal(buildRun(low, isWild).lo, 4);
 });
 
 test('view hides other hands', () => {
