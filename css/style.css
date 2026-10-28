@@ -1828,6 +1828,25 @@ body.cards-lifted .spots-float:not(.fixed) .new-group:not(.misfit),
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 -10px 16px -6px rgba(0, 0, 0, 0.45);
 }
+/* piles out of the table's view: a pill at that edge says whose they are (markHiddenPiles) */
+.pile-peek {
+  position: fixed;
+  z-index: 2;
+  padding: 5px 12px;
+  border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background-color: var(--felt-dark);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+.pile-peek.fresh {
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(242, 193, 78, 0.5), 0 2px 10px rgba(242, 193, 78, 0.35);
+}
 
 /* ---------- the activity box under the deck row ---------- */
 .activity {

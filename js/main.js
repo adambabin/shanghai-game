@@ -622,6 +622,54 @@ function markTableOverflow() {
   const table = $app.querySelector('.table');
   const bottom = $app.querySelector('.bottom');
   if (table && bottom) bottom.classList.toggle('raised', table.scrollHeight > table.clientHeight + 1);
+  markHiddenPiles();
+}
+
+// Piles scrolled out of the table's view (under your cards, or above) get a pill at that edge saying whose they are.
+// Tapping it brings them into view; it glows when a pile it stands for just changed (someone laid down or played).
+function markHiddenPiles() {
+  const table = $app.querySelector('.table');
+  for (const old of $app.querySelectorAll('.pile-peek')) old.remove();
+  if (!table || table.scrollHeight <= table.clientHeight + 1) return;
+  const box = table.getBoundingClientRect();
+  const hidden = { below: [], above: [] };
+  for (const m of table.querySelectorAll('.meld')) {
+    const r = m.getBoundingClientRect();
+    const middle = r.top + r.height / 2;
+    const side = middle > box.bottom ? 'below' : middle < box.top ? 'above' : null;
+    if (side) hidden[side].push(m);
+  }
+  for (const side of ['below', 'above']) {
+    const melds = hidden[side];
+    if (!melds.length) continue;
+    const owners = [...new Set(melds.map((m) => m.closest('.owner-row').dataset.who))];
+    const whose = (w) => (w ? `${esc(w)}'s` : 'Your');
+    const label = owners.length === 1 ? `${whose(owners[0])} piles` : owners.length === 2 ? `${whose(owners[0])} and ${whose(owners[1]).replace(/^Your$/, 'your')} piles` : 'More piles';
+    const fresh = melds.some((m) => m.classList.contains('just-played'));
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = `pile-peek ${side} ${fresh ? 'fresh' : ''}`;
+    pill.dataset.act = 'peekPiles';
+    pill.dataset.side = side;
+    pill.innerHTML = side === 'below' ? `${label} ▾` : `▴ ${label}`;
+    $app.appendChild(pill);
+    const w = pill.offsetWidth;
+    pill.style.left = `${Math.round(box.left + box.width / 2 - w / 2)}px`;
+    pill.style.top = `${Math.round(side === 'below' ? box.bottom - pill.offsetHeight - 6 : box.top + 6)}px`;
+  }
+}
+
+// Scrolls the table to the nearest hidden piles on that side
+function peekPiles(side) {
+  const table = $app.querySelector('.table');
+  if (!table) return;
+  const box = table.getBoundingClientRect();
+  const melds = [...table.querySelectorAll('.meld')].map((m) => m.getBoundingClientRect());
+  const by =
+    side === 'below'
+      ? Math.min(...melds.filter((r) => r.top + r.height / 2 > box.bottom).map((r) => r.bottom - box.bottom + 12))
+      : -Math.min(...melds.filter((r) => r.top + r.height / 2 < box.top).map((r) => box.top - r.top + 30));
+  if (Number.isFinite(by)) table.scrollBy({ top: by, behavior: calmMotion() ? 'auto' : 'smooth' });
 }
 
 function namesText(names) {
@@ -1145,7 +1193,7 @@ function tableHTML(v, isWild) {
           ${m.cards.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>`;
       })
       .join('');
-    rows.push(`<div class="owner-row"><span class="who">${esc(p.name)}${i === v.you ? ' (you)' : ''}</span><div class="melds">${html}</div></div>`);
+    rows.push(`<div class="owner-row" data-who="${i === v.you ? '' : esc(p.name)}"><span class="who">${esc(p.name)}${i === v.you ? ' (you)' : ''}</span><div class="melds">${html}</div></div>`);
   });
   return rows.join('');
 }
@@ -4638,6 +4686,8 @@ function onClick(e) {
       ui.order = sortIds(v.hand, t.dataset.how).sort((a, b) => Number(stagedIds.has(a)) - Number(stagedIds.has(b)));
       return render();
     }
+    case 'peekPiles':
+      return peekPiles(t.dataset.side);
     case 'playOn':
       playOn(v, v.melds.find((m) => m.id === Number(t.dataset.meld)), selectedCards(v), isWild);
       return render();
@@ -4681,6 +4731,8 @@ $app.addEventListener('scroll', (e) => {
   if (e.target.classList && e.target.classList.contains('hscroll')) markEdgeFade(e.target);
 }, true);
 $app.addEventListener('click', onClick);
+// the hidden-piles pill follows the table as it scrolls
+$app.addEventListener('scroll', (e) => e.target.classList && e.target.classList.contains('table') && markHiddenPiles(), true);
 $app.addEventListener('input', onInput);
 $app.addEventListener('change', onChange);
 $app.addEventListener('keydown', onKey);
