@@ -625,8 +625,10 @@ function markTableOverflow() {
   markHiddenPiles();
 }
 
-// Piles scrolled out of the table's view (under your cards, or above) get a pill at that edge saying whose they are.
+// Piles scrolled fully out of the table's view (under your cards, or above) get a pill at that edge saying whose they are.
 // Tapping it brings them into view; it glows when a pile it stands for just changed (someone laid down or played).
+const PEEK_SLIVER = 12;
+
 function markHiddenPiles() {
   const table = $app.querySelector('.table');
   for (const old of $app.querySelectorAll('.pile-peek')) old.remove();
@@ -635,8 +637,8 @@ function markHiddenPiles() {
   const hidden = { below: [], above: [] };
   for (const m of table.querySelectorAll('.meld')) {
     const r = m.getBoundingClientRect();
-    const middle = r.top + r.height / 2;
-    const side = middle > box.bottom ? 'below' : middle < box.top ? 'above' : null;
+    // only piles you can't see: one cut off at the edge still shows whose it is (a sliver under PEEK_SLIVER doesn't count)
+    const side = r.top >= box.bottom - PEEK_SLIVER ? 'below' : r.bottom <= box.top + PEEK_SLIVER ? 'above' : null;
     if (side) hidden[side].push(m);
   }
   for (const side of ['below', 'above']) {
@@ -659,7 +661,8 @@ function markHiddenPiles() {
   }
 }
 
-// Scrolls the table to the nearest hidden piles on that side
+// Scrolls the table a screen's worth toward the hidden piles on that side: the first one lands at the top of the view
+// (with its owner's name above it) or the last one at the bottom, so as many as fit come into view at once
 function peekPiles(side) {
   const table = $app.querySelector('.table');
   if (!table) return;
@@ -667,8 +670,8 @@ function peekPiles(side) {
   const melds = [...table.querySelectorAll('.meld')].map((m) => m.getBoundingClientRect());
   const by =
     side === 'below'
-      ? Math.min(...melds.filter((r) => r.top + r.height / 2 > box.bottom).map((r) => r.bottom - box.bottom + 12))
-      : -Math.min(...melds.filter((r) => r.top + r.height / 2 < box.top).map((r) => box.top - r.top + 30));
+      ? Math.min(...melds.filter((r) => r.top >= box.bottom - PEEK_SLIVER).map((r) => r.top - box.top - 26))
+      : Math.max(...melds.filter((r) => r.bottom <= box.top + PEEK_SLIVER).map((r) => r.bottom - box.bottom + 12));
   if (Number.isFinite(by)) table.scrollBy({ top: by, behavior: calmMotion() ? 'auto' : 'smooth' });
 }
 
