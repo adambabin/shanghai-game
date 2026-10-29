@@ -1799,7 +1799,7 @@ function menuModal(snap) {
 
 // Your own preferences. They're saved in this browser, so they come back next time on this device.
 function settingsModal() {
-  const choice = (act, val, on, label) => `<button class="${on ? 'primary' : 'ghost'}" data-act="${act}" data-val="${val}">${label}</button>`;
+  const choice = (act, val, on, label) => `<button class="${on ? 'on' : ''}" aria-pressed="${on}" data-act="${act}" data-val="${val}">${label}</button>`;
   const backs = CARD_BACKS.map(
     ([key, label]) =>
       `<button class="back-swatch ${ui.cardBack === key ? 'on' : ''}" data-act="setCardBack" data-val="${key}" title="${label}"><span class="card-back" data-back="${key}"></span>${label}</button>`
