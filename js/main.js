@@ -738,7 +738,7 @@ function connectingHTML(snap) {
           ? `Can't reach the host yet. If you're on mobile data, try Wi-Fi, or ask the host to check their connection. Still trying…`
           : 'Connecting to the game…';
   const title = waitingForHost ? `Waiting for ${esc(known.host)}…` : 'Joining…';
-  return `<div class="center-screen"><div class="panel">${loaderHTML(waitingForHost ? `Waiting for ${known.host}` : 'Joining')}<div class="title" style="font-size:30px">${title}</div><p class="muted">${msg}</p><button class="ghost" data-act="leave">Cancel</button></div></div>`;
+  return `<div class="center-screen"><div class="panel">${loaderHTML(waitingForHost ? `Waiting for ${known.host}` : 'Joining')}<div class="title" style="font-size:30px">${title}</div>${code ? `<p class="room-line">Room ${esc(code)}</p>` : ''}<p class="muted">${msg}</p><button class="ghost" data-act="leave">Cancel</button></div></div>`;
 }
 
 function optionRow(label, key, choices, opts, isHost) {
@@ -2943,7 +2943,21 @@ function deviceText() {
     : /iPhone/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Macintosh/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'Other';
   const browser = /EdgiOS|Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox'
     : /Safari\//.test(ua) ? 'Safari' : 'other browser';
-  return [device, browser, isStandalone() ? 'home screen app' : '', `${screen.width}×${screen.height}`, versionText()].filter(Boolean).join(' · ');
+  return [device, browser, isStandalone() ? 'home screen app' : '', `${screen.width}×${screen.height}`, versionText(), gameText()]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+// The game the feedback was sent from, for the ticket, e.g. "against the computer · One table · round 3 of 7 · computers: Normal".
+// Empty from the home screen.
+function gameText() {
+  const snap = ui.session && ui.snap;
+  if (!snap || !snap.lobby) return '';
+  const { lobby, view: v } = snap;
+  const kind = snap.solo ? 'against the computer' : snap.isHost ? 'your game' : 'joined game';
+  const where = !lobby.started ? 'in the lobby' : !v ? '' : v.phase === 'gameOver' ? 'game over' : `round ${v.round + 1} of ${roundsIn(v.round)}`;
+  const skill = skillLabel(lobby.options, lobby.seats);
+  return [kind, lobby.mode === 'tables' ? 'Tables' : 'One table', where, skill && `computers: ${skill}`].filter(Boolean).join(' · ');
 }
 
 // Which release a feedback message came from, for the ticket (players never see it): the commit the deploy

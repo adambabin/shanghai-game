@@ -339,6 +339,13 @@ label.field {
   grid-column: 1 / -1;
   margin-top: -4px;
 }
+.room-line {
+  margin: 2px 0 0;
+  color: var(--ink-dim);
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-align: center;
+}
 .muted {
   color: var(--ink-dim);
   font-size: 14px;
