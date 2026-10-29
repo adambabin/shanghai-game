@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { choosePlay, wantsToBuy, shanghaiReaction } from '../js/bot.js';
+import { choosePlay, chooseDraw, wantsToBuy, shanghaiReaction } from '../js/bot.js';
 import { buildSet, buildRun } from '../js/melds.js';
 import { wildTest } from '../js/cards.js';
 import { DEFAULT_OPTIONS, botLevelFor } from '../js/rules.js';
@@ -55,6 +55,17 @@ test('hard computers always say Shanghai on their own playable discard, easy one
   assert.equal(throwKing('normal', never), false);
   assert.equal(throwKing('normal', always), true);
   assert.equal(throwKing('easy', never), false);
+});
+
+test("the computer about to draw never picks up a Shanghai it didn't call", () => {
+  // two kings in hand: it would like the king of clubs, but the king fits the kings on the table
+  const top = card(13, 'C');
+  const v = view('normal', { hand: [card(13, 'S'), card(13, 'H'), card(5, 'D'), card(5, 'C'), card(9, 'S')], melds: [kings()], top });
+  assert.deepEqual(chooseDraw(v), { type: 'drawDiscard' }); // no discard to call: an ordinary pick up
+  const missed = { ...v, lastDiscard: { by: 1, cardId: top.id } };
+  assert.notEqual(chooseDraw(missed).type, 'drawDiscard');
+  // once it's called, the card is dead and it draws from the deck
+  assert.deepEqual(chooseDraw({ ...missed, topDead: true, lastDiscard: { ...missed.lastDiscard, called: true } }), { type: 'drawDeck' });
 });
 
 test('easy computers sometimes hold on to a card they could play', () => {

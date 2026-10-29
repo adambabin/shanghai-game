@@ -184,7 +184,9 @@ export function chooseDraw(view, memo = {}) {
   if (view.buyWindow) return null;
   const top = view.discardTop;
   if (!top || view.topDead) return { type: 'drawDeck' };
-  if (wantsDiscard(view, isWild, memo)) return { type: 'drawDiscard' };
+  // a Shanghai nobody called (this computer's own call, see HostSession.scheduleBots, didn't come): a person who saw it
+  // fits a pile would have called it, so never pick it up as if it didn't
+  if (!seesShanghai(view) && wantsDiscard(view, isWild, memo)) return { type: 'drawDiscard' };
   // not interested: give everyone else a chance to buy it first
   if (!view.buyOffered && view.buyEligible.length) return { type: 'allowBuy' };
   return { type: 'drawDeck' };

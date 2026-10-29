@@ -1012,11 +1012,12 @@ export class HostSession {
       for (const seat of w.order) if (g.players[seat].bot) botBuyAnswer(seat, 400 + Math.random() * 500, w);
     }
 
-    // Shanghai calls on the latest discard, decided once per discard per bot
+    // Shanghai calls on the latest discard, decided once per discard per bot, the one about to draw too (it won't take
+    // a Shanghai it didn't call, see chooseDraw)
     if (g.phase === 'draw') {
       const key = `${g.round}:${g.discard.length}:${g.discard[g.discard.length - 1]?.id}`;
       for (const seat of bots) {
-        if (seat === g.turn || sittingOut(g, seat) || d.reacted.has(key + ':' + seat)) continue;
+        if (sittingOut(g, seat) || d.reacted.has(key + ':' + seat)) continue;
         const v = viewFor(g, seat);
         if (!seesShanghai(v)) continue;
         d.reacted.add(key + ':' + seat);
