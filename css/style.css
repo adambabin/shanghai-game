@@ -1212,6 +1212,11 @@ html:has(.game) body {
 .menu-list button {
   text-align: left;
 }
+.menu-note {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--ink-dim);
+}
 table.scores {
   width: 100%;
   border-collapse: collapse;

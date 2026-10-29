@@ -303,6 +303,7 @@ function rememberJoined(snap) {
     host: host ? host.name : '',
     others: seats.filter((s, i) => !s.isHost && i !== snap.seat).map((s) => s.name),
     round: snap.view ? snap.view.round : null,
+    skill: skillLabel(snap.lobby.options, seats),
     seenAt: Date.now(),
   };
   store.set('joinedGames', [entry, ...joinedGames().filter((g) => g.code !== code)]);
@@ -624,6 +625,12 @@ function markTableOverflow() {
   if (table && bottom) bottom.classList.toggle('raised', table.scrollHeight > table.clientHeight + 1);
 }
 
+// "Hard" for a game with a computer seated (stand-ins too), else null: shown in the ☰ menu and on the home screen's games
+function skillLabel(options, seats) {
+  if (!seats || !seats.some((s) => s.bot)) return null;
+  return BOT_LEVELS.find(([k]) => k === botLevelFor(options || {}))[1];
+}
+
 function namesText(names) {
   return names.length ? 'with ' + names.map(esc).join(', ') : 'no one else yet';
 }
@@ -639,18 +646,19 @@ function roundsIn(round) {
 
 // every game you can go back to: the ones saved on this device (yours) and the ones you joined, newest first
 function yourGameRows() {
+  const skill = (label) => (label ? ` · Computers: ${esc(label)}` : '');
   const hosted = HostSession.savedGames().map((s) => ({
     at: s.savedAt || 0,
     html: `<button class="ghost game-pick" data-act="resume" data-id="${esc(s.id)}">
       <b>${s.solo ? 'Against the computer' : `Room ${esc(s.lobby.code)} · you're hosting${s.tour ? ' · Tables' : ''}`}</b>
-      <span>${roundText((s.tour || s.game).round)} · ${namesText(s.lobby.seats.slice(1).map((p) => p.name))}</span></button>
+      <span>${roundText((s.tour || s.game).round)} · ${namesText(s.lobby.seats.slice(1).map((p) => p.name))}${skill(skillLabel(s.lobby.options, s.lobby.seats))}</span></button>
       <button class="ghost small game-forget" data-act="forgetGame" data-id="${esc(s.id)}" aria-label="Remove">✕</button>`,
   }));
   const joined = joinedGames().map((g) => ({
     at: g.seenAt || 0,
     html: `<button class="ghost game-pick" data-act="rejoin" data-code="${esc(g.code)}">
       <b>Room ${esc(g.code)} · ${esc(g.host)}'s game</b>
-      <span>${roundText(g.round)} · ${namesText(g.others)}</span></button>
+      <span>${roundText(g.round)} · ${namesText(g.others)}${skill(g.skill)}</span></button>
       <button class="ghost small game-forget" data-act="forgetJoined" data-code="${esc(g.code)}" aria-label="Remove">✕</button>`,
   }));
   return [...hosted, ...joined].sort((a, b) => b.at - a.at).map((g) => `<div class="game-row">${g.html}</div>`);
@@ -1794,6 +1802,8 @@ function menuModal(snap) {
     if (v.phase === 'draw' || v.phase === 'play') items.push('<button class="danger" data-act="endRound">End this round (nobody can go out)</button>');
   }
   items.push(`<button class="danger" data-act="leave">${snap.isHost && !snap.solo ? 'Leave (game pauses for everyone)' : 'Leave game'}</button>`);
+  const skill = skillLabel(snap.lobby.options, snap.lobby.seats);
+  if (skill) items.push(`<p class="menu-note">Computer skill: ${esc(skill)}</p>`);
   return wrapModal('Menu', `<div class="menu-list">${items.join('')}</div>`);
 }
 
