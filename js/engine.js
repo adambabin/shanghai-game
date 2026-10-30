@@ -328,12 +328,20 @@ function notShanghaiReason(state, seat) {
   const top = state.discard[state.discard.length - 1];
   if (!top) return 'There is no card on the discard pile.';
   if (!ld || ld.card.id !== top.id) return `The ${cardLabel(top)} was uncovered by a buy, not just discarded.`;
-  const by = state.players[ld.by].name;
   if (ld.by === seat) return "You can't call Shanghai on your own discard.";
-  if (ld.declared) return `${by} already declared the ${cardLabel(top)} dead.`;
-  if (ld.called) return 'Someone already called it.';
   if (!ld.open) return `Too late: the ${cardLabel(top)} has been picked up or the next player has drawn.`;
   return `The ${cardLabel(top)} doesn't fit on any pile.`;
+}
+
+// A call just after the card was already called (or declared dead by its discarder): not a mistake, just second
+function lateCallReason(state) {
+  const ld = state.lastDiscard;
+  const top = state.discard[state.discard.length - 1];
+  if (!ld || !top || ld.card.id !== top.id) return null;
+  if (ld.declared) return `${state.players[ld.by].name} already declared the ${cardLabel(top)} dead.`;
+  if (!ld.called) return null;
+  const caller = ld.calledBy == null ? 'Someone' : state.players[ld.calledBy].name;
+  return `${caller} already called Shanghai on the ${cardLabel(top)}.`;
 }
 
 function topIsShanghai(state) {
@@ -581,6 +589,7 @@ export function applyAction(state, seat, action) {
       if (topIsShanghai(state) && state.lastDiscard.by !== seat) {
         const ld = state.lastDiscard;
         ld.called = true;
+        ld.calledBy = seat;
         ld.open = false;
         state.topDead = true;
         state.buyWindow = null;
@@ -596,6 +605,12 @@ export function applyAction(state, seat, action) {
           { seat, target: ld.by }
         );
         return { ok: true, result: 'hit' };
+      }
+      const late = state.lastDiscard?.by !== seat && lateCallReason(state);
+      if (late) {
+        // no penalty and no missed call: only the caller hears who beat them to it
+        log(state, `${name} called Shanghai too.`, 'latecall', { seat, why: late });
+        return { ok: true, result: 'late', why: late };
       }
       const got = drawCards(state, seat, state.options.falseCallPenalty);
       const cost = got.length ? ` ${name} picks up ${got.length} card${got.length === 1 ? '' : 's'}.` : '';

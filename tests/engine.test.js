@@ -118,10 +118,14 @@ test('round 1 lay down, play on piles, and Shanghai call penalties', () => {
   assert.ok(g.topDead);
   assert.ok(!applyAction(g, 1, { type: 'drawDiscard' }).ok, 'dead card cannot be picked up');
   assert.ok(!applyAction(g, 2, { type: 'buy' }).ok, 'dead card cannot be bought');
-  // a second call on the same card is a false call
-  assert.equal(applyAction(g, 1, { type: 'shanghai' }).result, 'miss');
+  // a second call on the same card was just too late: no penalty, no missed call, and it says who got it
+  const hand1 = g.hands[1].length;
+  const late = applyAction(g, 1, { type: 'shanghai' });
+  assert.equal(late.result, 'late');
+  assert.equal(late.why, `${g.players[2].name} already called Shanghai on the 4♣.`);
+  assert.equal(g.hands[1].length, hand1);
   // counted for "How everyone played" at the end
-  assert.deepEqual([g.stats[0].falseCalls, g.stats[1].falseCalls, g.stats[2].caught], [1, 1, 1]);
+  assert.deepEqual([g.stats[0].falseCalls, g.stats[1].falseCalls, g.stats[2].caught], [1, 0, 1]);
   assert.deepEqual([g.stats[0].caughtBy, g.stats[0].shanghaiCards], [1, 2]);
 });
 
@@ -169,7 +173,11 @@ test('declared Shanghai discard is dead, no penalty, live again once covered and
   assert.ok(applyAction(g, 0, { type: 'discard', id: p0[6].id, declare: true }).ok);
   assert.ok(g.topDead);
   assert.equal(g.stats[0].ownShanghais, 1);
-  assert.equal(applyAction(g, 1, { type: 'shanghai' }).result, 'miss');
+  // calling it after the discarder declared it isn't a missed call
+  const late = applyAction(g, 1, { type: 'shanghai' });
+  assert.equal(late.result, 'late');
+  assert.equal(late.why, `${g.players[0].name} already declared the 4♣ dead.`);
+  assert.equal(g.stats[1].falseCalls, 0);
   assert.ok(!applyAction(g, 1, { type: 'drawDiscard' }).ok);
   deckDraw(g, 1);
   applyAction(g, 1, { type: 'discard', id: p1[0].id });

@@ -401,6 +401,8 @@ function processLog(v) {
       // the caller hears why; everyone else just hears that it missed
       toast(e.seat === v.you && e.why ? `That wasn't a Shanghai. ${e.why}` : e.text, true, 5000);
       beep([220, 180], 0.2);
+    } else if (e.kind === 'latecall') {
+      if (e.seat === v.you) toast(e.why, true, 5000);
     } else if (e.kind === 'win') {
       beep([523, 659, 784]);
     } else if (e.kind === 'notshanghai') {
