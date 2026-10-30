@@ -1349,8 +1349,9 @@ function buyBarHTML(v) {
           : `${ahead.length} players are ahead of you. Waiting for them…`;
       return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait} ${timer}</span></div>`;
     }
+    // the timer hangs off the buttons without taking room, so Buy / No stay where the early question had them
     return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
-      <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span> ${timer}</div>`;
+      <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button>${timer}</span></div>`;
   }
   // the current player is still choosing: you can already say whether you'd buy it
   if (v.earlyBuy) {
