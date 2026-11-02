@@ -1469,7 +1469,8 @@ table.scores td.zero {
   border-radius: 10px;
 }
 .result-row.winner {
-  outline: 2px solid var(--gold);
+  /* drawn inside the box: an outline sits outside it, and the scrolling list cut the top one off */
+  box-shadow: inset 0 0 0 2px var(--gold);
 }
 .result-body {
   display: flex;
@@ -1575,7 +1576,8 @@ button.awards-card {
   background-color: var(--panel);
 }
 .report.winner {
-  outline: 2px solid var(--gold);
+  /* drawn inside the box: an outline sits outside it, and the scrolling list cut the top one off */
+  box-shadow: inset 0 0 0 2px var(--gold);
 }
 .report .top {
   display: flex;
