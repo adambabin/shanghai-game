@@ -881,6 +881,12 @@ html:has(.game) body {
 
 /* ---------- going out ----------
    Someone else's new cards on the table hide (.landing) until their flight from the tile lands, then settle in */
+#fly-clip {
+  position: fixed;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 40;
+}
 .table .card.landing {
   visibility: hidden;
 }

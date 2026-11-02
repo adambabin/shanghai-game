@@ -4153,8 +4153,12 @@ function flyPlays() {
     const ghost = card.cloneNode(true);
     ghost.classList.remove('landing');
     ghost.classList.add('flying-card');
-    Object.assign(ghost.style, { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px` });
-    document.body.appendChild(ghost);
+    // it flies inside the tiles and the table only: a pile scrolled below the table takes its card behind the activity
+    // box and the deck row, instead of the card riding over them and vanishing
+    const clip = flyClip(row);
+    const c = clip.getBoundingClientRect();
+    Object.assign(ghost.style, { position: 'absolute', left: `${to.left - c.left}px`, top: `${to.top - c.top}px`, width: `${to.width}px`, height: `${to.height}px` });
+    clip.appendChild(ghost);
     const left = f.landAt - now;
     const a = ghost.animate(
       [
@@ -4165,10 +4169,25 @@ function flyPlays() {
     );
     a.onfinish = () => {
       ghost.remove();
+      if (!clip.children.length) clip.remove();
       ui.flights.delete(id);
       landCard(id, f.seat);
     };
   }
+}
+// a layer over the tiles and the table, cut off where the table ends, for the cards to fly in
+function flyClip(row) {
+  let clip = document.getElementById('fly-clip');
+  if (clip) return clip;
+  const table = $app.querySelector('.table');
+  const a = row.getBoundingClientRect();
+  const b = table ? table.getBoundingClientRect() : a;
+  clip = document.createElement('div');
+  clip.id = 'fly-clip';
+  const left = Math.min(a.left, b.left);
+  Object.assign(clip.style, { left: `${left}px`, top: `${a.top}px`, width: `${Math.max(a.right, b.right) - left}px`, height: `${b.bottom - a.top}px` });
+  document.body.appendChild(clip);
+  return clip;
 }
 // one card is down: show it on its pile, and take it off the count on the tile
 function landCard(id, seat) {
