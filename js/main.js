@@ -4070,8 +4070,8 @@ function flyBuy() {
 }
 
 // ---------- the winner's card shower ----------
-// When a game ends, little ♠ ♥ ♦ ♣ cards and paper confetti fall over the screen: the full shower on the winner's phone,
-// a lighter one for everyone else. Once per game on this page, on its own canvas over everything, gone when it's done.
+// When a game ends, little ♠ ♥ ♦ ♣ cards and paper confetti fall over the screen, only on the winner's phone (each
+// winner's, on a shared win). Once per game on this page, on its own canvas over everything, gone when it's done.
 const CONFETTI_COLORS = ['#f2c14e', '#d63b3b', '#fffdf7', '#2e7d4f', '#6b3fa0'];
 const SUIT_BITS = [['♠', '#1d1d1f'], ['♥', '#c62828'], ['♦', '#c62828'], ['♣', '#1d1d1f']];
 function celebrateWin() {
@@ -4080,7 +4080,8 @@ function celebrateWin() {
   const key = `${handGameKey()}:${v.seq}`;
   if (ui.celebrated === key || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   ui.celebrated = key;
-  confettiShower(v.you != null && winnersOf(v).includes(v.you) ? 1 : 0.35);
+  if (v.you == null || !winnersOf(v).includes(v.you)) return;
+  confettiShower(1);
 }
 
 function confettiShower(amount) {
