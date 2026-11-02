@@ -2246,6 +2246,13 @@ button.link-btn {
 .chat-btn.on {
   background: var(--gold);
 }
+/* the score screens' own, in their title bar */
+.modal.framed .modal-head .chat-btn {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 0;
+  font-size: 19px;
+}
 .chat-count {
   position: absolute;
   top: -4px;

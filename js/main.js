@@ -1017,7 +1017,7 @@ function tableDoneModal(snap) {
     .join('');
   const back = t.watching != null ? '<button class="ghost" data-act="watch" data-table="">Back to my table</button>' : '';
   return `<div class="overlay"><div class="modal framed">
-    <h2>${rr.winner != null ? `${rr.winner === v.you ? 'You' : esc(v.players[rr.winner].name)} went out!` : 'Round over'}</h2>
+    ${modalHead(rr.winner != null ? `${rr.winner === v.you ? 'You' : esc(v.players[rr.winner].name)} went out!` : 'Round over')}
     <div class="modal-body result-body">
       <p class="muted result-sub">This round at table ${k + 1}</p>
       ${tieDrawHTML(snap, k)}
@@ -1071,7 +1071,7 @@ function nextTablesModal(snap) {
     ? `<button class="primary" data-act="nextRound">Deal round ${t.round + 2}: ${contractText(t.round + 1)}</button>`
     : `<span class="muted">Waiting for ${esc(hostName(snap))} to deal round ${t.round + 2}…</span>`;
   return `<div class="overlay"><div class="modal framed">
-    <h2>After round ${t.round + 1} of ${roundsIn(t.round)}</h2>
+    ${modalHead(`After round ${t.round + 1} of ${roundsIn(t.round)}`)}
     <div class="modal-body result-body">${tabs}${body}</div>
     <div class="actions">${action}</div>
   </div></div>`;
@@ -1542,7 +1542,8 @@ function modalHTML(snap) {
     case 'scores':
       // during a Tables game a table's own scores are just this round: the standings across every table say more
       if (t && v.players[v.turn]) return wrapModal('Standings', standingsHTML(snap));
-      return wrapModal('Scores', scoresTable(v));
+      // from a score screen, which covers the game's 💬
+      return wrapModal('Scores', scoresTable(v), '', { headAction: chatCovered(v) ? modalChatButton() : '' });
     case 'rules':
       return rulesModal(v.options, v.players.some((p) => p.bot));
     case 'log':
@@ -1589,6 +1590,19 @@ function wrapModal(title, body, actions = '', { closeFirst = false, headAction =
   return `<div class="overlay" data-act="closeModal"><div class="modal framed" data-stop>
     ${head}<div class="modal-body">${paused}${body}</div>
     <div class="actions">${closeFirst ? close + actions : actions + close}</div></div></div>`;
+}
+
+// The screens between rounds and at the end cover the 💬 beside SHANGHAI!, so they carry their own in the title bar
+// (with the count of new messages; no pop-ups over them). The chat opens over them and closing it comes back.
+const chatCovered = (v) => ['roundOver', 'gameOver', 'tieVote'].includes(v.phase);
+// pop-ups the chat can open over: the score screens' own (anything else closes the chat while it's open)
+const CHAT_OVER_MODALS = ['awards', 'scores'];
+function modalChatButton() {
+  return mySeat() != null ? chatButtonHTML() : '';
+}
+function modalHead(title) {
+  const chat = modalChatButton();
+  return chat ? `<div class="modal-head"><h2>${title}</h2>${chat}</div>` : `<h2>${title}</h2>`;
 }
 
 function totalsOf(v) {
@@ -1684,7 +1698,7 @@ function resultModal(snap) {
   else actions = `<span class="muted">Waiting for the host to ${over ? 'start a new game' : 'deal'}…</span>`;
   // framed like the other pop-ups: with lots of players only the results scroll, and the buttons stay in view
   return `<div class="overlay"><div class="modal framed ${over ? 'game-over' : ''}">
-    <h2>${title}</h2>
+    ${modalHead(title)}
     <div class="modal-body result-body">
     ${sub ? `<p class="muted result-sub">${sub}</p>` : ''}
     ${over && v.stats ? awardsCardHTML(v) : ''}
@@ -1739,7 +1753,11 @@ function awardsModal(snap) {
     })
     .join('');
   const again = snap.isHost ? '<button class="primary" data-act="playAgain">Play again</button>' : '';
-  return wrapModal('How everyone played', `<div class="reports">${cards}</div>`, again, { closeFirst: true, closeLabel: 'Back' });
+  return wrapModal('How everyone played', `<div class="reports">${cards}</div>`, again, {
+    closeFirst: true,
+    closeLabel: 'Back',
+    headAction: modalChatButton(),
+  });
 }
 
 function ordinal(n) {
@@ -1774,7 +1792,7 @@ function tieModal(snap) {
     actions = `<span class="muted">Waiting for ${namesOf(v, waiting)} to decide…</span>`;
   }
   return `<div class="overlay"><div class="modal framed">
-    <h2>It's a tie!</h2>
+    ${modalHead("It's a tie!")}
     <div class="modal-body result-body">
     <p class="muted result-sub">${namesOf(v, tb.seats)} ${tb.seats.length > 2 ? 'all' : 'both'} have ${totals[tb.seats[0]]}.</p>
     <p>${iVote ? 'Call it a shared win, or play a <b>tiebreaker</b>' : 'They can share the win or play a <b>tiebreaker</b>'}: round ${v.round + 1} (${contractText(v.round)}) again, ${just}. Lowest score in it wins.</p>
@@ -2316,7 +2334,7 @@ const X_ICON = '<svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><p
 
 function syncChatSheet() {
   let sheet = document.getElementById('chat-sheet');
-  const show = ui.chatOpen && ui.snap && ui.snap.view && !ui.modal;
+  const show = ui.chatOpen && ui.snap && ui.snap.view && (!ui.modal || (CHAT_OVER_MODALS.includes(ui.modal) && chatCovered(ui.snap.view)));
   if (!show) {
     if (sheet) {
       // a half-typed message waits for the chat to open again
@@ -2769,7 +2787,8 @@ function placeChatPops() {
   ui.chatPops = ui.chatPops.filter((p) => p.open || p.until > now);
   if (ui.chatMoreUntil < now) ui.chatMore = 0;
   const players = $app.querySelector('.players');
-  const covered = ui.snap && ui.snap.tour && $app.querySelector('.overlay');
+  // the score screens between rounds and at the end: just the count on their 💬
+  const covered = $app.querySelector('.overlay');
   const show = players && !ui.modal && !covered && !ui.chatOpen && ui.tour == null && (ui.chatPops.length || ui.chatMore);
   if (!show) {
     if (layer) layer.remove();
@@ -4193,7 +4212,7 @@ const TIPS = {
   },
   chat: {
     when: () => Date.now() - ui.chatTipAt < 15000 && !ui.chatOpen,
-    at: ['.chat-btn'],
+    at: ['.overlay .chat-btn', '.chat-btn'], // on a score screen, its own 💬, not the one it covers
     html: () => `Someone sent a message! Tap <b>💬</b> to chat or send a quick reaction. If you'd rather not see messages pop up, turn
       off <b>Chat pop-ups</b> in Settings.`,
   },
