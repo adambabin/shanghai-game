@@ -893,7 +893,7 @@ html:has(.game) body {
     box-shadow: 0 0 0 3px var(--gold);
   }
 }
-/* whoever went out: a gold tile with an OUT badge, bursting with little suits (.out-spark, on body) as it turns */
+/* whoever went out: a gold tile with a crown and "won the round", bursting with little suits (.out-spark, on body) as it turns */
 .chip.went-out {
   position: relative;
   background-color: var(--gold);
@@ -906,18 +906,11 @@ html:has(.game) body {
 .chip.went-out .buys-left {
   color: #3a2a00;
 }
-.out-badge {
-  position: absolute;
-  top: -8px;
-  right: -6px;
-  background: var(--red);
-  color: white;
-  font-size: 10px;
+.chip .crown {
+  margin-right: 4px;
+}
+.chip .won-round {
   font-weight: 800;
-  line-height: 1;
-  padding: 3px 5px;
-  border-radius: 6px;
-  transform: rotate(8deg);
 }
 .out-spark {
   position: fixed;

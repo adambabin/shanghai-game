@@ -1122,9 +1122,11 @@ function playerChips(v) {
       // names longer than 15 characters are cut short; the full name shows on hover
       const short = p.name.length > 15 ? p.name.slice(0, 14).trimEnd() + '…' : p.name;
       const out = wentOutSeat(v) === i;
+      // whoever went out won the round: a crown, never anything red that could read as knocked out
+      const statsShown = out ? `<span class="won-round">won the ${v.tiebreak && v.tiebreak.points ? 'tiebreaker' : 'round'}</span>` : stats;
       return `<div class="chip ${i === v.turn && !out ? 'turn' : ''} ${i === v.you ? 'me' : ''} ${dealer ? 'dealer' : ''} ${stats.includes('class="bought"') ? 'just-bought' : ''} ${out ? 'went-out' : ''}">
-        ${out ? '<span class="out-badge">OUT</span>' : dealer ? '<span class="dealer-badge" title="Dealer">D</span>' : ''}<span class="pname" title="${esc(p.name)}">${esc(short)}</span>
-        <span class="pstats">${p.out ? '<span>sitting out</span>' : stats}</span>
+        ${!out && dealer ? '<span class="dealer-badge" title="Dealer">D</span>' : ''}<span class="pname" title="${esc(p.name)}">${out ? '<span class="crown" aria-hidden="true">👑</span>' : ''}${esc(short)}</span>
+        <span class="pstats">${p.out ? '<span>sitting out</span>' : statsShown}</span>
         <span class="ptags">${tags.join('')}</span></div>`;
     })
     .join('');
@@ -4280,6 +4282,72 @@ function toggleSheet() {
   btn.setAttribute('aria-expanded', String(!ui.sheetLow));
 }
 
+// The sheet follows the finger too, like the hand and the chat: down from anywhere on it (the scores only once scrolled
+// to the top) lowers it to the strip, up from the strip raises it. Past a third of the way or on a flick it goes;
+// otherwise it springs back. Redraws wait while it moves (ui.swiping).
+let sheetSwipe = null;
+function onSheetTouchStart(e) {
+  sheetSwipe = null;
+  const modal = e.target.closest('.result-sheet .modal');
+  if (!modal || e.touches.length !== 1 || ui.drag) return;
+  const body = e.target.closest('.modal-body');
+  if (!ui.sheetLow && body && body.scrollTop > 0) return; // scrolled down the scores: that swipe scrolls them back
+  const handle = modal.querySelector('.sheet-handle');
+  const y = e.touches[0].clientY;
+  // how far it travels: down to where only the handle shows above the home bar
+  const lowY = modal.offsetHeight - handle.offsetHeight - (parseFloat(getComputedStyle(modal).paddingBottom) || 0);
+  sheetSwipe = { modal, low: !!ui.sheetLow, body, lowY, y, x: e.touches[0].clientX, dragging: false, last: [[e.timeStamp, y]] };
+}
+function onSheetTouchMove(e) {
+  const h = sheetSwipe;
+  if (!h) return;
+  const y = e.touches[0].clientY;
+  const dy = y - h.y;
+  if (!h.dragging) {
+    if (Math.abs(e.touches[0].clientX - h.x) > 8 && Math.abs(e.touches[0].clientX - h.x) > Math.abs(dy)) return (sheetSwipe = null);
+    if (h.low ? dy > 8 : dy < -8) return (sheetSwipe = null);
+    if (Math.abs(dy) < 8) return;
+    h.dragging = true;
+    h.y = y; // follow from here, so the sheet doesn't jump by the first few pixels
+    ui.swiping = true;
+    ui.swallowClick = true; // the button the swipe started on doesn't count as tapped
+    h.modal.style.transition = 'none';
+    // pulled up from the strip: the scores show as it comes
+    if (h.low) h.modal.parentElement.classList.remove('low');
+  }
+  e.preventDefault();
+  const pos = Math.min(h.lowY, Math.max(0, (h.low ? h.lowY : 0) + y - h.y));
+  h.modal.style.transform = `translateY(${pos}px)`;
+  h.pos = pos;
+  h.last = [...h.last.slice(-4), [e.timeStamp, y]];
+}
+function onSheetTouchEnd(e) {
+  const h = sheetSwipe;
+  sheetSwipe = null;
+  if (!h || !h.dragging) return;
+  const y = e.changedTouches ? e.changedTouches[0].clientY : h.y;
+  const [t0, y0] = h.last.find(([t]) => e.timeStamp - t < 100) || h.last[h.last.length - 1];
+  const speed = (y - y0) / Math.max(1, e.timeStamp - t0); // px per ms over the last tenth of a second
+  const pos = h.pos ?? (h.low ? h.lowY : 0);
+  const moved = h.low ? h.lowY - pos : pos;
+  const flick = h.low ? speed < -0.5 : speed > 0.5;
+  const go = e.type === 'touchend' && (moved > h.lowY / 3 || (moved > 30 && flick));
+  const low = go ? !h.low : h.low;
+  h.modal.style.transition = 'transform 0.22s ease-out';
+  h.modal.style.transform = `translateY(${low ? h.lowY : 0}px)`;
+  setTimeout(() => {
+    h.modal.style.transition = '';
+    h.modal.style.transform = '';
+    ui.swiping = false;
+    ui.sheetLow = !low; // toggleSheet flips it to where it ended up, with the handle's words
+    toggleSheet();
+    if (ui.pendingRender) {
+      ui.pendingRender = false;
+      render();
+    }
+  }, 230);
+}
+
 // Tables (BETA): another table finishing while you're still playing gets a short note under the tiles (no burst, so
 // it doesn't pull you out of your own game)
 const TABLE_NOTE_MS = 4000;
@@ -4974,6 +5042,10 @@ $app.addEventListener('touchstart', onHandTouchStart, { passive: true });
 $app.addEventListener('touchmove', onHandTouchMove, { passive: false });
 $app.addEventListener('touchend', onHandTouchEnd);
 $app.addEventListener('touchcancel', onHandTouchEnd);
+$app.addEventListener('touchstart', onSheetTouchStart, { passive: true });
+$app.addEventListener('touchmove', onSheetTouchMove, { passive: false });
+$app.addEventListener('touchend', onSheetTouchEnd);
+$app.addEventListener('touchcancel', onSheetTouchEnd);
 window.addEventListener('pointermove', onPointerMove);
 window.addEventListener('pointerup', onPointerUp);
 window.addEventListener('pointercancel', (e) => {
