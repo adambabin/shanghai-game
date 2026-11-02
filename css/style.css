@@ -878,6 +878,172 @@ html:has(.game) body {
 .discard-pile.landing .stack > .card {
   visibility: hidden;
 }
+
+/* ---------- going out ----------
+   Someone else's new cards on the table hide (.landing) until their flight from the tile lands, then settle in */
+.table .card.landing {
+  visibility: hidden;
+}
+.table .card.landed {
+  animation: card-land 0.35s ease-out;
+}
+@keyframes card-land {
+  from {
+    transform: scale(1.3);
+    box-shadow: 0 0 0 3px var(--gold);
+  }
+}
+/* whoever went out: a gold tile with an OUT badge, bursting with little suits (.out-spark, on body) as it turns */
+.chip.went-out {
+  position: relative;
+  background-color: var(--gold);
+  border-color: var(--gold);
+  color: #3a2a00;
+  box-shadow: 0 0 0 3px rgba(242, 193, 78, 0.35), 0 0 18px rgba(242, 193, 78, 0.55);
+}
+.chip.went-out .pname,
+.chip.went-out .pstats,
+.chip.went-out .buys-left {
+  color: #3a2a00;
+}
+.out-badge {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  background: var(--red);
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 6px;
+  transform: rotate(8deg);
+}
+.out-spark {
+  position: fixed;
+  z-index: 49;
+  font-size: 15px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.activity .buy-bar.out-bar {
+  background-color: var(--gold);
+  color: #3a2a00;
+  font-size: 17px;
+  font-weight: 800;
+}
+.activity .buy-bar.out-bar b {
+  color: #3a2a00;
+}
+.out-bar small {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* the scores between rounds: a sheet from below, over the deck and your hand but not the table */
+.result-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.result-sheet .modal {
+  pointer-events: auto;
+  border-radius: 18px 18px 0 0;
+  max-height: min(70dvh, calc(100dvh - var(--safe-top) - 140px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+  transition: transform 0.35s cubic-bezier(0.2, 1, 0.4, 1);
+}
+.result-sheet.low .modal {
+  transform: translateY(calc(100% - 40px - env(safe-area-inset-bottom, 0px)));
+}
+.result-sheet.rising .modal {
+  animation: sheet-rise 0.4s cubic-bezier(0.2, 1, 0.4, 1) both;
+}
+@keyframes sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+.result-sheet .modal.framed h2 {
+  padding-top: 2px;
+}
+.sheet-handle {
+  flex: none;
+  align-self: stretch;
+  background: none;
+  border-radius: 0;
+  padding: 10px 16px 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-dim);
+}
+/* the end of the game stepped aside to show the table */
+.peek-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+.peek-bar button {
+  pointer-events: auto;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+/* Tables (BETA): another table is done, said under the tiles for a few seconds without moving anything */
+.note-anchor {
+  position: relative;
+  height: 0;
+  z-index: 5;
+}
+.table-note {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 2px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background-color: rgba(9, 38, 23, 0.92);
+  font-size: 13px;
+  text-align: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  animation: table-note 4s ease both;
+  pointer-events: none;
+}
+.table-note b {
+  color: var(--gold);
+}
+@keyframes table-note {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  8%,
+  88% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .table .card.landed,
+  .result-sheet.rising .modal,
+  .table-note {
+    animation: none;
+  }
+}
 .shanghai-btn {
   background: var(--red);
   color: white;

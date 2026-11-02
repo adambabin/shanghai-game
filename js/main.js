@@ -328,7 +328,8 @@ function onSnapshot(snap) {
   // Tables (BETA): watching another table, or a new round at a new one, is a different game: its log and piles start afresh
   const t = snap.tour;
   const viewKey = t ? `${t.phase === 'tiebreak' ? 'tb' : t.round}:${t.watching ?? t.table}:${['tieVote', 'gameOver'].includes(t.phase)}` : '';
-  if (viewKey !== ui.viewKey) Object.assign(ui, { viewKey, lastSeq: null, meldSig: null, recentBuy: null, flyFrom: null, flyBuy: null });
+  const sameView = viewKey === ui.viewKey;
+  if (!sameView) Object.assign(ui, { viewKey, lastSeq: null, meldSig: null, recentBuy: null, flyFrom: null, flyBuy: null, flights: new Map() });
   if (v) {
     syncHand(v);
     // a discard dragged onto a group or pile: play it as soon as it's in your hand
@@ -337,8 +338,12 @@ function onSnapshot(snap) {
       ui.afterDraw = null;
       setTimeout(() => finishTake(take));
     }
+    ui.playSeat = null;
     processLog(v);
-    trackMeldChanges(v);
+    const added = trackMeldChanges(v);
+    if (added.length && ui.playSeat != null && ui.playSeat !== v.you) queueFlights(ui.playSeat, added);
+    if (sameView && prev && prev.view) noticeGoingOut(prev.view, v);
+    if (t && prev && prev.tour) noticeTablesDone(prev.tour, snap);
     // a tie's draw at your table counts down the same way (Tables, BETA)
     const tie = t && t.phase === 'playing' && t.table >= 0 ? t.tables[t.table].tie : null;
     const tieLeft = tie && !tie.done && tie.seats.includes(snap.seat) && !tie.tries[tie.tries.length - 1][snap.seat] ? tie.msLeft : null;
@@ -364,13 +369,16 @@ function trackMeldChanges(v) {
   ui.meldSig = sig;
   if (!prev || prev.round !== v.round) {
     sig.round = v.round;
-    return;
+    return [];
   }
   sig.round = v.round;
   const changed = v.melds.filter((m) => prev.get(m.id) !== sig.get(m.id)).map((m) => m.id);
-  if (!changed.length) return;
+  if (!changed.length) return [];
   ui.justPlayed = { ids: new Set(changed), until: Date.now() + JUST_PLAYED_MS };
   setTimeout(render, JUST_PLAYED_MS + 50);
+  // the cards that weren't on the table before, in the order the piles and their cards are in
+  const before = new Set([...prev.values()].flatMap((x) => (x ? x.split(',') : [])));
+  return v.melds.flatMap((m) => m.cards.map((c) => c.id)).filter((id) => !before.has(String(id)));
 }
 
 const RECENT_BUY_MS = 5000;
@@ -385,6 +393,8 @@ function processLog(v) {
     if (e.seq <= ui.lastSeq) continue;
     // someone else's discard flies from their tile to the pile (yours you just put there yourself)
     if (DISCARD_KINDS.includes(e.kind) && e.seat !== v.you) ui.flyFrom = e.seat;
+    // someone's lay down, play or joker swap: their new cards fly from their tile to the piles (see onSnapshot)
+    if (['laydown', 'play', 'swap'].includes(e.kind)) ui.playSeat = e.seat;
     // someone else's buy flies the other way: the card from the pile, then the extra cards from the deck, to their tile
     if (e.kind === 'buy' && e.seat !== v.you && e.card) ui.flyBuy = { seat: e.seat, card: e.card, extra: e.extra || 0 };
     // who bought stays on their tile, and leads the next card's buy question, for a few seconds
@@ -579,6 +589,8 @@ function render() {
   // after the tiles are scrolled back where they were, so the cards fly to and from the right place
   flyDiscard();
   flyBuy();
+  flyPlays();
+  burstOut();
   const staged = $app.querySelector('.staged-row');
   if (staged) {
     if (stagedLeft != null) staged.scrollLeft = stagedLeft;
@@ -1016,17 +1028,15 @@ function tableDoneModal(snap) {
     })
     .join('');
   const back = t.watching != null ? '<button class="ghost" data-act="watch" data-table="">Back to my table</button>' : '';
-  return `<div class="overlay"><div class="modal framed">
-    ${modalHead(rr.winner != null ? `${rr.winner === v.you ? 'You' : esc(v.players[rr.winner].name)} went out!` : 'Round over')}
-    <div class="modal-body result-body">
-      <p class="muted result-sub">This round at table ${k + 1}</p>
+  return resultSheet(
+    modalHead(rr.winner != null ? `${rr.winner === v.you ? 'You' : esc(v.players[rr.winner].name)} went out!` : 'Round over'),
+    `<p class="muted result-sub">This round at table ${k + 1}</p>
       ${tieDrawHTML(snap, k)}
       ${tableResultHTML(snap, k)}
       ${playing.length ? `<b class="waiting-head">Waiting for ${playing.length} more table${playing.length === 1 ? '' : 's'}</b>` : ''}
-      ${live}
-    </div>
-    <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Standings</button>${back}</div>
-  </div></div>`;
+      ${live}`,
+    `<button class="ghost" data-act="modal" data-m="scores">Standings</button>${back}`
+  );
 }
 
 const ARROW_UP = '<svg class="arrow" viewBox="0 0 18 18" role="img" aria-label="moved up"><path d="M9 14V4M4.5 8.5L9 4l4.5 4.5"/></svg>';
@@ -1070,11 +1080,7 @@ function nextTablesModal(snap) {
   const action = snap.isHost
     ? `<button class="primary" data-act="nextRound">Deal round ${t.round + 2}: ${contractText(t.round + 1)}</button>`
     : `<span class="muted">Waiting for ${esc(hostName(snap))} to deal round ${t.round + 2}…</span>`;
-  return `<div class="overlay"><div class="modal framed">
-    ${modalHead(`After round ${t.round + 1} of ${roundsIn(t.round)}`)}
-    <div class="modal-body result-body">${tabs}${body}</div>
-    <div class="actions">${action}</div>
-  </div></div>`;
+  return resultSheet(modalHead(`After round ${t.round + 1} of ${roundsIn(t.round)}`), tabs + body, action);
 }
 
 // While you watch a table, in place of your cards
@@ -1112,11 +1118,12 @@ function playerChips(v) {
       const bought = recentBuy();
       const stats = bought && bought.seat === i && bought.card
         ? `<span class="bought">bought ${miniCards(esc(cardLabel(bought.card)))}</span>`
-        : `<span>${p.cards} card${p.cards === 1 ? '' : 's'}</span>${buys}`;
+        : `<span class="pcards">${cardsText(p.cards + seatInFlight(i))}</span>${buys}`;
       // names longer than 15 characters are cut short; the full name shows on hover
       const short = p.name.length > 15 ? p.name.slice(0, 14).trimEnd() + '…' : p.name;
-      return `<div class="chip ${i === v.turn ? 'turn' : ''} ${i === v.you ? 'me' : ''} ${dealer ? 'dealer' : ''} ${stats.includes('class="bought"') ? 'just-bought' : ''}">
-        ${dealer ? '<span class="dealer-badge" title="Dealer">D</span>' : ''}<span class="pname" title="${esc(p.name)}">${esc(short)}</span>
+      const out = wentOutSeat(v) === i;
+      return `<div class="chip ${i === v.turn && !out ? 'turn' : ''} ${i === v.you ? 'me' : ''} ${dealer ? 'dealer' : ''} ${stats.includes('class="bought"') ? 'just-bought' : ''} ${out ? 'went-out' : ''}">
+        ${out ? '<span class="out-badge">OUT</span>' : dealer ? '<span class="dealer-badge" title="Dealer">D</span>' : ''}<span class="pname" title="${esc(p.name)}">${esc(short)}</span>
         <span class="pstats">${p.out ? '<span>sitting out</span>' : stats}</span>
         <span class="ptags">${tags.join('')}</span></div>`;
     })
@@ -1152,7 +1159,7 @@ function tableHTML(v, isWild) {
         return `<div class="meld ${ok ? 'target' : ''} ${fresh ? 'just-played' : ''}" ${ok ? 'data-act="playOn"' : ''} ${
           droppable ? 'data-drop="meld"' : ''
         } ${laid ? `data-meld="${m.id}"` : ''} title="${m.type}">
-          ${m.cards.map((c) => cardHTML(c, { sm: true, isWild })).join('')}</div>`;
+          ${m.cards.map((c) => cardHTML(c, { sm: true, isWild, cls: inFlight(c.id) ? 'landing' : '', attrs: `data-cid="${c.id}"` })).join('')}</div>`;
       })
       .join('');
     rows.push(`<div class="owner-row"><span class="who">${esc(p.name)}${i === v.you ? ' (you)' : ''}</span><div class="melds">${html}</div></div>`);
@@ -1280,6 +1287,13 @@ function activityHTML(v) {
   // prompts keep their own buttons; any other message opens the game log when tapped
   let main = buyBarHTML(v);
   const log = 'data-act="modal" data-m="log" title="Tap for the game log"';
+  const out = wentOutSeat(v);
+  if (out != null && !main) {
+    const stump = wentOutInOneTurn(v, out);
+    return `<div class="activity"><div class="buy-bar out-bar tappable" ${log}><span>🎉 <b>${out === me ? 'You' : esc(v.players[out].name)} went out!</b>${
+      stump ? '<small>Laid down and went out in one turn!</small>' : ''
+    }</span></div></div>`;
+  }
   // the next card's buy question comes straight after a buy, so it starts with who bought the last one
   const bought = main && v.phase === 'draw' && recentBuy();
   if (bought) main = main.replace('<span>', `<span>${logHTML({ ...bought, text: bought.text.replace(/ \(.*\)\.$/, '') }, v)}. `);
@@ -1519,6 +1533,7 @@ function gameHTML(snap) {
     </div>
     ${snap.tour && snap.tour.watching != null ? `<div class="watch-bar"><span><b>Watching table ${snap.tour.watching + 1}</b>${contractText(v.round)}</span><button class="small" data-act="watch" data-table="">Back to my table</button></div>` : ''}
     <div class="players hscroll">${playerChips(v)}</div>
+    ${snap.tour ? tableNoteHTML() : ''}
     <div class="table">${tableHTML(v, isWild)}</div>
     <div class="bottom">${newGroupSpotsHTML(v)}${centerHTML(v, isWild)}${dockHTML(v, isWild)}</div>
     ${modalHTML(snap)}
@@ -1531,11 +1546,21 @@ function modalHTML(snap) {
   const t = snap.tour;
   const over = ['scores', 'menu', 'rules', 'log', 'settings', 'install', 'feedback', 'cropPhoto', 'awards'].includes(ui.modal);
   // Tables (BETA): a finished table waits for the others, then everyone sees next round's tables
+  // someone just went out: the table and their tile have the stage for a moment first
+  if (outMomentOn()) return over ? modalSwitch(snap) : '';
   if (t && (t.phase === 'playing' || t.phase === 'between') && v.phase === 'roundOver') {
     if (!over) return t.phase === 'between' ? nextTablesModal(snap) : tableDoneModal(snap);
   } else if (v.phase === 'roundOver' || v.phase === 'gameOver' || v.phase === 'tieVote') {
+    if (v.phase === 'gameOver' && ui.peekTable && !over)
+      return '<div class="peek-bar"><button class="primary" data-act="peekTable" data-on="">Back to the scores</button></div>';
     if (!over) return v.phase === 'tieVote' ? tieModal(snap) : resultModal(snap);
   }
+  return modalSwitch(snap);
+}
+
+function modalSwitch(snap) {
+  const v = snap.view;
+  const t = snap.tour;
   switch (ui.modal) {
     case 'awards':
       return v.stats ? awardsModal(snap) : '';
@@ -1696,18 +1721,26 @@ function resultModal(snap) {
   let actions = '';
   if (snap.isHost) actions = over ? '<button class="primary" data-act="playAgain">Play again</button>' : `<button class="primary" data-act="nextRound">Deal round ${v.round + 2}: ${contractText(v.round + 1)}</button>`;
   else actions = `<span class="muted">Waiting for the host to ${over ? 'start a new game' : 'deal'}…</span>`;
-  // framed like the other pop-ups: with lots of players only the results scroll, and the buttons stay in view
-  return `<div class="overlay"><div class="modal framed ${over ? 'game-over' : ''}">
-    ${modalHead(title)}
-    <div class="modal-body result-body">
-    ${sub ? `<p class="muted result-sub">${sub}</p>` : ''}
+  if (!over && rr.winner != null) {
+    sub = title;
+    title = `${rr.winner === v.you ? 'You' : esc(v.players[rr.winner].name)} went out!`;
+  }
+  const body = `${sub ? `<p class="muted result-sub">${sub}</p>` : ''}
     ${over && v.stats ? awardsCardHTML(v) : ''}
     ${rr.winner == null && !snap.tour ? `<p class="muted">Nobody went out this ${tb ? 'tiebreaker' : 'round'}.</p>` : ''}
-    ${rows}
-    </div>
-    <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${
-      over ? '<button class="ghost" data-act="leave">Home</button>' : snap.isHost ? '' : '<button class="ghost" data-act="leave">Leave game</button>'
-    }${actions}</div>
+    ${rows}`;
+  const buttons = `<button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${
+    over ? '<button class="ghost" data-act="leave">Home</button>' : snap.isHost ? '' : '<button class="ghost" data-act="leave">Leave game</button>'
+  }${actions}`;
+  // between rounds: from below, so the table stays in view
+  if (!over) return resultSheet(modalHead(title), body, buttons);
+  // the end of the game: in the middle as before, and it can step aside to show the table
+  const peek = snap.tour ? '' : '<button class="ghost" data-act="peekTable" data-on="1">See the table</button>';
+  // framed like the other pop-ups: with lots of players only the results scroll, and the buttons stay in view
+  return `<div class="overlay"><div class="modal framed game-over">
+    ${modalHead(title)}
+    <div class="modal-body result-body">${body}</div>
+    <div class="actions">${peek}${buttons}</div>
   </div></div>`;
 }
 
@@ -2788,7 +2821,7 @@ function placeChatPops() {
   if (ui.chatMoreUntil < now) ui.chatMore = 0;
   const players = $app.querySelector('.players');
   // the score screens between rounds and at the end: just the count on their 💬
-  const covered = $app.querySelector('.overlay');
+  const covered = $app.querySelector('.overlay, .result-sheet');
   const show = players && !ui.modal && !covered && !ui.chatOpen && ui.tour == null && (ui.chatPops.length || ui.chatMore);
   if (!show) {
     if (layer) layer.remove();
@@ -4069,6 +4102,206 @@ function flyBuy() {
   }, () => {});
 }
 
+// ---------- going out ----------
+// Someone else's lay down, play or joker swap: each new card flies from their tile to its pile, one after another, and
+// the count on their tile goes down as each lands. ui.flights holds the cards still on their way (hidden on the table,
+// counted on the tile) until they land.
+const PLAY_FLY_MS = 480;
+const PLAY_GAP_MS = 110;
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cardsText = (n) => `${n} card${n === 1 ? '' : 's'}`;
+function inFlight(id) {
+  const f = ui.flights && ui.flights.get(id);
+  return !!f && f.landAt > Date.now();
+}
+function seatInFlight(seat) {
+  let n = 0;
+  if (ui.flights) for (const f of ui.flights.values()) if (f.seat === seat && f.landAt > Date.now()) n++;
+  return n;
+}
+function queueFlights(seat, ids) {
+  if (ui.modal || reducedMotion()) return;
+  if (!ui.flights) ui.flights = new Map();
+  const now = Date.now();
+  ids.forEach((id, k) => ui.flights.set(id, { seat, landAt: now + k * PLAY_GAP_MS + PLAY_FLY_MS, delay: k * PLAY_GAP_MS, sent: false }));
+}
+function flyPlays() {
+  if (!ui.flights || !ui.flights.size) return;
+  const row = $app.querySelector('.players');
+  const now = Date.now();
+  for (const [id, f] of ui.flights) {
+    if (f.landAt <= now) {
+      ui.flights.delete(id);
+      continue;
+    }
+    if (f.sent) continue;
+    f.sent = true;
+    const chip = row && row.children[f.seat];
+    const card = $app.querySelector(`.table [data-cid="${id}"]`);
+    if (!chip || !card) {
+      f.landAt = 0;
+      continue;
+    }
+    const from = chip.getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    const to = card.getBoundingClientRect();
+    // a tile scrolled out of sight sends its cards from the edge of the row
+    const fx = Math.min(Math.max(from.left + from.width / 2, box.left + 20), box.right - 20);
+    const fy = from.top + from.height / 2;
+    const ghost = card.cloneNode(true);
+    ghost.classList.remove('landing');
+    ghost.classList.add('flying-card');
+    Object.assign(ghost.style, { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px` });
+    document.body.appendChild(ghost);
+    const left = f.landAt - now;
+    const a = ghost.animate(
+      [
+        { transform: `translate(${fx - (to.left + to.width / 2)}px, ${fy - (to.top + to.height / 2)}px) scale(0.6) rotate(-14deg)`, opacity: 0.5 },
+        { transform: 'none', opacity: 1 },
+      ],
+      { duration: Math.min(PLAY_FLY_MS, left), delay: Math.max(0, left - PLAY_FLY_MS), easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)', fill: 'backwards' }
+    );
+    a.onfinish = () => {
+      ghost.remove();
+      ui.flights.delete(id);
+      landCard(id, f.seat);
+    };
+  }
+}
+// one card is down: show it on its pile, and take it off the count on the tile
+function landCard(id, seat) {
+  const card = $app.querySelector(`.table [data-cid="${id}"]`);
+  if (card) {
+    card.classList.remove('landing');
+    card.classList.add('landed');
+  }
+  const v = ui.snap && ui.snap.view;
+  const row = $app.querySelector('.players');
+  const count = row && row.children[seat] && row.children[seat].querySelector('.pcards');
+  if (v && v.players[seat] && count) count.textContent = cardsText(v.players[seat].cards + seatInFlight(seat));
+}
+
+// The round ends with someone going out: once their last cards have landed, their tile turns gold and bursts, the
+// activity box says who went out, and only after a moment do the scores come up (from below, so the table stays in
+// view). The same however they went out, whether with one card or laying everything down at once.
+const OUT_HOLD_MS = 2400;
+const DONE_PHASES = ['roundOver', 'gameOver', 'tieVote'];
+function noticeGoingOut(was, v) {
+  if (DONE_PHASES.includes(was.phase) || !DONE_PHASES.includes(v.phase) || !v.roundResult) return;
+  ui.sheetLow = false;
+  ui.sheetAt = 0;
+  ui.peekTable = false;
+  const seat = v.roundResult.winner;
+  if (seat == null) return;
+  let landed = Date.now();
+  if (ui.flights) for (const f of ui.flights.values()) landed = Math.max(landed, f.landAt);
+  ui.outMoment = { key: ui.viewKey, round: v.round, seat, at: landed + 120, until: landed + OUT_HOLD_MS, burst: false };
+  setTimeout(render, landed + 130 - Date.now());
+  setTimeout(render, landed + OUT_HOLD_MS + 30 - Date.now());
+}
+function outMomentOn() {
+  const m = ui.outMoment;
+  const v = ui.snap && ui.snap.view;
+  return !!m && !!v && m.key === ui.viewKey && m.round === v.round && Date.now() < m.until;
+}
+// the seat shown as having gone out: once the round's over, and once their last card has landed
+function wentOutSeat(v) {
+  if (!DONE_PHASES.includes(v.phase) || !v.roundResult || v.roundResult.winner == null) return null;
+  if (outMomentOn() && Date.now() < ui.outMoment.at) return null;
+  return v.roundResult.winner;
+}
+// laid down and went out on the same turn: their lay down comes after the last thing they drew
+function wentOutInOneTurn(v, seat) {
+  for (let i = v.log.length - 1; i >= 0; i--) {
+    const e = v.log[i];
+    if (e.kind === 'round' || (e.seat === seat && (e.kind === 'draw' || e.kind === 'buy'))) return false;
+    if (e.kind === 'laydown' && e.seat === seat) return true;
+  }
+  return false;
+}
+function burstOut() {
+  const m = ui.outMoment;
+  if (!m || m.burst || !outMomentOn() || Date.now() < m.at) return;
+  m.burst = true;
+  const tile = $app.querySelector('.chip.went-out');
+  if (!tile) return;
+  tile.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 420, easing: 'ease-out' });
+  if (reducedMotion()) return;
+  const r = tile.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const v = ui.snap.view;
+  const n = m.seat === v.you ? 30 : 20;
+  const bits = ['♠', '♥', '♦', '♣', '★'];
+  for (let i = 0; i < n; i++) {
+    const el = document.createElement('span');
+    el.className = 'out-spark';
+    el.setAttribute('aria-hidden', 'true');
+    const ch = bits[i % bits.length];
+    el.textContent = ch;
+    el.style.color = ch === '♥' || ch === '♦' ? '#ff6b6b' : ch === '★' ? 'var(--gold)' : 'var(--ink)';
+    Object.assign(el.style, { left: `${cx}px`, top: `${cy}px` });
+    document.body.appendChild(el);
+    const a = (Math.PI * 2 * i) / n + Math.random() * 0.3;
+    const d = (m.seat === v.you ? 80 : 60) + Math.random() * 60;
+    el.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(0.4)', opacity: 1 },
+        { transform: `translate(calc(-50% + ${Math.cos(a) * d}px), calc(-50% + ${Math.sin(a) * d + 40}px)) scale(1.2) rotate(${a * 90}deg)`, opacity: 0 },
+      ],
+      { duration: 950 + Math.random() * 350, easing: 'cubic-bezier(0.1, 0.7, 0.4, 1)' }
+    ).onfinish = () => el.remove();
+  }
+}
+
+// The scores between rounds (and Tables' "your table is done" and next round's tables) come up from below and leave
+// the table in view. The handle lowers them to a strip to see all of the table, and raises them again.
+const SHEET_RISE_MS = 400;
+function resultSheet(head, body, actions) {
+  if (!ui.sheetAt) ui.sheetAt = Date.now();
+  // redraws happen all the time: one in the middle of sliding up carries on from where it was
+  const age = Date.now() - ui.sheetAt;
+  const rising = age < SHEET_RISE_MS;
+  const low = !!ui.sheetLow;
+  return `<div class="result-sheet ${low ? 'low' : ''} ${rising ? 'rising' : ''}"><div class="modal framed" ${rising ? `style="animation-delay:-${age}ms"` : ''}>
+    <button class="sheet-handle" data-act="sheetToggle" aria-expanded="${!low}">${low ? 'Show the scores ▴' : 'See the table ▾'}</button>
+    ${head}<div class="modal-body result-body">${body}</div>
+    <div class="actions">${actions}</div></div></div>`;
+}
+// slides without a redraw, so it can move smoothly
+function toggleSheet() {
+  ui.sheetLow = !ui.sheetLow;
+  const el = $app.querySelector('.result-sheet');
+  if (!el) return render();
+  el.classList.remove('rising');
+  el.classList.toggle('low', ui.sheetLow);
+  const btn = el.querySelector('.sheet-handle');
+  btn.textContent = ui.sheetLow ? 'Show the scores ▴' : 'See the table ▾';
+  btn.setAttribute('aria-expanded', String(!ui.sheetLow));
+}
+
+// Tables (BETA): another table finishing while you're still playing gets a short note under the tiles (no burst, so
+// it doesn't pull you out of your own game)
+const TABLE_NOTE_MS = 4000;
+function noticeTablesDone(was, snap) {
+  const t = snap.tour;
+  const v = snap.view;
+  if (t.phase !== 'playing' || was.round !== t.round || !was.tables || DONE_PHASES.includes(v.phase) || t.watching != null) return;
+  const j = t.tables.findIndex((x, k) => x.done && was.tables[k] && !was.tables[k].done && k !== t.table);
+  if (j < 0) return;
+  const x = t.tables[j];
+  const who = x.wentOut == null ? 'nobody went out' : `${esc(snap.lobby.seats[x.wentOut].name)} went out`;
+  ui.tableNote = { html: `🏁 <b>Table ${j + 1} is done</b> · ${who}`, at: Date.now() };
+  setTimeout(render, TABLE_NOTE_MS + 30);
+}
+function tableNoteHTML() {
+  const n = ui.tableNote;
+  const age = n ? Date.now() - n.at : Infinity;
+  if (age >= TABLE_NOTE_MS) return '';
+  // carries on across redraws instead of starting over
+  return `<div class="note-anchor"><div class="table-note" style="animation-delay:-${age}ms">${n.html}</div></div>`;
+}
+
 // ---------- the winner's card shower ----------
 // When a game ends, little ♠ ♥ ♦ ♣ cards and paper confetti fall over the screen: the full shower on the winner's phone,
 // a lighter one for everyone else. Once per game on this page, on its own canvas over everything, gone when it's done.
@@ -4076,7 +4309,7 @@ const CONFETTI_COLORS = ['#f2c14e', '#d63b3b', '#fffdf7', '#2e7d4f', '#6b3fa0'];
 const SUIT_BITS = [['♠', '#1d1d1f'], ['♥', '#c62828'], ['♦', '#c62828'], ['♣', '#1d1d1f']];
 function celebrateWin() {
   const v = ui.snap && ui.snap.view;
-  if (!v || v.phase !== 'gameOver') return;
+  if (!v || v.phase !== 'gameOver' || outMomentOn()) return;
   const key = `${handGameKey()}:${v.seq}`;
   if (ui.celebrated === key || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   ui.celebrated = key;
@@ -4212,7 +4445,7 @@ const TIPS = {
   },
   chat: {
     when: () => Date.now() - ui.chatTipAt < 15000 && !ui.chatOpen,
-    at: ['.overlay .chat-btn', '.chat-btn'], // on a score screen, its own 💬, not the one it covers
+    at: ['.overlay .chat-btn', '.result-sheet .chat-btn', '.chat-btn'], // on a score screen, its own 💬, not the one it covers
     html: () => `Someone sent a message! Tap <b>💬</b> to chat or send a quick reaction. If you'd rather not see messages pop up, turn
       off <b>Chat pop-ups</b> in Settings.`,
   },
@@ -4496,6 +4729,11 @@ function onClick(e) {
     case 'cancelCrop':
       ui.crop = null;
       ui.modal = 'settings';
+      return render();
+    case 'sheetToggle':
+      return toggleSheet();
+    case 'peekTable':
+      ui.peekTable = !!t.dataset.on;
       return render();
     case 'closeModal':
       ui.crop = null;
