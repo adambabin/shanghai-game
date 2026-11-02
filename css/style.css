@@ -960,8 +960,18 @@ html:has(.game) body {
   box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
   transition: transform 0.35s cubic-bezier(0.2, 1, 0.4, 1);
 }
+/* lowered: only the handle shows, a full 44px strip above the home bar; the title, 💬, scores and buttons fade out
+   (they'd otherwise peek out cut off in the home bar's space) */
 .result-sheet.low .modal {
-  transform: translateY(calc(100% - 40px - env(safe-area-inset-bottom, 0px)));
+  transform: translateY(calc(100% - 44px - env(safe-area-inset-bottom, 0px)));
+}
+.result-sheet .modal > :not(.sheet-handle) {
+  transition: opacity 0.2s;
+}
+.result-sheet.low .modal > :not(.sheet-handle) {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0s 0.2s;
 }
 .result-sheet.rising .modal {
   animation: sheet-rise 0.4s cubic-bezier(0.2, 1, 0.4, 1) both;
@@ -979,10 +989,14 @@ html:has(.game) body {
   align-self: stretch;
   background: none;
   border-radius: 0;
-  padding: 10px 16px 6px;
-  font-size: 13px;
+  height: 44px;
+  padding: 4px 16px 0;
+  font-size: 14px;
   font-weight: 700;
   color: var(--ink-dim);
+}
+.result-sheet.low .sheet-handle {
+  color: var(--ink);
 }
 /* the end of the game stepped aside to show the table */
 .peek-bar {
