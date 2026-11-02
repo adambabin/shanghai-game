@@ -1035,7 +1035,8 @@ function tableDoneModal(snap) {
       ${tableResultHTML(snap, k)}
       ${playing.length ? `<b class="waiting-head">Waiting for ${playing.length} more table${playing.length === 1 ? '' : 's'}</b>` : ''}
       ${live}`,
-    `<button class="ghost" data-act="modal" data-m="scores">Standings</button>${back}`
+    `<button class="ghost" data-act="modal" data-m="scores">Standings</button>${back}`,
+    playing.length ? `<p class="sheet-wait">Waiting for ${playing.length} more table${playing.length === 1 ? '' : 's'}</p>` : ''
   );
 }
 
@@ -1080,7 +1081,8 @@ function nextTablesModal(snap) {
   const action = snap.isHost
     ? `<button class="primary" data-act="nextRound">Deal round ${t.round + 2}: ${contractText(t.round + 1)}</button>`
     : `<span class="muted">Waiting for ${esc(hostName(snap))} to deal round ${t.round + 2}…</span>`;
-  return resultSheet(modalHead(`After round ${t.round + 1} of ${roundsIn(t.round)}`), tabs + body, action);
+  const lowered = snap.isHost ? action : `<p class="sheet-wait">Waiting for ${esc(hostName(snap))} to deal round ${t.round + 2}…</p>`;
+  return resultSheet(modalHead(`After round ${t.round + 1} of ${roundsIn(t.round)}`), tabs + body, action, lowered);
 }
 
 // While you watch a table, in place of your cards
@@ -1735,7 +1737,11 @@ function resultModal(snap) {
     over ? '<button class="ghost" data-act="leave">Home</button>' : snap.isHost ? '' : '<button class="ghost" data-act="leave">Leave game</button>'
   }${actions}`;
   // between rounds: from below, so the table stays in view
-  if (!over) return resultSheet(modalHead(title), body, buttons);
+  if (!over) {
+    // lowered, the host keeps the Deal button; everyone else sees who they're waiting for
+    const wait = `Waiting for ${esc(hostName(snap))} to deal round ${v.round + 2}…`;
+    return resultSheet(modalHead(title), body, buttons, snap.isHost ? actions : `<p class="sheet-wait">${wait}</p>`);
+  }
   // the end of the game: in the middle as before, and it can step aside to show the table
   const peek = snap.tour ? '' : '<button class="ghost" data-act="peekTable" data-on="1">See the table</button>';
   // framed like the other pop-ups: with lots of players only the results scroll, and the buttons stay in view
@@ -4278,14 +4284,17 @@ function burstOut() {
 // The scores between rounds (and Tables' "your table is done" and next round's tables) come up from below and leave
 // the table in view. The handle lowers them to a strip to see all of the table, and raises them again.
 const SHEET_RISE_MS = 400;
-function resultSheet(head, body, actions) {
+// lowered: what shows under the handle (the host's Deal button, or who everyone's waiting for), so moving on is never
+// hidden away
+function resultSheet(head, body, actions, lowered = '') {
   if (!ui.sheetAt) ui.sheetAt = Date.now();
   // redraws happen all the time: one in the middle of sliding up carries on from where it was
   const age = Date.now() - ui.sheetAt;
   const rising = age < SHEET_RISE_MS;
   const low = !!ui.sheetLow;
-  return `<div class="result-sheet ${low ? 'low' : ''} ${rising ? 'rising' : ''}"><div class="modal framed" ${rising ? `style="animation-delay:-${age}ms"` : ''}>
+  return `<div class="result-sheet ${low ? 'low' : ''} ${rising ? 'rising' : ''} ${lowered ? 'has-lowered' : ''}"><div class="modal framed" ${rising ? `style="animation-delay:-${age}ms"` : ''}>
     <button class="sheet-handle" data-act="sheetToggle" aria-expanded="${!low}">${low ? 'Show the scores ▴' : 'See the table ▾'}</button>
+    ${lowered ? `<div class="sheet-lowered">${lowered}</div>` : ''}
     ${head}<div class="modal-body result-body">${body}</div>
     <div class="actions">${actions}</div></div></div>`;
 }
@@ -4314,7 +4323,8 @@ function onSheetTouchStart(e) {
   const handle = modal.querySelector('.sheet-handle');
   const y = e.touches[0].clientY;
   // how far it travels: down to where only the handle shows above the home bar
-  const lowY = modal.offsetHeight - handle.offsetHeight - (parseFloat(getComputedStyle(modal).paddingBottom) || 0);
+  const lowered = modal.querySelector('.sheet-lowered');
+  const lowY = modal.offsetHeight - handle.offsetHeight - (lowered ? lowered.offsetHeight : 0) - (parseFloat(getComputedStyle(modal).paddingBottom) || 0);
   sheetSwipe = { modal, low: !!ui.sheetLow, body, lowY, y, x: e.touches[0].clientX, dragging: false, last: [[e.timeStamp, y]] };
 }
 function onSheetTouchMove(e) {

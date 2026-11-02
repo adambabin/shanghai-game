@@ -962,12 +962,37 @@ html:has(.game) body {
 /* lowered: only the handle shows, a full 44px strip above the home bar; the title, 💬, scores and buttons fade out
    (they'd otherwise peek out cut off in the home bar's space) */
 .result-sheet.low .modal {
-  transform: translateY(calc(100% - 44px - env(safe-area-inset-bottom, 0px)));
+  transform: translateY(calc(100% - 44px - var(--lowered-h, 0px) - env(safe-area-inset-bottom, 0px)));
 }
 .result-sheet .modal > :not(.sheet-handle) {
   transition: opacity 0.2s;
 }
-.result-sheet.low .modal > :not(.sheet-handle) {
+/* under the handle once lowered: the host's Deal button, or who everyone's waiting for */
+.sheet-lowered {
+  display: none;
+  flex: none;
+  box-sizing: border-box;
+  height: 58px;
+  padding: 0 16px 10px;
+}
+.result-sheet.low .sheet-lowered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.result-sheet.has-lowered {
+  --lowered-h: 58px;
+}
+.sheet-lowered .primary {
+  width: 100%;
+}
+.sheet-wait {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-dim);
+  text-align: center;
+}
+.result-sheet.low .modal > :not(.sheet-handle):not(.sheet-lowered) {
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.2s, visibility 0s 0.2s;
