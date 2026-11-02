@@ -1382,7 +1382,9 @@ function buyBarHTML(v) {
         You can change it until they decide.</span>
         <span class="buy-actions"><button class="ghost" data-act="buyAnswer" data-buy="clear">Change</button></span></div>`;
     }
-    return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))} if ${who} lets others buy it? ${buyCostText(v)}</span>
+    // worded just like the question once buying opens (whose timer hangs off No without taking room), so it reads as one
+    // question whose timer turns up later, not a second question
+    return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
       <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span></div>`;
   }
   if (v.turn === me && v.mustDecide) {
