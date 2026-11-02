@@ -1744,13 +1744,22 @@ function resultModal(snap) {
     const wait = `Waiting for ${esc(hostName(snap))} to deal round ${v.round + 2}…`;
     return resultSheet(modalHead(title), body, buttons, snap.isHost ? actions : `<p class="sheet-wait">${wait}</p>`);
   }
-  // the end of the game: in the middle as before, and it can step aside to show the table
-  const peek = snap.tour ? '' : '<button class="ghost" data-act="peekTable" data-on="1">See the table</button>';
+  // the end of the game: in the middle as before. Looking around (the table, the score sheet) sits in the results,
+  // under the awards card, so the bottom is only Home and what comes next
+  const look = `<div class="look-links">${
+    snap.tour ? '' : '<button class="look-link" data-act="peekTable" data-on="1">🃏 See the table</button>'
+  }<button class="look-link" data-act="modal" data-m="scores">📋 Score sheet</button></div>`;
+  const next = snap.isHost
+    ? '<button class="primary wide" data-act="playAgain">Play again</button>'
+    : `<span class="muted end-wait">Waiting for ${esc(hostName(snap))} to start a new game…</span>`;
   // framed like the other pop-ups: with lots of players only the results scroll, and the buttons stay in view
   return `<div class="overlay"><div class="modal framed game-over">
     ${modalHead(title)}
-    <div class="modal-body result-body">${body}</div>
-    <div class="actions">${peek}${buttons}</div>
+    <div class="modal-body result-body">${sub ? `<p class="muted result-sub">${sub}</p>` : ''}
+      ${v.stats ? awardsCardHTML(v) : ''}${look}
+      ${rr.winner == null && !snap.tour ? `<p class="muted">Nobody went out this ${tb ? 'tiebreaker' : 'round'}.</p>` : ''}
+      ${rows}</div>
+    <div class="actions end-actions"><button class="ghost" data-act="leave">Home</button>${next}</div>
   </div></div>`;
 }
 
