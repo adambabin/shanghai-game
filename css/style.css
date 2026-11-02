@@ -1529,6 +1529,32 @@ canvas.confetti {
   margin-left: calc(var(--sw) * -0.5);
 }
 /* How everyone played: the card on the game-over pop-up, and each player's report card */
+/* the end of the game: See the table and Score sheet as two tiles in the results, under the awards card */
+.look-links {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.look-link {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--ink);
+  padding: 10px 8px;
+  border-radius: 12px;
+  background-color: var(--panel);
+  font-size: 14px;
+  font-weight: 700;
+}
+.end-actions {
+  flex-wrap: nowrap;
+}
+.end-actions .wide {
+  flex: 1;
+}
+.end-wait {
+  flex: 1;
+  text-align: center;
+}
 button.awards-card {
   display: flex;
   align-items: center;
