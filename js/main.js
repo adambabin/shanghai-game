@@ -1664,7 +1664,9 @@ function scoresTable(v) {
       const s = v.scores[i][r];
       return s == null ? '<td></td>' : `<td class="${s === 0 ? 'zero' : ''}">${s}</td>`;
     });
-    return `<tr><td>${r + 1}. ${contractText(r)}</td>${cells.join('')}</tr>`;
+    // the contract breaks only after a "+" ("1 Set +" / "2 Runs"), so the rounds column stays narrow
+    const contract = contractText(r).split(' + ').map((p) => `<span class="nw">${p}</span>`).join(' + ');
+    return `<tr><td>${r + 1}. ${contract}</td>${cells.join('')}</tr>`;
   }).join('');
   // a tie for the win played off: its own row, under the totals it doesn't change
   const tb = v.tiebreak && (v.tiebreak.playing || v.tiebreak.points) ? v.tiebreak : null;
@@ -1678,7 +1680,8 @@ function scoresTable(v) {
   const best = scored ? Math.min(...totals) : null;
   const crowned = (t, i) => (v.phase === 'gameOver' ? winnersOf(v).includes(i) : t === best);
   const crown = '<span class="crown" role="img" aria-label="in the lead">👑</span>';
-  return `<div style="overflow-x:auto"><table class="scores"><tr><th>Round</th>${head}</tr>${rows}<tr class="total"><td>Total</td>${totals
+  // four players fit across a phone; a fifth or more scrolls sideways, with the rounds column held in place
+  return `<div class="scores-wrap"><table class="scores" style="--n:${v.players.length}"><tr><th>Round</th>${head}</tr>${rows}<tr class="total"><td>Total</td>${totals
     .map((t, i) => `<td>${t}${scored && crowned(t, i) ? crown : ''}</td>`)
     .join('')}</tr>${tbRow}</table></div><p class="muted">Lowest total after ${played} rounds wins. A tie for the win can be shared or played off in a tiebreaker.</p>`;
 }

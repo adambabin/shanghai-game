@@ -1428,21 +1428,46 @@ html:has(.game) body {
   font-size: 14px;
   color: var(--ink-dim);
 }
+.scores-wrap {
+  overflow-x: auto;
+  /* the crown is placed inside its cell, so this clips anything that would poke out the side */
+  position: relative;
+}
 table.scores {
   width: 100%;
+  /* the rounds column plus about 3.9em a player: four fit a phone, a fifth or more scroll */
+  min-width: calc(5.2em + var(--n, 4) * 3.9em);
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
 }
 table.scores th,
 table.scores td {
-  padding: 6px 6px;
+  padding: 6px 3px;
   text-align: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
+table.scores th {
+  font-size: 12px;
+  line-height: 1.2;
+  vertical-align: bottom;
+  overflow-wrap: anywhere;
+}
+/* the rounds column wraps its contract ("1 Set + 2 Runs") and stays put while the players scroll past */
 table.scores th:first-child,
 table.scores td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 5.2em;
+  padding-left: 0;
+  font-size: 13px;
   text-align: left;
+  line-height: 1.25;
   color: var(--ink-dim);
+  background-color: #143f28;
+}
+table.scores .nw {
   white-space: nowrap;
 }
 table.scores tr.total td {
@@ -1450,11 +1475,18 @@ table.scores tr.total td {
   color: var(--gold);
   border-bottom: none;
 }
-/* takes no room, so the total stays centered under the name */
+/* the total's cell makes room for the crown on its right, so the number stays centered and the crown stays inside */
+table.scores tr.total td:not(:first-child) {
+  position: relative;
+  padding-left: 11px;
+  padding-right: 11px;
+}
 table.scores .crown {
   position: absolute;
-  margin-left: 3px;
-  font-size: 0.9em;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.7em;
 }
 table.scores td.zero {
   color: #9be29b;
