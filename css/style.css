@@ -1596,7 +1596,7 @@ button.awards-card {
 .report {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding: 12px;
   border-radius: 12px;
   background-color: var(--panel);
@@ -1633,11 +1633,22 @@ button.awards-card {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   font-size: 12px;
+  line-height: 1.25;
   color: var(--ink-dim);
+}
+/* each number sits in its own tile, so a long label that wraps can't run into the one beside it */
+.report .facts > div {
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.06);
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 .report .facts b {
   display: block;
   font-size: 18px;
+  line-height: 1.2;
   color: var(--ink);
 }
 .log {
