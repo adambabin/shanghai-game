@@ -419,6 +419,9 @@ export function applyAction(state, seat, action) {
 
     case 'buyAnswer': {
       const w = state.buyWindow;
+      // an answer sent for a card that has since been bought (it crossed with the buy) doesn't count for the next card
+      if (action.card != null && action.buy != null && topCard(state) && topCard(state).id !== action.card)
+        return err('That card was just bought. Take another look.');
       if (!w && mustDecideOnDiscard(state) && buyEligible(state).includes(seat)) {
         // answering early, before the current player has chosen; null takes the answer back
         const top = topCard(state);

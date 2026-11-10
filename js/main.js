@@ -383,6 +383,10 @@ function trackMeldChanges(v) {
 
 const RECENT_BUY_MS = 5000;
 const recentBuy = () => (ui.recentBuy && ui.recentBuy.until > Date.now() ? ui.recentBuy.entry : null);
+// Right after a buy the next card's Buy / No come up where the last ones were, so a tap meant for the card that just went
+// would land on the new one: they stay off for a moment first.
+const BUY_LOCK_MS = 2000;
+const buyLocked = () => !!ui.recentBuy && Date.now() < ui.recentBuy.until - RECENT_BUY_MS + BUY_LOCK_MS;
 
 function processLog(v) {
   if (ui.lastSeq == null || ui.lastSeq > v.seq) {
@@ -401,6 +405,7 @@ function processLog(v) {
     if (e.kind === 'buy') {
       ui.recentBuy = { entry: e, until: Date.now() + RECENT_BUY_MS };
       ui.revealBuy = true;
+      setTimeout(render, BUY_LOCK_MS + 30);
       setTimeout(render, RECENT_BUY_MS + 30);
     }
     if (e.kind === 'shanghai') {
@@ -1349,6 +1354,13 @@ function placeInLine(v) {
   return `${ahead.length} players are ahead of you.`;
 }
 
+// Buy / No name the card they're for, so an answer that arrives after that card went can't count for the next one
+function buyButtons(top) {
+  const off = buyLocked() ? ' disabled' : '';
+  return `<button class="primary" data-act="buyAnswer" data-buy="1" data-card="${top.id}"${off}>Buy</button>`
+    + `<button class="ghost" data-act="buyAnswer" data-buy="0" data-card="${top.id}"${off}>No</button>`;
+}
+
 function buyBarHTML(v) {
   const me = v.you;
   if (v.phase === 'ready') return readyBarHTML(v, ui.snap.isHost);
@@ -1371,7 +1383,7 @@ function buyBarHTML(v) {
     }
     // the timer hangs off the buttons without taking room, so Buy / No stay where the early question had them
     return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
-      <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button>${timer}</span></div>`;
+      <span class="buy-actions">${buyButtons(top)}${timer}</span></div>`;
   }
   // the current player is still choosing: you can already say whether you'd buy it
   if (v.earlyBuy) {
@@ -1385,7 +1397,7 @@ function buyBarHTML(v) {
     // worded just like the question once buying opens (whose timer hangs off No without taking room), so it reads as one
     // question whose timer turns up later, not a second question
     return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
-      <span class="buy-actions"><button class="primary" data-act="buyAnswer" data-buy="1">Buy</button><button class="ghost" data-act="buyAnswer" data-buy="0">No</button></span></div>`;
+      <span class="buy-actions">${buyButtons(top)}</span></div>`;
   }
   if (v.turn === me && v.mustDecide) {
     return `<div class="buy-bar ask"><span>Take ${miniCards(esc(cardLabel(top)))} or let others buy it?</span>
@@ -4968,7 +4980,8 @@ function onClick(e) {
       ui.nextTab = t.dataset.tab;
       return render();
     case 'buyAnswer':
-      send({ type: 'buyAnswer', buy: t.dataset.buy === 'clear' ? null : t.dataset.buy === '1' });
+      if (t.disabled || (t.dataset.buy !== 'clear' && buyLocked())) return;
+      send({ type: 'buyAnswer', buy: t.dataset.buy === 'clear' ? null : t.dataset.buy === '1', card: t.dataset.card ? Number(t.dataset.card) : undefined });
       return render();
     case 'tieVote':
       send({ type: 'tieVote', choice: t.dataset.choice });

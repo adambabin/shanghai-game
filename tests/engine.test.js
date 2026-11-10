@@ -249,6 +249,12 @@ test('everyone is asked to buy at once; the soonest in turn order wins; card + 2
   // the 4C underneath is exposed and offered again: take it, or allow buying again
   assert.equal(g.discard[g.discard.length - 1].id, under.id);
   assert.ok(mustDecideOnDiscard(g));
+  // a Buy sent for the 7S that crossed with the buy doesn't count for the 4C now on top
+  const late = applyAction(g, 3, { type: 'buyAnswer', buy: true, card: -999 });
+  assert.ok(!late.ok, 'an answer for a card that already went is refused');
+  assert.ok(!g.earlyBuy || g.earlyBuy.answers[3] === undefined);
+  assert.ok(applyAction(g, 3, { type: 'buyAnswer', buy: true, card: under.id }).ok, 'an answer naming the card on top counts');
+  assert.ok(applyAction(g, 3, { type: 'buyAnswer', buy: null }).ok);
   assert.ok(!applyAction(g, 1, { type: 'drawDeck' }).ok);
   assert.ok(applyAction(g, 1, { type: 'drawDiscard' }).ok, 'current player can take the exposed card');
 
