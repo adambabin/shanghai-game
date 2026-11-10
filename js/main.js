@@ -384,9 +384,10 @@ function trackMeldChanges(v) {
 const RECENT_BUY_MS = 5000;
 const recentBuy = () => (ui.recentBuy && ui.recentBuy.until > Date.now() ? ui.recentBuy.entry : null);
 // Right after a buy the next card's Buy / No come up where the last ones were, so a tap meant for the card that just went
-// would land on the new one: they stay off for a moment first.
+// would land on the new one: they stay off for a moment first. Only after someone else's buy (you know when you bought).
 const BUY_LOCK_MS = 2000;
-const buyLocked = () => !!ui.recentBuy && Date.now() < ui.recentBuy.until - RECENT_BUY_MS + BUY_LOCK_MS;
+const buyLocked = () =>
+  !!ui.recentBuy && ui.recentBuy.entry.seat !== (ui.snap && ui.snap.view && ui.snap.view.you) && Date.now() < ui.recentBuy.until - RECENT_BUY_MS + BUY_LOCK_MS;
 
 function processLog(v) {
   if (ui.lastSeq == null || ui.lastSeq > v.seq) {
