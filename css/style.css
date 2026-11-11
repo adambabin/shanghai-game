@@ -1525,7 +1525,7 @@ html:has(.game) body {
   min-width: 0;
 }
 .result-sheet .actions > .muted {
-  text-align: right;
+  text-align: center;
   font-size: 14px;
   line-height: 1.25;
 }
