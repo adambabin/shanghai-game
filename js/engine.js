@@ -383,7 +383,12 @@ export function applyAction(state, seat, action) {
       if (!myTurn || state.phase !== 'draw') return err("It's not your turn to draw.");
       if (!state.discard.length) return err('The discard pile is empty.');
       if (state.topDead) return err("That card is dead (Shanghai'd). It can't be picked up until another card covers it.");
-      if (state.buyWindow) return err('Hang on, other players are deciding whether to buy.');
+      // allowed buying by mistake: you can still take it while nobody has got it yet (the window closes, answers and all),
+      // and undoing back past the take offers the choice again
+      if (state.buyWindow) {
+        state.buyWindow = null;
+        state.buyOffered = false;
+      }
       closeShanghaiWindow(state);
       const card = state.discard.pop();
       state.hands[seat].push(card);
@@ -431,7 +436,11 @@ export function applyAction(state, seat, action) {
         return { ok: true };
       }
       if (!w || !w.order.includes(seat)) return err("You can't buy this card.");
-      if (w.answers[seat] !== undefined) return err('You already answered.');
+      // a change of mind counts until the card has gone (once it has, the window is closed); null takes the answer back
+      if (action.buy == null) {
+        delete w.answers[seat];
+        return { ok: true };
+      }
       w.answers[seat] = !!action.buy;
       settleBuy(state, false);
       return { ok: true };

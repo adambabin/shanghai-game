@@ -222,6 +222,33 @@ test('cannot discard your last card; undo takes plays back; going out on two pil
   assert.deepEqual(totals(g), [0, 85]);
 });
 
+test('allowing buying by mistake: the current player can still take the card until someone gets it', () => {
+  const hands = [0, 1, 2, 3].map(() => Array.from({ length: 11 }, (_, i) => c((i % 13) + 1, 'D')));
+  const top = c(7, 'S');
+  const g = rigged(hands, { discard: [c(4, 'C'), top] });
+  g.turn = 1;
+  assert.ok(applyAction(g, 1, { type: 'allowBuy' }).ok);
+  // seat 0 says Buy, but seats 2 and 3 are ahead of it, so the card hasn't gone yet
+  assert.ok(applyAction(g, 0, { type: 'buyAnswer', buy: true }).ok);
+  assert.ok(g.buyWindow);
+  assert.ok(applyAction(g, 1, { type: 'drawDiscard' }).ok, 'takes it after all');
+  assert.equal(g.buyWindow, null, 'nobody buys it');
+  assert.equal(g.hands[1].at(-1).id, top.id);
+  assert.equal(g.hands[0].length, 11);
+  assert.equal(g.buysUsed[0], 0);
+  assert.ok(!applyAction(g, 2, { type: 'buyAnswer', buy: true }).ok, 'a late answer finds nothing to buy');
+  // undoing past the take puts the card back with the choice offered afresh
+  assert.ok(applyAction(g, 1, { type: 'undo' }).ok);
+  assert.equal(g.phase, 'draw');
+  assert.ok(mustDecideOnDiscard(g));
+
+  // once someone has got it, there's nothing to take back
+  assert.ok(applyAction(g, 1, { type: 'allowBuy' }).ok);
+  assert.ok(applyAction(g, 2, { type: 'buyAnswer', buy: true }).ok, 'first in line: the card goes at once');
+  assert.ok(g.hands[2].some((x) => x.id === top.id));
+  assert.notEqual(g.discard.at(-1).id, top.id);
+});
+
 test('everyone is asked to buy at once; the soonest in turn order wins; card + 2 extra; exposed card is offered again', () => {
   const hands = [0, 1, 2, 3].map(() => Array.from({ length: 11 }, (_, i) => c((i % 13) + 1, 'D')));
   const under = c(4, 'C');
@@ -236,7 +263,11 @@ test('everyone is asked to buy at once; the soonest in turn order wins; card + 2
   // seat 0 says Buy first, but seats 2 and 3 come before it
   assert.ok(applyAction(g, 0, { type: 'buyAnswer', buy: true }).ok);
   assert.ok(g.buyWindow, 'waits for the players ahead');
-  assert.ok(!applyAction(g, 0, { type: 'buyAnswer', buy: false }).ok, 'one answer each');
+  assert.ok(applyAction(g, 0, { type: 'buyAnswer', buy: false }).ok, 'an answer can change while the card is still there');
+  assert.equal(viewFor(g, 0).buyWindow.mine, false);
+  assert.ok(applyAction(g, 0, { type: 'buyAnswer', buy: null }).ok, '…or be taken back');
+  assert.equal(viewFor(g, 0).buyWindow.mine, undefined);
+  assert.ok(applyAction(g, 0, { type: 'buyAnswer', buy: true }).ok);
   assert.equal(viewFor(g, 0).buyWindow.mine, true);
   assert.equal(viewFor(g, 2).buyWindow.mine, undefined, "others' answers stay hidden");
   assert.ok(applyAction(g, 2, { type: 'buyAnswer', buy: false }).ok);

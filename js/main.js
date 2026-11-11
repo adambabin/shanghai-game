@@ -1255,7 +1255,8 @@ function centerHTML(v, isWild) {
   const p = me != null ? v.players[me] : null;
   const canDraw = myTurn && v.phase === 'draw' && !v.buyWindow;
   const top = v.discardTop;
-  const discardClickable = canDraw && top && !v.topDead;
+  // while others decide whether to buy, you can still take it (allowed buying by mistake), until someone gets it
+  const discardClickable = myTurn && v.phase === 'draw' && top && !v.topDead;
   const deckClickable = canDraw && !v.mustDecide;
   // anything you can tap to draw, you can also drag down into your hand
   const deck = `<div class="pile ${deckClickable ? 'clickable' : ''}"><div class="stack" ${deckClickable ? 'data-act="drawDeck" data-drag="deck"' : ''}>${
@@ -1371,6 +1372,10 @@ function buyBarHTML(v) {
   const timer = `<span class="countdown" data-countdown>${secondsLeft()}</span>`;
   if (w) {
     // everyone who can buy is asked at once; others just see the countdown (in the sentence, so it rides on its last line)
+    // allowed buying by mistake? you can still take it until someone gets it
+    if (v.turn === me)
+      return `<div class="buy-bar"><span>Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}… ${timer}</span>
+        <span class="buy-actions"><button class="ghost" data-act="drawDiscard">Take it</button></span></div>`;
     if (!w.order.includes(me)) return `<div class="buy-bar"><span>Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}… ${timer}</span></div>`;
     if (w.mine !== undefined) {
       // a Buy still open means someone ahead of you hasn't answered (the first Buy in line gets it)
@@ -1380,7 +1385,9 @@ function buyBarHTML(v) {
         : ahead.length === 1
           ? `Waiting on <b>${esc(v.players[ahead[0]].name)}</b>, who's ahead of you…`
           : `${ahead.length} players are ahead of you. Waiting for them…`;
-      return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait} ${timer}</span></div>`;
+      // you can change your mind until the card goes (once it has, this bar is gone)
+      return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait} ${timer}</span>
+        <span class="buy-actions"><button class="ghost" data-act="buyAnswer" data-buy="clear">Change</button></span></div>`;
     }
     // the timer hangs off the buttons without taking room, so Buy / No stay where the early question had them
     return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
@@ -3126,6 +3133,7 @@ function rulesModal(o, bots = false) {
     <h3>Buying</h3>
     <ul><li>At the start of your turn you choose: <b>Take it</b> (you take the discard) or <b>Allow buy</b>. You can only draw from the deck after allowing others to buy.</li>
     <li>If you allow it, everyone who can buy gets 10 seconds to say Buy or No (they can answer early, while you decide). If more than one says Buy, the card goes to whoever plays soonest after you. The buyer gets the card plus ${o.buyPenalty} from the deck.</li>
+    <li>Changed your mind? Until someone gets the card, you can still take it, and anyone who answered can change their answer.</li>
     <li>When a card is bought, the card underneath is live again (even if it had been Shanghai'd), and you choose again: take it, or allow buying.</li>
     <li>If nobody buys it, you can still take it, or draw from the deck.</li>
     <li>${o.buyLimit} buys per round. Once you've laid down you can't buy.</li></ul>
@@ -4556,7 +4564,7 @@ const TIPS = {
     when: (v) => !!v.earlyBuy && v.earlyBuy.mine === undefined,
     at: ['.activity'],
     html: () => `You can say <b>Buy</b> or <b>No</b> now. It only counts if they let others buy. If more than one person says
-      Buy, the first in line gets it. You can change your answer until they decide.`,
+      Buy, the first in line gets it. You can change your answer until someone gets the card.`,
   },
   shanghai: {
     when: (v) => v.phase === 'draw' && v.melds.length > 0 && lastLog(v, (e) => DISCARD_KINDS.includes(e.kind))?.seat !== v.you,
