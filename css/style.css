@@ -411,11 +411,15 @@ label.field {
   font-weight: 700;
   font-size: 17px;
 }
+/* a drawn triangle rather than ▸ / ▾, whose height in the line differs from font to font: centered on House rules */
 .house-rules .rules-arrow {
-  color: var(--ink-dim);
-  font-size: 24px;
-  line-height: 20px;
+  display: flex;
   align-self: center;
+  color: var(--ink-dim);
+  transition: transform 0.15s;
+}
+.house-rules.open .rules-arrow {
+  transform: rotate(90deg);
 }
 .house-rules .rules-sum {
   grid-column: 1 / -1;

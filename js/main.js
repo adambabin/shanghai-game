@@ -836,7 +836,7 @@ function lobbyHTML(snap) {
     ${isHost ? `<button class="ghost" data-act="addBot" ${lobby.seats.length >= (tables ? MAX_TOUR_PLAYERS : MAX_PLAYERS) ? 'disabled' : ''}>+ Add a computer player</button>` : ''}
     ${lobby.seats.some((s) => s.bot) ? `<div class="options">${botOptionsHTML(o, isHost)}</div>` : ''}
     <div class="house-rules${ui.rulesOpen ? ' open' : ''}">
-    <button class="rules-head" data-act="toggleRules" aria-expanded="${!!ui.rulesOpen}"><span class="rules-title">House rules</span><span class="rules-arrow">${ui.rulesOpen ? '▾' : '▸'}</span>
+    <button class="rules-head" data-act="toggleRules" aria-expanded="${!!ui.rulesOpen}"><span class="rules-title">House rules</span><span class="rules-arrow" aria-hidden="true"><svg viewBox="0 0 12 12" width="20" height="20"><path d="M3 1.5 L10 6 L3 10.5 Z" fill="currentColor"/></svg></span>
       ${ui.rulesOpen ? '' : `<span class="rules-sum">${esc(rulesSummary(o))}</span>`}</button>
     ${ui.rulesOpen ? `<div class="options">
       ${optionRow('Decks', 'decks', Array.from({ length: MAX_DECKS - MIN_DECKS + 1 }, (_, i) => [MIN_DECKS + i, `${MIN_DECKS + i} (${(MIN_DECKS + i) * 2} jokers)`]), o, isHost)}
