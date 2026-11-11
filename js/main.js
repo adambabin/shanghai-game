@@ -790,9 +790,9 @@ function optionRow(label, key, choices, opts, isHost) {
 // Only shown once a computer player is seated.
 function botOptionsHTML(o, isHost) {
   const level = BOT_LEVELS.find(([k]) => k === botLevelFor(o));
-  return `${optionRow('Computer skill', 'botLevel', BOT_LEVELS.map(([k, label]) => [k, label]), { ...o, botLevel: level[0] }, isHost)}
-      <span class="muted opt-note">${esc(level[2])}</span>
-      ${optionRow('Computer speed', 'botSpeed', [[0.5, 'Fast'], [1, 'Normal'], [2, 'Slow']], o, isHost)}`;
+  return `${optionRow('Computer speed', 'botSpeed', [[0.5, 'Fast'], [1, 'Normal'], [2, 'Slow']], o, isHost)}
+      ${optionRow('Computer skill', 'botLevel', BOT_LEVELS.map(([k, label]) => [k, label]), { ...o, botLevel: level[0] }, isHost)}
+      <span class="muted opt-note">${esc(level[2])}</span>`;
 }
 
 const nCards = (n) => `${n} card${n === 1 ? '' : 's'}`;
