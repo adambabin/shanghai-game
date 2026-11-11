@@ -1,5 +1,6 @@
 import { HostSession, ClientSession } from './host.js';
 import { joinRoom } from './net.js';
+import { BUY_WINDOW_MS } from './engine.js';
 import { SUITS, SUIT_SYMBOL, RANK_LABEL, cardLabel, isRed, wildTest } from './cards.js';
 import { buildSet, buildRun, addCards, wildSlotFor, fitsAnyMeld, couldBeSet, couldBeRun, arrangeRun, runValue, runPlaces, layoutRun, wildSpots } from './melds.js';
 import { browserTracker, plainError } from './telemetry.js';
@@ -1394,6 +1395,13 @@ function buyButtons(top) {
     + `<button class="ghost" data-act="buyAnswer" data-buy="0" data-card="${top.id}"${off}>No</button>`;
 }
 
+// A gold line along the bottom of the buy question that drains smoothly over the window's 10 seconds. It's timed from when
+// the window opened (a negative delay), so the bar being redrawn carries on where it was instead of starting over.
+function buyDrainHTML() {
+  const elapsed = Math.max(0, BUY_WINDOW_MS - (ui.windowDeadline - Date.now()));
+  return `<span class="buy-drain" aria-hidden="true"><span style="animation-duration:${BUY_WINDOW_MS}ms;animation-delay:-${Math.round(elapsed)}ms"></span></span>`;
+}
+
 function buyBarHTML(v) {
   const me = v.you;
   if (v.phase === 'ready') return readyBarHTML(v, ui.snap.isHost);
@@ -1420,9 +1428,9 @@ function buyBarHTML(v) {
       return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait} ${timer}</span>
         <span class="buy-actions"><button class="ghost" data-act="buyAnswer" data-buy="clear">Change</button></span></div>`;
     }
-    // the timer hangs off the buttons without taking room, so Buy / No stay where the early question had them
-    return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
-      <span class="buy-actions">${buyButtons(top)}${timer}</span></div>`;
+    // the seconds join the question and the line drains along the bottom, so Buy / No stay where the early question had them
+    return `<div class="buy-bar ask wide"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)} ${timer}</span>
+      <span class="buy-actions">${buyButtons(top)}</span>${buyDrainHTML()}</div>`;
   }
   // the current player is still choosing: you can already say whether you'd buy it
   if (v.earlyBuy) {
@@ -1433,13 +1441,13 @@ function buyBarHTML(v) {
         You can change it until they decide.</span>
         <span class="buy-actions"><button class="ghost" data-act="buyAnswer" data-buy="clear">Change</button></span></div>`;
     }
-    // worded just like the question once buying opens (whose timer hangs off No without taking room), so it reads as one
+    // worded just like the question once buying opens (with the same room for its timer line), so it reads as one
     // question whose timer turns up later, not a second question
-    return `<div class="buy-bar ask"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
+    return `<div class="buy-bar ask wide"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
       <span class="buy-actions">${buyButtons(top)}</span></div>`;
   }
   if (v.turn === me && v.mustDecide) {
-    return `<div class="buy-bar ask"><span>Take ${miniCards(esc(cardLabel(top)))} or let others buy it?</span>
+    return `<div class="buy-bar ask wide"><span>Take ${miniCards(esc(cardLabel(top)))} or let others buy it?</span>
       <span class="buy-actions"><button class="primary" data-act="allowBuy">Allow buy</button><button class="ghost" data-act="drawDiscard">Take it</button></span></div>`;
   }
   return '';
