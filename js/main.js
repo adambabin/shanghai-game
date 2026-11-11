@@ -780,6 +780,17 @@ function botOptionsHTML(o, isHost) {
       ${optionRow('Computer speed', 'botSpeed', [[0.5, 'Fast'], [1, 'Normal'], [2, 'Slow']], o, isHost)}`;
 }
 
+const nCards = (n) => `${n} card${n === 1 ? '' : 's'}`;
+// The house rules folded up in the lobby: one line with what's set, so nobody has to open them to check.
+function rulesSummary(o) {
+  const parts = [`${decksFor(o)} decks`, o.buyLimit ? `${o.buyLimit} buy${o.buyLimit === 1 ? '' : 's'} a round` : 'No buying'];
+  if (o.buyLimit) parts.push(o.buyPenalty ? `${o.buyPenalty} extra card${o.buyPenalty === 1 ? '' : 's'} a buy` : 'no extra cards a buy');
+  parts.push(`Shanghai costs ${nCards(o.shanghaiPenalty)}`);
+  if (o.twoClubsWild) parts.push('2♣ wild');
+  if (o.falseCallPenalty) parts.push(`wrong call costs ${nCards(o.falseCallPenalty)}`);
+  return parts.join(' · ');
+}
+
 function lobbyHTML(snap) {
   const { lobby, isHost, seat, solo } = snap;
   const o = lobby.options;
@@ -807,15 +818,18 @@ function lobbyHTML(snap) {
     ${solo ? '' : modeSwitchHTML(lobby, isHost)}
     ${tables ? tablesLobbyHTML(snap) : `<div class="seat-list">${seats}</div>`}
     ${isHost ? `<button class="ghost" data-act="addBot" ${lobby.seats.length >= (tables ? MAX_TOUR_PLAYERS : MAX_PLAYERS) ? 'disabled' : ''}>+ Add a computer player</button>` : ''}
-    <h3 style="margin-top:6px">House rules</h3>
-    <div class="options">
+    ${lobby.seats.some((s) => s.bot) ? `<div class="options">${botOptionsHTML(o, isHost)}</div>` : ''}
+    <div class="house-rules${ui.rulesOpen ? ' open' : ''}">
+    <button class="rules-head" data-act="toggleRules" aria-expanded="${!!ui.rulesOpen}"><span class="rules-title">House rules</span><span class="rules-arrow">${ui.rulesOpen ? '▾' : '▸'}</span>
+      ${ui.rulesOpen ? '' : `<span class="rules-sum">${esc(rulesSummary(o))}</span>`}</button>
+    ${ui.rulesOpen ? `<div class="options">
       ${optionRow('Decks', 'decks', Array.from({ length: MAX_DECKS - MIN_DECKS + 1 }, (_, i) => [MIN_DECKS + i, `${MIN_DECKS + i} (${(MIN_DECKS + i) * 2} jokers)`]), o, isHost)}
       ${optionRow('Buys per round', 'buyLimit', [[0, 'None'], [1, '1'], [2, '2'], [3, '3'], [4, '4']], o, isHost)}
       ${optionRow('Extra cards per buy', 'buyPenalty', [[0, 'None'], [1, '1'], [2, '2'], [3, '3']], o, isHost)}
       ${optionRow('2♣ wild', 'twoClubsWild', [[false, 'No (jokers only)'], [true, 'Yes']], o, isHost)}
       ${optionRow('Shanghai penalty', 'shanghaiPenalty', [[2, '2 cards'], [3, '3 cards'], [4, '4 cards']], o, isHost)}
       ${optionRow('Wrong Shanghai call', 'falseCallPenalty', [[0, 'No penalty'], [1, '1 card'], [2, '2 cards'], [3, '3 cards']], o, isHost)}
-      ${lobby.seats.some((s) => s.bot) ? botOptionsHTML(o, isHost) : ''}
+    </div>` : ''}
     </div>
     <div class="lobby-foot">
       ${
@@ -4742,6 +4756,7 @@ function startJoin() {
 
 function leave() {
   const snap = ui.snap;
+  ui.rulesOpen = false; // the house rules start folded in every new lobby
   if (snap && snap.view && snap.view.phase !== 'gameOver') stats.track('game_left', { ...whereInGame(snap), how: 'went home' });
   clearTimeout(gameStats.idleTimer);
   gameStats.key = null;
@@ -4944,6 +4959,7 @@ function onClick(e) {
     case 'startNow':
     case 'undo':
       ui.modal = null;
+      if (act === 'start' || act === 'playAgain') ui.rulesOpen = false; // a new lobby starts with the house rules folded
       send({ type: act });
       return render();
     case 'endRound':
@@ -4957,6 +4973,11 @@ function onClick(e) {
       ui.modal = null;
       send({ type: act, seat: Number(t.dataset.seat) });
       return render();
+    case 'toggleRules':
+      ui.rulesOpen = !ui.rulesOpen;
+      render();
+      if (ui.rulesOpen) document.querySelector('.house-rules')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      return;
     case 'setMode':
       send({ type: 'setMode', mode: t.dataset.mode });
       return render();

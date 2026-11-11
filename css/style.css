@@ -339,6 +339,40 @@ label.field {
   grid-column: 1 / -1;
   margin-top: -4px;
 }
+/* the lobby's house rules, folded to one summary line until tapped */
+.house-rules {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  background-color: rgba(0, 0, 0, 0.12);
+}
+.house-rules .rules-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.house-rules .rules-title {
+  font-weight: 700;
+  font-size: 17px;
+}
+.house-rules .rules-arrow {
+  color: var(--ink-dim);
+}
+.house-rules .rules-sum {
+  grid-column: 1 / -1;
+  color: var(--ink-dim);
+  font-size: 14px;
+}
+.house-rules .options {
+  padding: 0 12px 12px;
+}
 .room-line {
   margin: 2px 0 0;
   color: var(--ink-dim);
