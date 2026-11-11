@@ -1360,7 +1360,7 @@ function readyBarHTML(v, isHost) {
   const waiting = v.players.filter((p) => !p.ready).map((p) => esc(p.name));
   const startNow = isHost ? '<button class="ghost" data-act="startNow">Start now</button>' : '';
   if (me != null && !v.players[me].ready)
-    return `<div class="buy-bar ask"><span>Look over your cards. ${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}`}: <b>${contractText(v.round)}</b></span>
+    return `<div class="buy-bar ask wide"><span>Look over your cards. ${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}`}: <b>${contractText(v.round)}</b></span>
       <span class="buy-actions"><button class="primary" data-act="ready">I'm ready</button>${startNow}</span></div>`;
   return `<div class="buy-bar"><span>Waiting for ${waiting.join(', ')} to be ready…</span>${startNow ? `<span class="buy-actions">${startNow}</span>` : ''}</div>`;
 }

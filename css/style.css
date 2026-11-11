@@ -1932,7 +1932,7 @@ button.awards-card {
 .buy-bar .buy-actions button {
   padding: 8px 16px;
 }
-/* Buy / No (and Allow buy / Take it) share the bar's whole width, so they're easy to hit. The bottom keeps room for the
+/* Buy / No (and Allow buy / Take it, I'm ready / Start now) share the bar's whole width, so they're easy to hit. The bottom keeps room for the
    timer's line whether or not it's showing, so the buttons don't move when buying opens. */
 .buy-bar.wide {
   position: relative;
