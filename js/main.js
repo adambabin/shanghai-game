@@ -558,6 +558,8 @@ function render() {
   const stagedLeft = oldStaged ? oldStaged.scrollLeft : null;
   const oldTable = $app.querySelector('.table');
   const tableTop = oldTable ? oldTable.scrollTop : null;
+  const oldLobby = $app.querySelector('.lobby-body');
+  const lobbyTop = oldLobby ? oldLobby.scrollTop : null;
   const oldModalBody = $app.querySelector('.modal-body');
   const modalTop = oldModalBody && ui.renderedModal === ui.modal ? oldModalBody.scrollTop : null;
   ui.renderedModal = ui.modal;
@@ -616,9 +618,22 @@ function render() {
   ui.revealQuick = false;
   const table = $app.querySelector('.table');
   if (table && tableTop != null) table.scrollTop = tableTop;
+  const lobbyBody = $app.querySelector('.lobby-body');
+  if (lobbyBody && lobbyTop != null) lobbyBody.scrollTop = lobbyTop;
+  markLobbyEdges();
   placeChatPops();
   placeGuide();
 }
+
+// A faint line under the lobby's title and over its footer, only while there's more to scroll that way.
+function markLobbyEdges() {
+  const body = $app.querySelector('.lobby-body');
+  if (!body) return;
+  $app.querySelector('.lobby-head').classList.toggle('edge', body.scrollTop > 0);
+  $app.querySelector('.lobby-foot').classList.toggle('edge', body.scrollTop + body.clientHeight < body.scrollHeight - 1);
+}
+document.addEventListener('scroll', (e) => e.target.classList?.contains('lobby-body') && markLobbyEdges(), true);
+addEventListener('resize', markLobbyEdges);
 
 // The row of player tiles scrolls sideways when it doesn't fit; bring whoever's turn it is into view.
 function revealTurn(players, smooth, which = '.chip.turn') {
@@ -803,15 +818,16 @@ function lobbyHTML(snap) {
       ${isHost && i !== 0 ? `<button class="ghost small" data-act="removeSeat" data-seat="${i}">✕</button>` : ''}</div>`
     )
     .join('');
-  const invite = lobby.code ? inviteLink(lobby.code) : '';
-  return `<div class="center-screen"><div class="panel lobby">
+  // the title (and room code) stay at the top and Start game at the bottom; only the middle scrolls
+  return `<div class="lobby-screen"><div class="lobby-head"><div class="lobby-in">
     <h2>${solo ? 'Game vs computer' : 'Game lobby'}</h2>
     ${
       lobby.code
-        ? `<div class="muted" style="text-align:center">Room code</div><div class="room-code">${lobby.code}</div>
-      ${isHost ? `<button class="ghost" data-act="share">Share invite link</button><div class="muted" style="text-align:center;word-break:break-all">${esc(invite)}</div>` : ''}`
+        ? `<div class="lobby-code">Room <b>${lobby.code}</b>${isHost ? '<button class="ghost small" data-act="share">Share invite</button>' : ''}</div>`
         : ''
     }
+    </div></div>
+    <div class="lobby-body"><div class="lobby-in">
     ${snap.status === 'starting' ? '<div class="muted">Opening the room…</div>' : ''}
     ${snap.status === 'error' ? `<div class="err">${esc(snap.error)}</div>` : ''}
     ${hostAwayText(snap) ? `<div class="err">${hostAwayText(snap)}</div>` : ''}
@@ -831,15 +847,16 @@ function lobbyHTML(snap) {
       ${optionRow('Wrong Shanghai call', 'falseCallPenalty', [[0, 'No penalty'], [1, '1 card'], [2, '2 cards'], [3, '3 cards']], o, isHost)}
     </div>` : ''}
     </div>
-    <div class="lobby-foot">
+    </div></div>
+    <div class="lobby-foot"><div class="lobby-in">
       ${
         isHost
           ? `<button class="primary" data-act="start" ${lobby.seats.length < 2 || (tables && !tableRange(lobby.seats.length)) ? 'disabled' : ''}>Start game</button>`
           : `<div class="muted" style="text-align:center">Waiting for ${esc(lobby.seats[0]?.name || 'the host')} to start…</div>`
       }
       <div class="row"><button class="ghost small" data-act="rules">How to play</button><button class="ghost small" data-act="leave">Leave</button></div>
-    </div>
-  </div></div>${ui.modal === 'rules' ? rulesModal(o, lobby.seats.some((s) => s.bot)) : ui.modal === 'moveSeat' && isHost ? moveSeatModal(snap) : ''}`;
+    </div></div>
+  </div>${ui.modal === 'rules' ? rulesModal(o, lobby.seats.some((s) => s.bot)) : ui.modal === 'moveSeat' && isHost ? moveSeatModal(snap) : ''}`;
 }
 
 // ---------- Tables (BETA) ----------
@@ -4976,7 +4993,7 @@ function onClick(e) {
     case 'toggleRules':
       ui.rulesOpen = !ui.rulesOpen;
       render();
-      if (ui.rulesOpen) document.querySelector('.house-rules')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      if (ui.rulesOpen) document.querySelector('.house-rules')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       return;
     case 'setMode':
       send({ type: 'setMode', mode: t.dataset.mode });

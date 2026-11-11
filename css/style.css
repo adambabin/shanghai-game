@@ -169,23 +169,72 @@ h3 {
   gap: 14px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
 }
-/* the lobby's Start game, How to play and Leave stay pinned to the bottom while the players and rules scroll */
-.panel.lobby {
-  padding-bottom: 0;
-}
-.lobby-foot {
-  position: sticky;
-  bottom: 0;
-  margin: 0 -24px;
-  padding: 12px 24px calc(14px + env(safe-area-inset-bottom));
+/* The lobby fills the screen in the dark green: the title (and room code) pinned at the top, Start game, How to play
+   and Leave pinned at the bottom, and only the players and settings between them scroll. */
+.lobby-screen {
+  position: fixed;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  /* opaque, so the rules scrolling underneath don't show through: the panel's shade over solid felt */
   background-color: var(--felt-dark);
-  background-image: linear-gradient(var(--panel-strong), var(--panel-strong));
-  border-radius: 0 0 18px 18px;
-  box-shadow: 0 -8px 16px -8px rgba(0, 0, 0, 0.35);
+}
+.lobby-in {
+  max-width: 460px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lobby-head,
+.lobby-foot {
+  flex: none;
+  padding-left: 18px;
+  padding-right: 18px;
+  transition: box-shadow 0.15s;
+}
+.lobby-head {
+  padding-top: calc(14px + var(--safe-top));
+  padding-bottom: 12px;
+}
+.lobby-head .lobby-in {
+  gap: 4px;
+}
+.lobby-foot {
+  padding-top: 12px;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
+}
+.lobby-foot .lobby-in {
+  gap: 10px;
+}
+/* a faint line only while something is scrolled under it */
+.lobby-head.edge {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.lobby-foot.edge {
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.12);
+}
+.lobby-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 18px 16px;
+}
+.lobby-code {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-dim);
+}
+.lobby-code b {
+  color: var(--gold);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 20px;
+  letter-spacing: 3px;
+}
+.lobby-code button {
+  margin-left: auto;
 }
 .title {
   text-align: center;
@@ -582,6 +631,12 @@ html:has(.game) body {
       height: max(11px, var(--safe-top));
       z-index: 45; /* over the game, under pop-ups (which dim it along with everything else) */
       background: var(--felt);
+    }
+    body:has(.lobby-screen) #top-edge {
+      background: var(--felt-dark);
+    }
+    .lobby-head {
+      padding-top: max(20px, calc(14px + var(--safe-top)));
     }
     body:has(.game > .topbar:first-child) #top-edge {
       background: var(--topbar);
