@@ -1117,7 +1117,7 @@ function nextTablesModal(snap) {
         ? standingsHTML(snap)
         : legend + tables;
   const action = snap.isHost
-    ? `<button class="primary" data-act="nextRound">Deal round ${t.round + 2}: ${contractText(t.round + 1)}</button>`
+    ? '<button class="primary" data-act="nextRound">Deal next round</button>'
     : `<span class="muted">Waiting for ${esc(hostName(snap))} to deal round ${t.round + 2}…</span>`;
   const lowered = snap.isHost ? action : `<p class="sheet-wait">Waiting for ${esc(hostName(snap))} to deal round ${t.round + 2}…</p>`;
   return resultSheet(modalHead(`After round ${t.round + 1} of ${roundsIn(t.round)}`), tabs + body, action, lowered);
@@ -1787,7 +1787,7 @@ function resultModal(snap) {
     }
   }
   let actions = '';
-  if (snap.isHost) actions = over ? '<button class="primary" data-act="playAgain">Play again</button>' : `<button class="primary" data-act="nextRound">Deal round ${v.round + 2}: ${contractText(v.round + 1)}</button>`;
+  if (snap.isHost) actions = over ? '<button class="primary" data-act="playAgain">Play again</button>' : '<button class="primary" data-act="nextRound">Deal next round</button>';
   else actions = `<span class="muted">Waiting for the host to ${over ? 'start a new game' : 'deal'}…</span>`;
   if (!over && rr.winner != null) {
     sub = title;

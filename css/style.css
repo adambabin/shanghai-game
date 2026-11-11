@@ -1511,6 +1511,22 @@ html:has(.game) body {
   justify-content: flex-end;
   flex-wrap: wrap;
 }
+/* between rounds: Score sheet on the left, then Deal next round (or who you're waiting for) filling the rest, on one line */
+.result-sheet .actions {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.result-sheet .actions > * {
+  flex: none;
+}
+.result-sheet .actions > .primary,
+.result-sheet .actions > .muted {
+  flex: 1;
+  min-width: 0;
+}
+.result-sheet .actions > .muted {
+  text-align: right;
+}
 .menu-list {
   display: flex;
   flex-direction: column;
