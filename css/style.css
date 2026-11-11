@@ -2002,6 +2002,11 @@ button.awards-card {
   height: 24px;
   font-size: 13px;
 }
+/* in the buy question it overhangs its line a little rather than making it taller, so the bar is the same height
+   before and after buying opens */
+.buy-bar.wide > span:not(.buy-actions) > .countdown {
+  margin-block: -4px;
+}
 .countdown {
   display: inline-flex;
   align-items: center;
