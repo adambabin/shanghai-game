@@ -1934,7 +1934,6 @@ function menuModal(snap) {
       else if (s.standIn)
         items.push(`<button class="ghost" data-act="toggleBot" data-seat="${i}">Give ${esc(s.name)}'s seat back to them</button>`);
     });
-    if (v.phase === 'draw' || v.phase === 'play') items.push('<button class="danger" data-act="endRound">End this round (nobody can go out)</button>');
   }
   items.push(`<button class="danger" data-act="leave">${snap.isHost && !snap.solo ? 'Leave (game pauses for everyone)' : 'Leave game'}</button>`);
   const skill = skillLabel(snap.lobby.options, snap.lobby.seats);
@@ -4986,12 +4985,6 @@ function onClick(e) {
       ui.modal = null;
       if (act === 'start' || act === 'playAgain') ui.rulesOpen = false; // a new lobby starts with the house rules folded
       send({ type: act });
-      return render();
-    case 'endRound':
-      if (confirm('End this round now? Nobody wins it and everyone scores the cards in their hand.')) {
-        ui.modal = null;
-        send({ type: 'endRound' });
-      }
       return render();
     case 'removeSeat':
     case 'toggleBot':
