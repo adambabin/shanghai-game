@@ -1391,7 +1391,7 @@ function placeInLine(v) {
 // Buy / No name the card they're for, so an answer that arrives after that card went can't count for the next one
 function buyButtons(top) {
   const off = buyLocked() ? ' disabled' : '';
-  return `<button class="primary" data-act="buyAnswer" data-buy="1" data-card="${top.id}"${off}>Buy</button>`
+  return `<button class="primary" data-act="buyAnswer" data-buy="1" data-card="${top.id}"${off}><span class="buy-coin" aria-hidden="true">$</span>Buy</button>`
     + `<button class="ghost" data-act="buyAnswer" data-buy="0" data-card="${top.id}"${off}>No</button>`;
 }
 

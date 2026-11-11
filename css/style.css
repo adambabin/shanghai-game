@@ -1947,6 +1947,25 @@ button.awards-card {
   padding: 12px 0;
   font-size: 17px;
 }
+/* Buy has a small dark coin with a $ before it, like a price tag: buying costs cards */
+.buy-bar.wide .buy-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.buy-coin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 99px;
+  background: #3a2a00;
+  color: var(--gold);
+  font-weight: 800;
+  font-size: 15px;
+}
 .buy-drain {
   position: absolute;
   left: 0;
