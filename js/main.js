@@ -1788,7 +1788,7 @@ function resultModal(snap) {
   }
   let actions = '';
   if (snap.isHost) actions = over ? '<button class="primary" data-act="playAgain">Play again</button>' : '<button class="primary" data-act="nextRound">Deal next round</button>';
-  else actions = `<span class="muted">Waiting for the host to ${over ? 'start a new game' : 'deal'}…</span>`;
+  else actions = `<span class="muted">${over ? 'Waiting for the host to start a new game…' : 'Waiting for host…'}</span>`;
   if (!over && rr.winner != null) {
     sub = title;
     title = `${rr.winner === v.you ? 'You' : esc(v.players[rr.winner].name)} went out!`;
@@ -1797,9 +1797,13 @@ function resultModal(snap) {
     ${over && v.stats ? awardsCardHTML(v) : ''}
     ${rr.winner == null && !snap.tour ? `<p class="muted">Nobody went out this ${tb ? 'tiebreaker' : 'round'}.</p>` : ''}
     ${rows}`;
-  const buttons = `<button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${
-    over ? '<button class="ghost" data-act="leave">Home</button>' : snap.isHost ? '' : '<button class="ghost" data-act="leave">Leave game</button>'
-  }${actions}`;
+  // between rounds, a player who joined has Leave game first (in red), then Score sheet, then who they're waiting for
+  const scoresBtn = '<button class="ghost" data-act="modal" data-m="scores">Score sheet</button>';
+  const buttons = over
+    ? `${scoresBtn}<button class="ghost" data-act="leave">Home</button>${actions}`
+    : snap.isHost
+      ? `${scoresBtn}${actions}`
+      : `<button class="danger" data-act="leave">Leave game</button>${scoresBtn}${actions}`;
   // between rounds: from below, so the table stays in view
   if (!over) {
     // lowered, the host keeps the Deal button; everyone else sees who they're waiting for

@@ -1526,6 +1526,8 @@ html:has(.game) body {
 }
 .result-sheet .actions > .muted {
   text-align: right;
+  font-size: 14px;
+  line-height: 1.25;
 }
 .menu-list {
   display: flex;
