@@ -1408,14 +1408,16 @@ function buyBarHTML(v) {
   if (me == null || v.phase !== 'draw') return '';
   const top = v.discardTop;
   const w = v.buyWindow;
-  const timer = `<span class="countdown" data-countdown>${secondsLeft()}</span>`;
+  // the countdown is glued to the sentence's last word, so a full line never pushes it onto a line of its own
+  const timed = (html) =>
+    html.replace(/([^\s>]*)$/, `<span class="with-timer">$1 <span class="countdown" data-countdown>${secondsLeft()}</span></span>`);
   if (w) {
     // everyone who can buy is asked at once; others just see the countdown (in the sentence, so it rides on its last line)
     // allowed buying by mistake? you can still take it until someone gets it
     if (v.turn === me)
-      return `<div class="buy-bar"><span>Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}… ${timer}</span>
+      return `<div class="buy-bar"><span>${timed(`Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}…`)}</span>
         <span class="buy-actions"><button class="ghost" data-act="drawDiscard">Take it</button></span></div>`;
-    if (!w.order.includes(me)) return `<div class="buy-bar"><span>Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}… ${timer}</span></div>`;
+    if (!w.order.includes(me)) return `<div class="buy-bar"><span>${timed(`Others are deciding whether to buy ${miniCards(esc(cardLabel(top)))}…`)}</span></div>`;
     if (w.mine !== undefined) {
       // a Buy still open means someone ahead of you hasn't answered (the first Buy in line gets it)
       const ahead = w.order.slice(0, w.order.indexOf(me));
@@ -1425,11 +1427,11 @@ function buyBarHTML(v) {
           ? `Waiting on <b>${esc(v.players[ahead[0]].name)}</b>, who's ahead of you…`
           : `${ahead.length} players are ahead of you. Waiting for them…`;
       // you can change your mind until the card goes (once it has, this bar is gone)
-      return `<div class="buy-bar"><span>You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait} ${timer}</span>
+      return `<div class="buy-bar"><span>${timed(`You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait}`)}</span>
         <span class="buy-actions"><button class="ghost" data-act="buyAnswer" data-buy="clear">Change</button></span></div>`;
     }
     // the seconds join the question and the line drains along the bottom, so Buy / No stay where the early question had them
-    return `<div class="buy-bar ask wide"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)} ${timer}</span>
+    return `<div class="buy-bar ask wide"><span>${timed(`Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}`)}</span>
       <span class="buy-actions">${buyButtons(top)}</span>${buyDrainHTML()}</div>`;
   }
   // the current player is still choosing: you can already say whether you'd buy it

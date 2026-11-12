@@ -2013,8 +2013,12 @@ button.awards-card {
     display: none;
   }
 }
-/* a countdown at the end of a sentence sits on its last line instead of wrapping onto one of its own */
-.buy-bar > span:not(.buy-actions) > .countdown {
+/* a countdown at the end of a sentence sits on its last line instead of wrapping onto one of its own (it's glued to the
+   last word, so they wrap together) */
+.buy-bar .with-timer {
+  white-space: nowrap;
+}
+.buy-bar > span:not(.buy-actions) .countdown {
   vertical-align: middle;
   min-width: 24px;
   height: 24px;
@@ -2022,7 +2026,7 @@ button.awards-card {
 }
 /* in the buy question it overhangs its line a little rather than making it taller, so the bar is the same height
    before and after buying opens */
-.buy-bar.wide > span:not(.buy-actions) > .countdown {
+.buy-bar.wide > span:not(.buy-actions) .countdown {
   margin-block: -4px;
 }
 .countdown {
