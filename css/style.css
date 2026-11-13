@@ -1275,7 +1275,9 @@ html:has(.game) body {
 
 .hand-area {
   flex: none;
-  padding: 4px 8px calc(10px + env(safe-area-inset-bottom));
+  /* the buttons sit just above the iPhone's home bar space instead of 10px above it (that space already clears the
+     bar and the rounded corners); with no home bar, 10px */
+  padding: 4px 8px max(10px, env(safe-area-inset-bottom));
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.3));
 }
 .hand {
