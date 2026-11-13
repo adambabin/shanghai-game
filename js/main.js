@@ -1539,10 +1539,15 @@ function handHTML(v, isWild) {
   const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
   const cards = ui.order.filter((id) => !stagedIds.has(id)).map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
   const n = ui.selected.size;
-  const btns = [];
-  if (v.canUndo) btns.push('<button class="ghost" data-act="undo">Undo</button>');
-  if (n) btns.push('<button class="ghost" data-act="clearSel">Clear</button>');
-  btns.push(`<button class="ghost" data-act="sort" data-how="${ui.sortMode === 'rank' ? 'suit' : 'rank'}">${ui.sortMode === 'rank' ? 'Sort by suit' : 'Sort by rank'}</button>`);
+  // the row under the hand: Clear on the left (with cards selected), Hide in the middle, Undo and Sort on the right
+  const right = [];
+  if (v.canUndo) right.push('<button class="ghost" data-act="undo">Undo</button>');
+  right.push(`<button class="ghost" data-act="sort" data-how="${ui.sortMode === 'rank' ? 'suit' : 'rank'}">${ui.sortMode === 'rank' ? 'Sort by suit' : 'Sort by rank'}</button>`);
+  const btns = [
+    `<div class="hb-left">${n ? '<button class="ghost" data-act="clearSel">Clear</button>' : ''}</div>`,
+    `<button class="ghost hide-hand" data-act="toggleDock" title="Hide my cards" aria-label="Hide my cards"><svg viewBox="0 0 24 14" aria-hidden="true"><path d="M3 3l9 8 9-8"/></svg>Hide</button>`,
+    `<div class="hb-right">${right.join('')}</div>`,
+  ];
   return `<div class="hand-area"><div class="hand" id="hand">${cards
     .map((c) =>
       cardHTML(c, {
@@ -1566,7 +1571,10 @@ function dockHTML(v, isWild) {
   const body = stagingHTML(v, isWild) + handHTML(v, isWild);
   if (ui.dockCollapsed)
     return `<div class="dock collapsed"><button class="dock-toggle" data-act="toggleDock">Show my cards (${v.hand.length}) ▴</button></div>`;
-  return `<div class="dock"><button class="dock-toggle icon" data-act="toggleDock" title="Hide my cards" aria-label="Hide my cards"><svg viewBox="0 0 24 14" aria-hidden="true"><path d="M3 3l9 8 9-8"/></svg></button><div class="dock-body">${body}</div></div>`;
+  // before anything is staged, room above the hand for the New set / New run bar (placeSpots), kept whether or not it
+  // shows, so picking up cards never moves anything
+  const room = !ui.staged.length && newGroupSpotsHTML(v) ? '<div class="spots-room"></div>' : '';
+  return `<div class="dock">${room}<div class="dock-body">${body}</div></div>`;
 }
 
 function hostName(snap) {
@@ -2677,8 +2685,8 @@ function swipeToClose(panel) {
   panel.addEventListener('touchcancel', () => reset(true));
 }
 
-// Swiping down lowers your hand too, as well as the ▾ button, and swiping up on "Show my cards" brings it back. The
-// swipe starts around the cards (the ▾ strip, the Lay down line, the Undo / Sort row, empty space), never on a card,
+// Swiping down lowers your hand too, as well as the Hide button, and swiping up on "Show my cards" brings it back. The
+// swipe starts around the cards (the room above them, the Lay down line, the Hide / Sort row, empty space), never on a card,
 // a staged card, the deck or the discard: those still drag exactly as before. Like the chat, the hand follows the finger
 // and goes down past a third of the way or on a flick, otherwise it springs back. Redraws wait while it moves.
 let handSwipe = null;
@@ -2737,7 +2745,7 @@ function onHandTouchEnd(e) {
   }
 }
 
-// Lowering and raising the hand (the ▾ button, "Show my cards" or a swipe) slides it, and the deck row, discard,
+// Lowering and raising the hand (the Hide button, "Show my cards" or a swipe) slides it, and the deck row, discard,
 // SHANGHAI! and activity box above it move down or up with it to where they'll sit, so nothing jumps at the end.
 const HAND_SLIDE_MS = 200;
 const calmMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -3509,6 +3517,9 @@ function liftOutOfHand(d) {
 // The New set / New run spots go where a new group will show, on top of the page so nothing moves:
 // - nothing staged yet: a bar in the space between the deck row and your hand
 // - groups staged: tiles at the end of the row, beside the groups; if they don't fit, the row scrolls to make room
+// the New set / New run bar's height, and the space kept above and below it
+const SPOT_BAR = 32;
+const SPOT_PAD = 6;
 function placeSpots(hand) {
   const spots = $app.querySelector('.spots-float');
   const dock = hand && hand.closest('.dock');
@@ -3521,20 +3532,15 @@ function placeSpots(hand) {
   const row = $app.querySelector('.staged-row');
   spots.classList.remove('tiles', 'slim');
   if (!row) {
-    // a slim pill in the gap between the Deck / Discard labels and the tops of the hand's cards (selected ones
-    // sit higher), so it covers neither; it leaves the hide-cards arrow in the middle uncovered too, with one
-    // spot to its left or one either side of it
+    // a bar across the room kept above the hand (.spots-room): from just under the deck and discard (over their
+    // labels, which hide while it shows) to just above the tops of the hand's cards (selected ones sit higher)
     spots.classList.add('slim');
-    const left = box.left + 12;
-    const labels = [...$app.querySelectorAll('.center .pile > span')].map((el) => el.getBoundingClientRect().bottom);
+    const labels = [...$app.querySelectorAll('.center .pile > span')].map((el) => el.getBoundingClientRect().top);
     // (cards being dragged don't count: they've already been lifted out)
     const cards = [...hand.querySelectorAll('.card:not(.dragging)')].map((el) => el.getBoundingClientRect().top);
-    const bottom = (cards.length ? Math.min(...cards) : hand.getBoundingClientRect().top + 18) - 4;
-    const height = Math.max(28, Math.min(44, bottom - (labels.length ? Math.max(...labels) + 3 : bottom - 44)));
-    const arrow = $app.querySelector('.dock-toggle');
-    const a = arrow ? arrow.getBoundingClientRect() : { left: box.left + box.width / 2, width: 0 };
-    if (n === 1) return place(left, a.left - 8 - left, bottom - height, height);
-    return place(left, box.width - 24, bottom - height, height, a.width + 16);
+    const bottom = (cards.length ? Math.min(...cards) : hand.getBoundingClientRect().top) - SPOT_PAD;
+    const top = labels.length ? Math.min(...labels) - 3 + SPOT_PAD : bottom - SPOT_BAR;
+    return place(box.left + 12, box.width - 24, top, Math.max(28, Math.min(SPOT_BAR, bottom - top)), 12);
   }
   // the row's inside edge: its side padding is only there for the groups' glow
   const right = row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight);
