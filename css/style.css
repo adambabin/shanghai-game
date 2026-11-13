@@ -2308,6 +2308,23 @@ body:has(.spots-float.slim.tap) .center .pile > span {
   background: var(--gold);
   color: #3a2a00;
 }
+/* a thin handle, centered at the top of your cards' area, like the top of an iPhone pop-up: you can swipe it down.
+   It floats, so it adds no height, and touches go through it (the swipe starts on what's under it). Your cards
+   paint over it if a selected one rises that far. */
+.dock {
+  position: relative;
+}
+.dock-grip {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 36px;
+  height: 4px;
+  margin-left: -18px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
 /* before anything is staged, room above the hand for the New set / New run bar, with space above and below it
    (placeSpots). It's there whether or not the bar shows, so picking up cards never moves anything. */
 .spots-room {

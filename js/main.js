@@ -1574,7 +1574,8 @@ function dockHTML(v, isWild) {
   // before anything is staged, room above the hand for the New set / New run bar (placeSpots), kept whether or not it
   // shows, so picking up cards never moves anything
   const room = !ui.staged.length && newGroupSpotsHTML(v) ? '<div class="spots-room"></div>' : '';
-  return `<div class="dock">${room}<div class="dock-body">${body}</div></div>`;
+  // the handle at the top says the hand can be swiped down; it takes no room and touches go through it
+  return `<div class="dock"><div class="dock-grip" aria-hidden="true"></div>${room}<div class="dock-body">${body}</div></div>`;
 }
 
 function hostName(snap) {
