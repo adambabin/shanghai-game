@@ -1339,7 +1339,11 @@ function activityHTML(v) {
   }
   // the next card's buy question comes straight after a buy, so it starts with who bought the last one
   const bought = main && v.phase === 'draw' && recentBuy();
-  if (bought) main = main.replace('<span>', `<span>${logHTML({ ...bought, text: bought.text.replace(/ \(.*\)\.$/, '') }, v)}. `);
+  if (bought) {
+    const lead = `${logHTML({ ...bought, text: bought.text.replace(/ \(.*\)\.$/, '') }, v)}. `;
+    // the wide bar says it in its strip (twice once the timer runs: the light words and their dark copy)
+    main = main.includes('<span class="say">') ? main.replaceAll('<span class="say">', `<span class="say">${lead}`) : main.replace('<span>', `<span>${lead}`);
+  }
   // a mistake of yours (like a Shanghai call that missed) shows above a prompt instead of hiding behind it
   if (main && f && f.bad) main = `<div class="buy-bar flash bad"><span>${miniCards(esc(f.text))}</span></div>${main}`;
   if (!main && showFlash) main = `<div class="buy-bar flash tappable ${f.bad ? 'bad' : ''}" ${log}><span>${miniCards(esc(f.text))}</span></div>`;
@@ -1360,8 +1364,8 @@ function readyBarHTML(v, isHost) {
   const waiting = v.players.filter((p) => !p.ready).map((p) => esc(p.name));
   const startNow = isHost ? '<button class="ghost" data-act="startNow">Start now</button>' : '';
   if (me != null && !v.players[me].ready)
-    return `<div class="buy-bar ask wide"><span>Look over your cards. ${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}`}: <b>${contractText(v.round)}</b></span>
-      <span class="buy-actions"><button class="primary" data-act="ready">I'm ready</button>${startNow}</span></div>`;
+    return `<div class="buy-bar ask wide"><span class="buy-actions"><button class="primary" data-act="ready">I'm ready</button>${startNow}</span>
+      ${buyStripHTML(`Look over your cards. ${inTiebreaker(v) ? 'Tiebreaker' : `Round ${v.round + 1}`}: <b>${contractText(v.round)}</b>`)}</div>`;
   return `<div class="buy-bar"><span>Waiting for ${waiting.join(', ')} to be ready…</span>${startNow ? `<span class="buy-actions">${startNow}</span>` : ''}</div>`;
 }
 
@@ -1388,18 +1392,25 @@ function placeInLine(v) {
   return `${ahead.length} players are ahead of you.`;
 }
 
-// Buy / No name the card they're for, so an answer that arrives after that card went can't count for the next one
+// Buy / No name the card they're for, so an answer that arrives after that card went can't count for the next one.
+// The Buy button shows the card too ("Buy 8♣"), which is what sets it apart from Allow buy.
 function buyButtons(top) {
   const off = buyLocked() ? ' disabled' : '';
-  return `<button class="primary" data-act="buyAnswer" data-buy="1" data-card="${top.id}"${off}><span class="buy-coin" aria-hidden="true">$</span>Buy</button>`
+  return `<button class="primary" data-act="buyAnswer" data-buy="1" data-card="${top.id}"${off}>Buy ${miniCards(esc(cardLabel(top)))}</button>`
     + `<button class="ghost" data-act="buyAnswer" data-buy="0" data-card="${top.id}"${off}>No</button>`;
 }
 
-// A gold line along the bottom of the buy question that drains smoothly over the window's 10 seconds. It's timed from when
-// the window opened (a negative delay), so the bar being redrawn carries on where it was instead of starting over.
-function buyDrainHTML() {
+// The dark strip under the wide bar's buttons holds its words (the cost, who just bought, the round's contract). Once
+// buying opens it's the timer too: the seconds join the words and a solid gold fill drains across the strip over the
+// window's 10 seconds. The words over the gold are a dark copy cut to the fill's width, so every letter reads on
+// whichever color it's on. Timed from when the window opened (a negative delay), so a redraw carries on where it was.
+function buyStripHTML(say, timed) {
+  const words = (secs) => `<span class="say">${say}</span>${secs ? ` <span class="secs"><span data-countdown>${secondsLeft()}</span>s</span>` : ''}`;
+  if (!timed) return `<span class="buy-strip"><span class="strip-row">${words(false)}</span></span>`;
   const elapsed = Math.max(0, BUY_WINDOW_MS - (ui.windowDeadline - Date.now()));
-  return `<span class="buy-drain" aria-hidden="true"><span style="animation-duration:${BUY_WINDOW_MS}ms;animation-delay:-${Math.round(elapsed)}ms"></span></span>`;
+  const anim = `style="animation-duration:${BUY_WINDOW_MS}ms;animation-delay:-${Math.round(elapsed)}ms"`;
+  return `<span class="buy-strip"><span class="strip-row">${words(true)}</span><span class="strip-fill" ${anim}></span>`
+    + `<span class="strip-row strip-dark" aria-hidden="true" ${anim}>${words(true)}</span></span>`;
 }
 
 function buyBarHTML(v) {
@@ -1430,9 +1441,8 @@ function buyBarHTML(v) {
       return `<div class="buy-bar"><span>${timed(`You said <b>${w.mine ? 'Buy' : 'No'}</b>. ${wait}`)}</span>
         <span class="buy-actions"><button class="ghost" data-act="buyAnswer" data-buy="clear">Change</button></span></div>`;
     }
-    // the seconds join the question and the line drains along the bottom, so Buy / No stay where the early question had them
-    return `<div class="buy-bar ask wide"><span>${timed(`Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}`)}</span>
-      <span class="buy-actions">${buyButtons(top)}</span>${buyDrainHTML()}</div>`;
+    // the seconds join the strip and the gold drains across it, so Buy / No stay where the early question had them
+    return `<div class="buy-bar ask wide"><span class="buy-actions">${buyButtons(top)}</span>${buyStripHTML(buyCostText(v), true)}</div>`;
   }
   // the current player is still choosing: you can already say whether you'd buy it
   if (v.earlyBuy) {
@@ -1443,14 +1453,13 @@ function buyBarHTML(v) {
         You can change it until they decide.</span>
         <span class="buy-actions"><button class="ghost" data-act="buyAnswer" data-buy="clear">Change</button></span></div>`;
     }
-    // worded just like the question once buying opens (with the same room for its timer line), so it reads as one
-    // question whose timer turns up later, not a second question
-    return `<div class="buy-bar ask wide"><span>Buy ${miniCards(esc(cardLabel(top)))}? ${buyCostText(v)}</span>
-      <span class="buy-actions">${buyButtons(top)}</span></div>`;
+    // just like the question once buying opens (the same strip, still without its timer), so it reads as one question
+    // whose timer turns up later, not a second question
+    return `<div class="buy-bar ask wide"><span class="buy-actions">${buyButtons(top)}</span>${buyStripHTML(buyCostText(v), false)}</div>`;
   }
   if (v.turn === me && v.mustDecide) {
-    return `<div class="buy-bar ask wide"><span>Take ${miniCards(esc(cardLabel(top)))} or let others buy it?</span>
-      <span class="buy-actions"><button class="primary" data-act="allowBuy">Allow buy</button><button class="ghost" data-act="drawDiscard">Take it</button></span></div>`;
+    return `<div class="buy-bar ask wide"><span class="buy-actions"><button class="primary" data-act="allowBuy">Allow buy</button><button class="ghost" data-act="drawDiscard">Take it</button></span>
+      ${buyStripHTML(`Take ${miniCards(esc(cardLabel(top)))} or let others buy it?`, false)}</div>`;
   }
   return '';
 }

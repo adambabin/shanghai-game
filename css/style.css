@@ -1950,66 +1950,77 @@ button.awards-card {
 .buy-bar .buy-actions button {
   padding: 8px 16px;
 }
-/* Buy / No (and Allow buy / Take it, I'm ready / Start now) share the bar's whole width, so they're easy to hit. The bottom keeps room for the
-   timer's line whether or not it's showing, so the buttons don't move when buying opens. */
-.buy-bar.wide {
+/* Buy / No (and Allow buy / Take it, I'm ready / Start now) share the bar's whole width, so they're easy to hit. The words
+   go in a slim dark strip under them, which is the timer too once buying opens. It's there in every state, so the bar
+   keeps its height and the buttons don't move when buying opens. */
+.activity .buy-bar.wide {
   position: relative;
   overflow: hidden;
-  padding-bottom: 12px;
+  padding: 6px 6px 0;
+  gap: 0;
+  min-height: 0;
 }
 .buy-bar.wide .buy-actions {
   flex: 1 0 100%;
 }
 .buy-bar.wide .buy-actions button {
   flex: 1;
-  padding: 12px 0;
+  padding: 9px 0;
   font-size: 17px;
 }
-/* Buy has a small dark coin with a $ before it, like a price tag: buying costs cards */
-.buy-bar.wide .buy-actions button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+/* the strip: light words on dark; once buying opens a gold fill drains from the right, and a dark copy of the words cut
+   to the fill's width sits over it, so every letter reads whichever color is under it */
+.buy-strip {
+  flex: 1 0 100%;
+  position: relative;
+  margin: 5px -6px 0;
+  background: rgba(0, 0, 0, 0.38);
+  font-size: 12.5px;
+  line-height: 17px;
 }
-.buy-coin {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 99px;
-  background: #3a2a00;
-  color: var(--gold);
+.strip-row {
+  display: block;
+  padding: 2px 8px;
+  text-wrap: balance;
+}
+/* a card in the strip or a button overhangs its line a little rather than making it taller, so the bar is the same
+   height whatever it says */
+.buy-strip .mini-card,
+.buy-bar.wide .buy-actions .mini-card {
+  line-height: 1.1;
+  margin-block: -3px;
+}
+.buy-strip .secs {
   font-weight: 800;
-  font-size: 15px;
+  color: var(--gold);
+  white-space: nowrap;
+  margin-left: 2px;
 }
-.buy-drain {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 4px;
-  background: rgba(242, 193, 78, 0.18);
-}
-.buy-drain > span {
+.strip-fill,
+.strip-dark {
   position: absolute;
   inset: 0;
-  background: var(--gold);
-  border-radius: 0 2px 2px 0;
-  transform-origin: left;
-  animation: buy-drain linear forwards;
+  animation: strip-drain linear forwards;
 }
-@keyframes buy-drain {
+.strip-fill {
+  background: var(--gold);
+}
+.strip-dark,
+.activity .buy-strip .strip-dark b,
+.buy-strip .strip-dark .secs {
+  color: #3a2a00;
+}
+@keyframes strip-drain {
   from {
-    transform: scaleX(1);
+    clip-path: inset(0 0 0 0);
   }
   to {
-    transform: scaleX(0);
+    clip-path: inset(0 100% 0 0);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .buy-drain {
+  .strip-fill,
+  .strip-dark {
     display: none;
   }
 }
@@ -2024,9 +2035,7 @@ button.awards-card {
   height: 24px;
   font-size: 13px;
 }
-/* in the buy question it overhangs its line a little rather than making it taller, so the bar is the same height
-   before and after buying opens */
-.buy-bar.wide > span:not(.buy-actions) .countdown {
+.countdown {
   margin-block: -4px;
 }
 .countdown {
