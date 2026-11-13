@@ -1539,14 +1539,15 @@ function handHTML(v, isWild) {
   const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
   const cards = ui.order.filter((id) => !stagedIds.has(id)).map((id) => v.hand.find((c) => c.id === id)).filter(Boolean);
   const n = ui.selected.size;
-  // the row under the hand: Clear on the left (with cards selected), Hide in the middle, Undo and Sort on the right
-  const right = [];
-  if (v.canUndo) right.push('<button class="ghost" data-act="undo">Undo</button>');
-  right.push(`<button class="ghost" data-act="sort" data-how="${ui.sortMode === 'rank' ? 'suit' : 'rank'}">${ui.sortMode === 'rank' ? 'Sort by suit' : 'Sort by rank'}</button>`);
+  // the row under the hand: Clear (with cards selected) and Undo on the left, Hide in the middle, Sort on the right.
+  // Undo shares the left with Clear because beside Sort there isn't room on a phone for both on one line.
+  const left = [];
+  if (n) left.push('<button class="ghost" data-act="clearSel">Clear</button>');
+  if (v.canUndo) left.push('<button class="ghost" data-act="undo">Undo</button>');
   const btns = [
-    `<div class="hb-left">${n ? '<button class="ghost" data-act="clearSel">Clear</button>' : ''}</div>`,
+    `<div class="hb-left">${left.join('')}</div>`,
     `<button class="ghost hide-hand" data-act="toggleDock" title="Hide my cards" aria-label="Hide my cards"><svg viewBox="0 0 24 14" aria-hidden="true"><path d="M3 3l9 8 9-8"/></svg>Hide</button>`,
-    `<div class="hb-right">${right.join('')}</div>`,
+    `<div class="hb-right"><button class="ghost" data-act="sort" data-how="${ui.sortMode === 'rank' ? 'suit' : 'rank'}">${ui.sortMode === 'rank' ? 'Sort by suit' : 'Sort by rank'}</button></div>`,
   ];
   return `<div class="hand-area"><div class="hand" id="hand">${cards
     .map((c) =>
