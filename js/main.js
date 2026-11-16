@@ -1563,6 +1563,11 @@ function handHTML(v, isWild) {
 
 // The bottom area (status, staged groups, hand) can be tucked away to see more of the table, like putting
 // your cards face down. It opens again on your turn.
+// looking at the table after the game with your hand lowered: Back to the scores and Show my cards share one row
+function peekLowered(v) {
+  return v.phase === 'gameOver' && ui.peekTable && ui.dockCollapsed && v.you != null && v.hand.length > 0;
+}
+
 function dockHTML(v, isWild) {
   const me = v.you;
   if (me == null) return ui.snap.tour && ui.snap.seat != null ? watchDockHTML(ui.snap) : '';
@@ -1571,6 +1576,8 @@ function dockHTML(v, isWild) {
   // sitting out a tiebreaker: no cards to show, just say so
   if (v.players[me].out) return `<div class="dock"><p class="muted sitting-out">You're sitting out the tiebreaker. Lowest score in it wins.</p></div>`;
   const body = stagingHTML(v, isWild) + handHTML(v, isWild);
+  if (peekLowered(v))
+    return `<div class="dock collapsed"><div class="peek-row"><button class="primary" data-act="peekTable" data-on="">Back to scores</button><button class="dock-toggle" data-act="toggleDock">Show my cards (${v.hand.length})</button></div></div>`;
   if (ui.dockCollapsed)
     return `<div class="dock collapsed"><button class="dock-toggle" data-act="toggleDock">Show my cards (${v.hand.length}) ▴</button></div>`;
   // before anything is staged, room above the hand for the New set / New run bar (placeSpots), kept whether or not it
@@ -1639,8 +1646,9 @@ function modalHTML(snap) {
     if (!over) return t.phase === 'between' ? nextTablesModal(snap) : tableDoneModal(snap);
   } else if (v.phase === 'roundOver' || v.phase === 'gameOver' || v.phase === 'tieVote') {
     // the end of the game stepped aside to show the table: the way back floats just above the hand's buttons (placePeekBar)
+    // (with the hand lowered it sits beside Show my cards instead, in dockHTML)
     if (v.phase === 'gameOver' && ui.peekTable && !over)
-      return '<div class="peek-bar"><button class="primary" data-act="peekTable" data-on="">Back to the scores</button></div>';
+      return peekLowered(v) ? '' : '<div class="peek-bar"><button class="primary" data-act="peekTable" data-on="">Back to the scores</button></div>';
     if (!over) return v.phase === 'tieVote' ? tieModal(snap) : resultModal(snap);
   }
   return modalSwitch(snap);
