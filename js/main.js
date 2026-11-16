@@ -1557,7 +1557,7 @@ function handHTML(v, isWild) {
         attrs: `data-card="${c.id}"`,
       })
     )
-    .join('')}</div><div class="hand-buttons">${btns.join('')}</div></div>`;
+    .join('')}</div>${v.hand.length ? `<div class="hand-buttons">${btns.join('')}</div>` : ''}</div>`;
 }
 
 // The bottom area (status, staged groups, hand) can be tucked away to see more of the table, like putting
@@ -1614,7 +1614,11 @@ function gameHTML(snap) {
           : ''
       }
       ${snap.lobby.code && !snap.tour ? `<span class="muted" style="font-size:12px">${snap.lobby.code}</span>` : ''}
-      <button class="icon-btn" data-act="modal" data-m="scores">Scores</button>
+      ${
+        v.phase === 'gameOver' && ui.peekTable
+          ? '<button class="icon-btn back-scores" data-act="peekTable" data-on="">Back to scores</button>'
+          : '<button class="icon-btn" data-act="modal" data-m="scores">Scores</button>'
+      }
       <button class="icon-btn" data-act="modal" data-m="menu">☰</button>
     </div>
     ${snap.tour && snap.tour.watching != null ? `<div class="watch-bar"><span><b>Watching table ${snap.tour.watching + 1}</b>${contractText(v.round)}</span><button class="small" data-act="watch" data-table="">Back to my table</button></div>` : ''}
@@ -1637,8 +1641,8 @@ function modalHTML(snap) {
   if (t && (t.phase === 'playing' || t.phase === 'between') && v.phase === 'roundOver') {
     if (!over) return t.phase === 'between' ? nextTablesModal(snap) : tableDoneModal(snap);
   } else if (v.phase === 'roundOver' || v.phase === 'gameOver' || v.phase === 'tieVote') {
-    if (v.phase === 'gameOver' && ui.peekTable && !over)
-      return '<div class="peek-bar"><button class="primary" data-act="peekTable" data-on="">Back to the scores</button></div>';
+    // the end of the game stepped aside to show the table: the top bar's Scores button turns into the way back
+    if (v.phase === 'gameOver' && ui.peekTable && !over) return '';
     if (!over) return v.phase === 'tieVote' ? tieModal(snap) : resultModal(snap);
   }
   return modalSwitch(snap);
