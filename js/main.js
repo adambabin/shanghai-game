@@ -740,7 +740,7 @@ function fitHomeGames() {
 }
 
 function homeHTML() {
-  return `<div class="center-screen"><div class="panel">
+  return `<div class="center-screen home"><div class="panel">
     <div class="title">Shanghai</div>
     <div class="title-suits">♠<span class="r">♥</span>♣<span class="r">♦</span></div>
     <div class="subtitle">Family rummy, house rules</div>
