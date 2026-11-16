@@ -35,7 +35,14 @@ import {
   settleDraw,
 } from './tournament.js';
 
-const BOT_NAMES = ['Lucky Lou', 'Card Shark', 'Rummy Rita', 'Jolly Joker', 'Shuffles', 'Ace', 'Sir Deals-a-Lot', 'Queenie'];
+// computers' names, in the order they're handed out: enough for a full Tables game (31 computers), each at most 15
+// characters so a player tile never cuts it short
+const BOT_NAMES = [
+  'Lucky Lou', 'Card Shark', 'Rummy Rita', 'Jolly Joker', 'Shuffling Sam', 'Ace Annie', 'Sir Deals-a-Lot', 'Queenie Quinn',
+  'Shanghai Shelly', 'Wild Wanda', 'Diamond Dot', 'Hearty Hank', 'Spades Sophie', 'Clubby Clyde', 'Bluffing Bob', 'Melding Mel',
+  'Buying Betty', 'Lay-Down Larry', 'Running Ruby', 'Sneaky Sid', 'Pocket Pete', 'Royal Rosie', 'King Kenny', 'Gin Gina',
+  'Tricky Trudy', 'Pairs Penny', 'Discard Doug', 'Merry Maggie', 'Happy Hal', 'Cheeky Charlie', 'Dapper Dave',
+];
 // each game you host (or play against the computer) is saved under its own key so several can be resumed
 const SAVE_PREFIX = 'shanghai.hostGame.';
 const OLD_SAVE_KEY = 'shanghai.hostGame'; // the single save slot older versions used
