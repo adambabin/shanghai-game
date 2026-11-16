@@ -1118,11 +1118,25 @@ html:has(.game) body {
 .result-sheet.low .sheet-handle {
   color: var(--ink);
 }
-/* the end of the game stepped aside to show the table: Scores in the top bar is the way back */
-.icon-btn.back-scores {
-  background: var(--gold);
-  color: #3a2a00;
-  font-weight: 700;
+/* the end of the game stepped aside to show the table: the way back floats over the lower part of the cards, just
+   above the hand's buttons (placePeekBar), or at the bottom when there are none */
+.peek-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+.peek-bar.above {
+  padding-bottom: 8px;
+}
+.peek-bar button {
+  pointer-events: auto;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 /* Tables (BETA): another table is done, said under the tiles for a few seconds without moving anything */
 .note-anchor {

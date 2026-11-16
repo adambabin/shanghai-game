@@ -622,6 +622,7 @@ function render() {
   const lobbyBody = $app.querySelector('.lobby-body');
   if (lobbyBody && lobbyTop != null) lobbyBody.scrollTop = lobbyTop;
   markLobbyEdges();
+  placePeekBar();
   placeChatPops();
   placeGuide();
 }
@@ -1614,11 +1615,7 @@ function gameHTML(snap) {
           : ''
       }
       ${snap.lobby.code && !snap.tour ? `<span class="muted" style="font-size:12px">${snap.lobby.code}</span>` : ''}
-      ${
-        v.phase === 'gameOver' && ui.peekTable
-          ? '<button class="icon-btn back-scores" data-act="peekTable" data-on="">Back to scores</button>'
-          : '<button class="icon-btn" data-act="modal" data-m="scores">Scores</button>'
-      }
+      <button class="icon-btn" data-act="modal" data-m="scores">Scores</button>
       <button class="icon-btn" data-act="modal" data-m="menu">☰</button>
     </div>
     ${snap.tour && snap.tour.watching != null ? `<div class="watch-bar"><span><b>Watching table ${snap.tour.watching + 1}</b>${contractText(v.round)}</span><button class="small" data-act="watch" data-table="">Back to my table</button></div>` : ''}
@@ -1641,8 +1638,9 @@ function modalHTML(snap) {
   if (t && (t.phase === 'playing' || t.phase === 'between') && v.phase === 'roundOver') {
     if (!over) return t.phase === 'between' ? nextTablesModal(snap) : tableDoneModal(snap);
   } else if (v.phase === 'roundOver' || v.phase === 'gameOver' || v.phase === 'tieVote') {
-    // the end of the game stepped aside to show the table: the top bar's Scores button turns into the way back
-    if (v.phase === 'gameOver' && ui.peekTable && !over) return '';
+    // the end of the game stepped aside to show the table: the way back floats just above the hand's buttons (placePeekBar)
+    if (v.phase === 'gameOver' && ui.peekTable && !over)
+      return '<div class="peek-bar"><button class="primary" data-act="peekTable" data-on="">Back to the scores</button></div>';
     if (!over) return v.phase === 'tieVote' ? tieModal(snap) : resultModal(snap);
   }
   return modalSwitch(snap);
@@ -2923,6 +2921,17 @@ const chatColor = (seat) => CHAT_COLORS[seat % CHAT_COLORS.length];
 
 // Pop-ups under the sender's tile. Kept as the same elements from render to render (so they don't restart their
 // animation), only moved. A tile scrolled out of the row puts its pop-up at that edge, with the name.
+// Looking at the table after the game: Back to the scores sits just above the row under the hand (Hide / Sort), or
+// above Show my cards once it's lowered, so it covers only the lower part of the cards and never a button. With no
+// cards left there's no row, and it sits at the bottom.
+function placePeekBar() {
+  const bar = document.querySelector('.peek-bar');
+  if (!bar) return;
+  const under = $app.querySelector('.hand-buttons') || $app.querySelector('.dock-toggle');
+  bar.style.bottom = under ? `${Math.max(0, innerHeight - under.getBoundingClientRect().top)}px` : '';
+  bar.classList.toggle('above', !!under);
+}
+
 function placeChatPops() {
   let layer = document.getElementById('chat-pops');
   const now = Date.now();
@@ -5190,6 +5199,7 @@ window.addEventListener('resize', () => {
   markTableOverflow();
   fitHomeGames();
   placeTapSpots();
+  placePeekBar();
   placeChatPops();
   placeGuide();
   unscrollGame();
