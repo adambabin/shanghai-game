@@ -722,17 +722,17 @@ function allGamesHTML() {
   </div></div>`;
 }
 
-// Hide games from the end of the home list until the room code, How to play and Settings fit on screen.
+// Hide games from the end of the home list until the whole card fits on screen, so the home screen never scrolls.
 // Your latest game always stays.
 function fitHomeGames() {
+  const screen = $app.querySelector('.center-screen.home');
   const list = $app.querySelector('.your-games');
   const viewAll = $app.querySelector('.view-all');
-  const links = $app.querySelector('.home-links');
-  if (!list || !viewAll || !links) return;
+  if (!screen || !list || !viewAll) return;
   const rows = [...list.children];
   rows.forEach((r) => (r.hidden = false));
   viewAll.hidden = true;
-  const fits = () => links.getBoundingClientRect().bottom <= document.documentElement.clientHeight - 16;
+  const fits = () => screen.scrollHeight <= screen.clientHeight;
   if (fits()) return;
   viewAll.hidden = false;
   for (let n = rows.length - 1; n >= 1 && !fits(); n--) rows[n].hidden = true;

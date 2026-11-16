@@ -169,11 +169,18 @@ h3 {
   gap: 14px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
 }
-/* the home screen's card fills the screen, with How to play · Settings · Feedback at its bottom; a long list of your
-   games just pushes them down (fitHomeGames keeps them on screen) */
+/* the home screen's card fills the screen, with How to play · Settings · Feedback at its bottom. The page stays put:
+   fitHomeGames trims your games until the card fits, and only a card that still can't fit (a small phone) scrolls,
+   inside the screen */
+html:has(.center-screen.home),
+html:has(.center-screen.home) body {
+  overflow: hidden;
+}
 .center-screen.home {
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow-y: auto;
   align-items: stretch;
   padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
 }
