@@ -764,7 +764,7 @@ function allGamesHTML() {
     ui.allGames = false;
     return homeHTML();
   }
-  return `<div class="center-screen"><div class="panel">
+  return `<div class="center-screen home"><div class="panel">
     <div class="panel-head"><button class="ghost small" data-act="homeBack">‹ Back</button><b>Your games</b></div>
     <div class="your-games">${rows.join('')}</div>
   </div></div>`;

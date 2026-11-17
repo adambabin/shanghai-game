@@ -169,12 +169,14 @@ h3 {
   gap: 14px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
 }
-/* the home screen's card fills the screen, with How to play · Settings · Feedback at its bottom. The page stays put:
-   fitHomeGames trims your games until the card fits, and only a card that still can't fit (a small phone) scrolls,
-   inside the screen */
+/* The home screen fills the screen in the lobby's dark green, from behind the iPhone's clock to the bottom, with
+   How to play · Settings · Feedback at its bottom. No card: one flat color, so the strip behind the clock (#top-edge)
+   matches it exactly. The page stays put: fitHomeGames trims your games until it all fits, and only what still can't
+   fit (a small phone) scrolls, inside the screen */
 html:has(.center-screen.home),
 html:has(.center-screen.home) body {
   overflow: hidden;
+  background: var(--felt-dark);
 }
 .center-screen.home {
   height: 100vh;
@@ -184,11 +186,16 @@ html:has(.center-screen.home) body {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  background-color: var(--felt-dark);
+  padding: calc(32px + var(--safe-top)) 18px calc(14px + env(safe-area-inset-bottom, 0px));
 }
-/* fills the screen, but never shorter than what's in it, so its own padding always shows */
+/* fills the screen, but never shorter than what's in it */
 .center-screen.home > .panel {
   flex: 1 0 auto;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
 }
 .center-screen.home .home-links {
   margin-top: auto;
@@ -663,7 +670,8 @@ html:has(.game) body {
       z-index: 45; /* over the game, under pop-ups (which dim it along with everything else) */
       background: var(--felt);
     }
-    body:has(.lobby-screen) #top-edge {
+    body:has(.lobby-screen) #top-edge,
+    body:has(.center-screen.home) #top-edge {
       background: var(--felt-dark);
     }
     .lobby-head {
