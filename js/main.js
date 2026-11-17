@@ -732,7 +732,10 @@ function fitHomeGames() {
   const rows = [...list.children];
   rows.forEach((r) => (r.hidden = false));
   viewAll.hidden = true;
-  const fits = () => screen.scrollHeight <= screen.clientHeight;
+  // the card's bottom edge, with its own padding, above the screen's bottom padding (and the iPhone's home bar)
+  const room = () => screen.getBoundingClientRect().bottom - parseFloat(getComputedStyle(screen).paddingBottom);
+  const card = screen.querySelector('.panel');
+  const fits = () => card.getBoundingClientRect().bottom <= room() + 0.5;
   if (fits()) return;
   viewAll.hidden = false;
   for (let n = rows.length - 1; n >= 1 && !fits(); n--) rows[n].hidden = true;

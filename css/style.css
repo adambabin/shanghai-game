@@ -181,8 +181,14 @@ html:has(.center-screen.home) body {
   height: 100dvh;
   min-height: 0;
   overflow-y: auto;
-  align-items: stretch;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
   padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+}
+/* fills the screen, but never shorter than what's in it, so its own padding always shows */
+.center-screen.home > .panel {
+  flex: 1 0 auto;
 }
 .center-screen.home .home-links {
   margin-top: auto;
