@@ -448,6 +448,7 @@ function syncHand(v) {
     const saved = savedHand(v.round);
     if (saved) {
       ui.sortMode = saved.sortMode || 'rank';
+      ui.sortBy = saved.sortBy || (ui.sortMode === 'suit' ? 'suit' : 'rank');
       const order = saved.order.filter((id) => idSet.has(id));
       ui.order = ui.sortMode === 'manual' ? order.concat(ids.filter((id) => !order.includes(id))) : sortIds(v.hand, ui.sortMode);
       ui.staged = v.you != null && v.players[v.you].laid ? [] : saved.staged.map((g) => ({ ...g, ids: g.ids.filter((id) => idSet.has(id)) })).filter((g) => g.ids.length);
@@ -467,6 +468,14 @@ function syncHand(v) {
     const order = ui.order.filter((id) => id !== added[0]);
     const before = order.filter((id) => !stagedIds.has(id))[ui.drawTo.index];
     order.splice(before == null ? order.length : order.indexOf(before), 0, added[0]);
+    ui.order = order;
+  }
+  // in a hand you've arranged yourself, every other new card goes beside the cards it belongs with (by the last sort)
+  const dropped = added.length === 1 && ui.drawTo && Date.now() < ui.drawTo.until;
+  if (added.length && !dropped && ui.sortMode === 'manual') {
+    const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
+    let order = ui.order.filter((id) => !added.includes(id));
+    for (const id of added) order = placeNewCard(order, id, v.hand, stagedIds);
     ui.order = order;
   }
   if (added.length) ui.drawTo = null;
@@ -518,7 +527,7 @@ function saveHand() {
   const key = handGameKey();
   const v = ui.snap && ui.snap.view;
   if (!key || !v || v.you == null || ui.handRound !== v.round) return;
-  const h = { round: v.round, order: ui.order, staged: ui.staged, sortMode: ui.sortMode };
+  const h = { round: v.round, order: ui.order, staged: ui.staged, sortMode: ui.sortMode, sortBy: ui.sortBy };
   const json = JSON.stringify(h);
   if (json === ui.savedHandJson) return;
   ui.savedHandJson = json;
@@ -527,6 +536,45 @@ function saveHand() {
   // only the most recent games
   const keep = Object.entries(hands).sort((a, b) => b[1].at - a[1].at).slice(0, HANDS_KEPT);
   store.set('hands', Object.fromEntries(keep));
+}
+
+// Where a new card goes in a hand you've arranged: right after the nearest card of its group below it (its number when
+// you last sorted by rank, its suit when by suit), else just before the nearest one above it, or between the two when
+// they sit side by side; with none of its group, the same among all your cards. A joker goes beside your jokers, else at
+// the right end. Low to high / high to low is followed.
+function placeNewCard(order, id, hand, stagedIds) {
+  const byId = new Map(hand.map((c) => [c.id, c]));
+  const card = byId.get(id);
+  const out = [...order];
+  if (!card) return out.concat(id);
+  if (card.r === 0) {
+    // beside the jokers you have, else at the right end
+    const jokers = out.filter((o) => byId.get(o) && byId.get(o).r === 0 && !stagedIds.has(o));
+    out.splice(jokers.length ? out.indexOf(jokers[jokers.length - 1]) + 1 : out.length, 0, id);
+    return out;
+  }
+  const how = ui.sortBy === 'suit' ? 'suit' : 'rank';
+  const suitOrder = { S: 0, H: 1, C: 2, D: 3 };
+  const rank = (c) => (c.r === 1 ? 14 : c.r) * (ui.sortDesc ? -1 : 1);
+  const key = (c) => (how === 'rank' ? rank(c) * 10 + suitOrder[c.s] : suitOrder[c.s] * 100 + rank(c));
+  const group = (c) => (how === 'rank' ? c.r : c.s);
+  const others = out.filter((o) => !stagedIds.has(o)).map((o) => byId.get(o)).filter((c) => c && c.r !== 0);
+  const same = others.filter((c) => group(c) === group(card));
+  const list = same.length ? same : others;
+  const below = list.filter((c) => key(c) <= key(card)).sort((a, b) => key(b) - key(a))[0];
+  const above = list.filter((c) => key(c) > key(card)).sort((a, b) => key(a) - key(b))[0];
+  if (below || above) {
+    const ib = below ? out.indexOf(below.id) : -1;
+    const ia = above ? out.indexOf(above.id) : -1;
+    // its neighbours side by side (either way round, so a hand laid out high to low works too): between them
+    const at = below && above && Math.abs(ib - ia) === 1 ? Math.max(ib, ia) : below ? ib + 1 : ia;
+    out.splice(at, 0, id);
+    return out;
+  }
+  // nothing to sit beside: before any jokers at the end
+  const firstJoker = out.findIndex((o) => byId.get(o) && byId.get(o).r === 0 && !stagedIds.has(o));
+  out.splice(firstJoker < 0 ? out.length : firstJoker, 0, id);
+  return out;
 }
 
 function sortIds(hand, how) {
@@ -5139,6 +5187,7 @@ function onClick(e) {
     case 'sort': {
       const stagedIds = new Set(ui.staged.flatMap((g) => g.ids));
       ui.sortMode = t.dataset.how;
+      ui.sortBy = t.dataset.how;
       ui.order = sortIds(v.hand, t.dataset.how).sort((a, b) => Number(stagedIds.has(a)) - Number(stagedIds.has(b)));
       return render();
     }
