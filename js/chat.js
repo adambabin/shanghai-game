@@ -41,6 +41,14 @@ export function oneEmoji(text) {
   return m ? m[0] : '';
 }
 
+// Reactions to a message (press and hold it): these six, or any one emoji from the phone's keyboard
+export const REACT_EMOJI = ['❤️', '👍', '👎', '😂', '😮', '😢'];
+// a reaction as sent: exactly one emoji, or '' to take yours back; null for anything else
+export function cleanReact(e) {
+  if (e === '') return '';
+  return typeof e === 'string' && e.length <= 32 && oneEmoji(e) === e ? e : null;
+}
+
 // a saying of your own: cleaned like a chat message, then cut to SAYING_MAX characters
 export function cleanSaying(text) {
   return Array.from(cleanChat(text)).slice(0, SAYING_MAX).join('').trim();

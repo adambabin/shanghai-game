@@ -14,7 +14,7 @@ globalThis.localStorage = {
 };
 
 const { cleanChat, isEmojiOnly, ChatLimit, CHAT_MAX, CHAT_KEEP, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, oneEmoji, cleanSaying,
-  quickEmoji, quickSayings } = await import('../js/chat.js');
+  quickEmoji, quickSayings, cleanReact, REACT_EMOJI } = await import('../js/chat.js');
 const { HostSession } = await import('../js/host.js');
 
 const cp = (...codes) => String.fromCodePoint(...codes);
@@ -163,4 +163,49 @@ test('the game snapshots sent after every move leave the chat out', () => {
   h.sendChat('secret plans');
   assert.ok(!JSON.stringify(h.snapshot(0)).includes('secret plans'));
   h.close();
+});
+
+test('a reaction is one emoji, or nothing to take it back', () => {
+  for (const e of [...REACT_EMOJI, '👍🏽', '🃏']) assert.equal(cleanReact(e), e);
+  assert.equal(cleanReact(''), '');
+  for (const e of ['👍👍', 'hi', ' 👍', '<b>', null, 3, { e: '👍' }]) assert.equal(cleanReact(e), null, String(e));
+});
+
+test('reactions: one each, from the seat they came in on, sent to whoever sees the message and kept with the game', () => {
+  data.clear();
+  const h = soloGame();
+  h.reactLimit.allow = () => true;
+  const sent = [];
+  h.room = { send: (connId, msg) => sent.push([connId, msg]), close() {} };
+  h.lobby.seats.push({ name: 'Bob', clientId: 'bob', connected: true });
+  h.conns.set('c1', 3);
+  assert.equal(h.sendReact(0, '❤️').ok, false, 'not before the game starts');
+  h.act(0, { type: 'start' });
+  h.sendChat('hello');
+  const before = JSON.stringify(h.game);
+  const heard = [];
+  h.subscribeChat((m) => heard.push(m));
+  assert.ok(h.sendReact(0, '❤️').ok);
+  h.onMessage('c1', { t: 'react', id: 0, e: '😂', seat: 0, name: 'Ann' });
+  assert.deepEqual(h.chat[0].reacts, [{ seat: 0, name: 'Ann', e: '❤️' }, { seat: 3, name: 'Bob', e: '😂' }]);
+  assert.equal(JSON.stringify(h.game), before);
+  assert.deepEqual(heard, [null, null], 'the host hears of it, quietly');
+  assert.ok(sent.some(([c, msg]) => c === 'c1' && msg.t === 'react' && msg.id === 0 && msg.reacts.length === 2));
+  // a new one takes the place of yours, and '' takes it back
+  h.onMessage('c1', { t: 'react', id: 0, e: '👍' });
+  assert.deepEqual(h.chat[0].reacts.map((r) => r.e), ['❤️', '👍']);
+  h.sendReact(0, '');
+  h.onMessage('c1', { t: 'react', id: 0, e: '' });
+  assert.equal(h.chat[0].reacts, undefined);
+  // only emoji, only messages that are there, never computers or strangers
+  sent.length = 0;
+  h.onMessage('c1', { t: 'react', id: 0, e: '<img src=x>' });
+  h.onMessage('c1', { t: 'react', id: 99, e: '👍' });
+  assert.deepEqual(sent.map(([, m]) => m.t), ['err', 'err']);
+  assert.equal(h.react(1, 0, '👍').ok, false);
+  h.onMessage('stranger', { t: 'react', id: 0, e: '👍' });
+  assert.equal(h.chat[0].reacts, undefined);
+  h.sendReact(0, '🃏');
+  h.close();
+  assert.deepEqual(HostSession.saved(h.gameId).chat[0].reacts, [{ seat: 0, name: 'Ann', e: '🃏' }]);
 });
