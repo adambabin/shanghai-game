@@ -2560,8 +2560,11 @@ function syncChatSheet() {
   // Tables (BETA): the first time there are tabs, what each one is (the quick reactions line waits for another time)
   const tabsTip = !store.get('tipsOff', false) && chatTabs() && !seen.includes('chatTabs');
   const tip = !tabsTip && !store.get('tipsOff', false) && !seen.includes('quickChat') && !chatAway(ui.snap);
-  if (tip || tabsTip) {
-    const key = tabsTip ? 'chatTabs' : 'quickChat';
+  // and once there's a message from someone else to try it on, that you can press and hold one to react
+  const reactTip = !tip && !tabsTip && !store.get('tipsOff', false) && !seen.includes('reactChat') && !chatAway(ui.snap) &&
+    chatList().some((m) => m.seat !== mySeat());
+  if (tip || tabsTip || reactTip) {
+    const key = tabsTip ? 'chatTabs' : tip ? 'quickChat' : 'reactChat';
     store.set('tipsSeen', [...seen, key]);
     stats.track('tip', { tip: key });
   }
@@ -2573,6 +2576,7 @@ function syncChatSheet() {
       <div class="chat-turn"></div>
       <div class="chat-msgs"></div>
       ${tip ? `<p class="chat-tip">You can change these quick reactions in Settings, or tap <span class="tip-icon">${GEAR_ICON}</span> up top.</p>` : ''}
+      ${reactTip ? '<p class="chat-tip">Press and hold a message to react to it.</p>' : ''}
       <p class="chat-away"></p>
       <div class="chat-quick">${quick}</div>
       <form class="chat-compose"><input data-field="chatText" maxlength="${CHAT_MAX}" placeholder="Say something…" autocomplete="off" enterkeyhint="send"
