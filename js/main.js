@@ -1373,6 +1373,17 @@ function centerHTML(v, isWild) {
 
 // One place for everything going on: what you need to do (a prompt), else your turn, else something that just
 // happened (shown for a few seconds), else whose turn it is.
+// When a buy choice of yours (Buy / No, Change, Take it, Allow buy) goes away by itself (someone bought the card, the
+// player took it), the bar that takes its place opens the game log when tapped. A tap meant for the buttons that just
+// went would open it, so for a moment after they go the box ignores taps (see onClick).
+const LOG_HOLD_MS = 1000;
+function noteBuyChoice(main) {
+  const choice = /data-act="(buyAnswer|drawDiscard|allowBuy)"/.test(main);
+  if (!choice && ui.buyChoice) ui.logHoldUntil = Date.now() + LOG_HOLD_MS;
+  ui.buyChoice = choice;
+}
+const logHeld = () => Date.now() < (ui.logHoldUntil || 0);
+
 function activityHTML(v) {
   const me = v.you;
   const mine = me != null && v.turn === me && (v.phase === 'draw' || v.phase === 'play');
@@ -1381,6 +1392,7 @@ function activityHTML(v) {
   const showFlash = f && (!mine || f.bad || f.loud);
   // prompts keep their own buttons; any other message opens the game log when tapped
   let main = buyBarHTML(v);
+  noteBuyChoice(main);
   const log = 'data-act="modal" data-m="log" title="Tap for the game log"';
   const out = wentOutSeat(v);
   if (out != null && !main) {
@@ -4983,6 +4995,8 @@ function onClick(e) {
       } else toast('The tour will start in your next game.');
       return render();
     case 'modal':
+      // a tap meant for buy buttons that just went away
+      if (t.dataset.m === 'log' && t.closest('.activity') && logHeld()) return;
       ui.modal = t.dataset.m;
       if (ui.modal === 'feedback') ui.fbPhotos = [];
       return render();
