@@ -2382,8 +2382,10 @@ body:has(.spots-float.slim.tap) .center .pile > span {
   color: var(--ink);
   border-radius: 99px;
 }
+/* "Show my cards" sits as low as the Hide / Sort row it replaces (just above the iPhone's home bar space, or 10px),
+   close under the deck row, so the table gets that room */
 .dock.collapsed .dock-toggle {
-  margin: 8px 0 calc(12px + env(safe-area-inset-bottom));
+  margin: 0 0 max(10px, env(safe-area-inset-bottom));
   padding: 10px 20px;
   font-size: 15px;
   background: var(--gold);
