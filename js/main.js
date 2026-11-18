@@ -1376,7 +1376,7 @@ function centerHTML(v, isWild) {
 // When a buy choice of yours (Buy / No, Change, Take it, Allow buy) goes away by itself (someone bought the card, the
 // player took it), the bar that takes its place opens the game log when tapped. A tap meant for the buttons that just
 // went would open it, so for a moment after they go the box ignores taps (see onClick).
-const LOG_HOLD_MS = 1000;
+const LOG_HOLD_MS = 500;
 function noteBuyChoice(main) {
   const choice = /data-act="(buyAnswer|drawDiscard|allowBuy)"/.test(main);
   if (!choice && ui.buyChoice) ui.logHoldUntil = Date.now() + LOG_HOLD_MS;
