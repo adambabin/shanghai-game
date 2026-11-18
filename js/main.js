@@ -6,7 +6,7 @@ import { buildSet, buildRun, addCards, wildSlotFor, fitsAnyMeld, couldBeSet, cou
 import { browserTracker, plainError } from './telemetry.js';
 import { gameAwards, playerFacts } from './awards.js';
 import { MAX_TOUR_PLAYERS, tableRange, moveCount, movesFrom } from './tournament.js';
-import { CHAT_MAX, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, cleanChat, cleanSaying, isEmojiOnly, oneEmoji, quickEmoji,
+import { REACT_EMOJI, CHAT_MAX, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, cleanChat, cleanSaying, isEmojiOnly, oneEmoji, quickEmoji,
   quickSayings } from './chat.js';
 import { ROUNDS, roundCfg, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor, BOT_LEVELS, botLevelFor } from './rules.js';
 
@@ -2529,6 +2529,8 @@ function openChat(highlight = null) {
 }
 function closeChat() {
   ui.chatOpen = false;
+  ui.reactPick = null;
+  ui.chatWho = null;
   ui.chatNote = null;
   ui.chatHighlight = null;
   render();
@@ -2551,6 +2553,7 @@ function syncChatSheet() {
       // a half-typed message waits for the chat to open again
       ui.chatDraft = sheet.querySelector('[data-field="chatText"]').value;
       sheet.remove();
+      ui.reactPick = null;
     }
     if (!ui.modal) ui.chatOpen = false;
     return;
@@ -2569,8 +2572,11 @@ function syncChatSheet() {
   // Tables (BETA): the first time there are tabs, what each one is (the quick reactions line waits for another time)
   const tabsTip = !store.get('tipsOff', false) && chatTabs() && !seen.includes('chatTabs');
   const tip = !tabsTip && !store.get('tipsOff', false) && !seen.includes('quickChat') && !chatAway(ui.snap);
-  if (tip || tabsTip) {
-    const key = tabsTip ? 'chatTabs' : 'quickChat';
+  // and once there's a message from someone else to try it on, that you can press and hold one to react
+  const reactTip = !tip && !tabsTip && !store.get('tipsOff', false) && !seen.includes('reactChat') && !chatAway(ui.snap) &&
+    chatList().some((m) => m.seat !== mySeat());
+  if (tip || tabsTip || reactTip) {
+    const key = tabsTip ? 'chatTabs' : tip ? 'quickChat' : 'reactChat';
     store.set('tipsSeen', [...seen, key]);
     stats.track('tip', { tip: key });
   }
@@ -2582,6 +2588,7 @@ function syncChatSheet() {
       <div class="chat-turn"></div>
       <div class="chat-msgs"></div>
       ${tip ? `<p class="chat-tip">You can change these quick reactions in Settings, or tap <span class="tip-icon">${GEAR_ICON}</span> up top.</p>` : ''}
+      ${reactTip ? '<p class="chat-tip">Press and hold a message to react to it.</p>' : ''}
       <p class="chat-away"></p>
       <div class="chat-quick">${quick}</div>
       <form class="chat-compose"><input data-field="chatText" maxlength="${CHAT_MAX}" placeholder="Say something…" autocomplete="off" enterkeyhint="send"
@@ -2591,7 +2598,16 @@ function syncChatSheet() {
     const b = e.target.closest('[data-chat]');
     if (!b) return;
     if (b.dataset.chat === 'close') return closeChat();
+    if (b.dataset.chat === 'react') return sendReact(ui.reactPick, b.dataset.e, 'quick');
+    if (b.dataset.chat === 'reactAny') return reactAny();
+    if (b.dataset.chat === 'reactClose') return closeReactPick();
+    if (b.dataset.chat === 'who') {
+      ui.chatWho = ui.chatWho === Number(b.dataset.id) ? null : Number(b.dataset.id);
+      return fillChatSheet();
+    }
     if (b.dataset.chat === 'tab') {
+      closeReactPick();
+      ui.chatWho = null;
       ui.chatTab = b.dataset.tab;
       ui.chatNote = null;
       markChatSeen();
@@ -2641,6 +2657,7 @@ function syncChatSheet() {
   box.addEventListener('scroll', () => (atEnd = chatAtEnd(box)), { passive: true });
   if (window.ResizeObserver) new ResizeObserver(() => atEnd && (box.scrollTop = box.scrollHeight)).observe(box);
   swipeToClose(panel);
+  holdToReact(box);
 }
 
 // Tables (BETA): the Table and Everyone tabs, each with its count of new messages; what you type goes to the one you're on
@@ -2723,7 +2740,7 @@ function swipeToClose(panel) {
   panel.addEventListener('touchstart', (e) => {
     const t = e.target;
     const list = t.closest('.chat-msgs');
-    if (e.touches.length !== 1 || t.closest('.chat-quick, .chat-compose') || (list && list.scrollTop > 0)) return (start = null);
+    if (e.touches.length !== 1 || t.closest('.chat-quick, .chat-compose, .react-pick, .react-scrim') || (list && list.scrollTop > 0)) return (start = null);
     start = { y: e.touches[0].clientY, x: e.touches[0].clientX, list, dragging: false };
     last = [[e.timeStamp, start.y]];
   }, { passive: true });
@@ -2927,6 +2944,8 @@ function fillChatSheet(toEnd = false) {
     text.className = 't';
     text.textContent = m.text;
     row.append(text);
+    if (m.reacts && m.reacts.length) row.append(...reactsEls(m));
+    if (m.id === ui.reactPick) row.classList.add('picking');
     box.append(row);
   }
   if (note) {
@@ -2947,6 +2966,160 @@ function fillChatSheet(toEnd = false) {
     ui.chatHighlight = null;
   } else if (toEnd || atEnd || box.dataset.filled !== '1') chatToEnd(box);
   box.dataset.filled = '1';
+  if (ui.reactPick != null) {
+    if (!list.some((m) => m.id === ui.reactPick)) closeReactPick();
+    else placeReactPick();
+  }
+}
+
+// ---------- reactions ----------
+// Press and hold a message to react to it, like iMessage: six to pick from, or + for any emoji from the phone's keyboard.
+// One each: another takes the place of yours, and yours again takes it back. Quiet: it only shows on the message.
+
+// the little pill on the message's lower corner (each emoji once, with how many when it's more than one), and, once
+// tapped, who reacted with what
+function reactsEls(m) {
+  const me = mySeat();
+  const counts = new Map();
+  for (const r of m.reacts) counts.set(r.e, (counts.get(r.e) || 0) + 1);
+  const pill = document.createElement('button');
+  pill.className = `reacts ${m.reacts.some((r) => r.seat === me) ? 'mine' : ''}`;
+  pill.dataset.chat = 'who';
+  pill.dataset.id = m.id;
+  pill.setAttribute('aria-label', 'Who reacted');
+  for (const [e, n] of counts) {
+    const b = document.createElement('span');
+    b.textContent = e;
+    if (n > 1) {
+      const c = document.createElement('small');
+      c.textContent = n;
+      b.append(c);
+    }
+    pill.append(b);
+  }
+  if (ui.chatWho !== m.id) return [pill];
+  const who = document.createElement('p');
+  who.className = 'react-who';
+  who.textContent = m.reacts.map((r) => `${r.seat === me ? 'You' : r.name} ${r.e}`).join(' · ');
+  return [pill, who];
+}
+
+const HOLD_MS = 450;
+function holdToReact(box) {
+  let hold = null;
+  const stop = () => {
+    if (hold) clearTimeout(hold.timer);
+    hold = null;
+  };
+  box.addEventListener('pointerdown', (e) => {
+    const bubble = e.target.closest('.chat-msg > .t');
+    stop();
+    if (!bubble || e.button > 0 || chatAway(ui.snap)) return;
+    const id = Number(bubble.parentElement.dataset.id);
+    hold = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
+      hold = null;
+      if (navigator.vibrate) navigator.vibrate(10);
+      openReactPick(id);
+    }, HOLD_MS) };
+  });
+  // moving the finger (scrolling) or letting go early isn't a hold
+  box.addEventListener('pointermove', (e) => hold && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 8 && stop());
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) box.addEventListener(ev, stop);
+  box.addEventListener('scroll', stop, { passive: true });
+  // the phone's own long-press menu (copy, look up) would cover the reactions
+  box.addEventListener('contextmenu', (e) => e.target.closest('.chat-msg > .t') && e.preventDefault());
+}
+
+function openReactPick(id) {
+  const panel = document.querySelector('#chat-sheet .chat-panel');
+  if (!panel) return;
+  closeReactPick();
+  ui.reactPick = id;
+  const m = chatList().find((x) => x.id === id);
+  const mine = m && (m.reacts || []).find((r) => r.seat === mySeat());
+  const scrim = document.createElement('div');
+  scrim.className = 'react-scrim';
+  scrim.dataset.chat = 'reactClose';
+  const pick = document.createElement('div');
+  pick.className = 'react-pick';
+  pick.setAttribute('role', 'menu');
+  pick.setAttribute('aria-label', 'React');
+  pick.innerHTML = REACT_EMOJI.map((e) =>
+    `<button class="${mine && mine.e === e ? 'on' : ''}" data-chat="react" data-e="${esc(e)}" aria-label="React ${esc(e)}">${esc(e)}</button>`
+  ).join('') + `${mine && !REACT_EMOJI.includes(mine.e)
+    ? `<button class="on" data-chat="react" data-e="${esc(mine.e)}" aria-label="Take back ${esc(mine.e)}">${esc(mine.e)}</button>` : ''}
+    <button class="any" data-chat="reactAny" aria-label="Any emoji">+</button>`;
+  panel.append(scrim, pick);
+  const row = panel.querySelector(`.chat-msg[data-id="${id}"]`);
+  if (row) row.classList.add('picking');
+  placeReactPick();
+}
+
+function closeReactPick() {
+  ui.reactPick = null;
+  const panel = document.querySelector('#chat-sheet .chat-panel');
+  if (!panel) return;
+  panel.querySelectorAll('.react-pick, .react-scrim').forEach((el) => el.remove());
+  panel.querySelectorAll('.chat-msg.picking').forEach((el) => el.classList.remove('picking'));
+}
+
+// just above the message, on its side (below it when there's no room above); for any emoji, at the top of the
+// messages, where the keyboard coming up can't push it out of sight
+function placeReactPick() {
+  const panel = document.querySelector('#chat-sheet .chat-panel');
+  const pick = panel && panel.querySelector('.react-pick');
+  if (!pick) return;
+  const box = panel.querySelector('.chat-msgs');
+  const p = panel.getBoundingClientRect();
+  const top = box.getBoundingClientRect().top - p.top;
+  const w = pick.offsetWidth;
+  const h = pick.offsetHeight;
+  const bubble = !pick.classList.contains('typing') && panel.querySelector(`.chat-msg[data-id="${ui.reactPick}"] > .t`);
+  let x, y;
+  if (bubble) {
+    const b = bubble.getBoundingClientRect();
+    const mine = bubble.parentElement.classList.contains('me');
+    x = mine ? b.right - p.left - w : b.left - p.left;
+    y = b.top - p.top - h - 6;
+    if (y < top) y = b.bottom - p.top + 6;
+  } else {
+    x = (p.width - w) / 2;
+    y = top + 4;
+  }
+  pick.style.left = `${Math.max(8, Math.min(x, p.width - w - 8))}px`;
+  pick.style.top = `${Math.max(top, Math.min(y, p.height - h - 8))}px`;
+}
+
+// + : the phone's emoji keyboard, in a little box in the picker (focused inside the tap, so the keyboard comes up)
+function reactAny() {
+  const pick = document.querySelector('#chat-sheet .react-pick');
+  if (!pick) return;
+  pick.classList.add('typing');
+  pick.innerHTML = `<input class="react-any" data-field="reactAny" autocomplete="off" autocorrect="off" spellcheck="false"
+    placeholder="Pick any emoji" aria-label="Any emoji"><span class="react-msg" role="status"></span>`;
+  const input = pick.querySelector('input');
+  input.addEventListener('input', () => {
+    const e = oneEmoji(input.value);
+    if (e) return sendReact(ui.reactPick, e, 'any');
+    if (input.value.trim()) {
+      input.value = '';
+      pick.querySelector('.react-msg').textContent = 'Only an emoji fits here.';
+    }
+  });
+  input.focus();
+  placeReactPick();
+}
+
+function sendReact(id, e, kind) {
+  const m = id != null && chatList().find((x) => x.id === id);
+  if (document.activeElement && document.activeElement.dataset.field === 'reactAny') document.activeElement.blur();
+  closeReactPick();
+  if (!m || !ui.session) return;
+  const mine = (m.reacts || []).find((r) => r.seat === mySeat());
+  // the one you'd already picked takes it back
+  const res = ui.session.sendReact(id, mine && mine.e === e ? '' : e);
+  if (!res.ok) return chatRefused(res.error);
+  stats.track('chat_react', { kind: mine && mine.e === e ? 'undo' : kind, role: statsRole(ui.snap) });
 }
 
 // Tables (BETA): a small tag after the name: the table someone's at (in Everyone), or that they're watching (in Table)
@@ -5236,6 +5409,7 @@ function onChange(e) {
 
 function onKey(e) {
   if (e.key === 'Enter' && e.target.dataset.field === 'joinCode') startJoin();
+  if (e.key === 'Escape' && ui.chatOpen && ui.reactPick != null) return closeReactPick();
   if (e.key === 'Escape' && ui.chatOpen) return closeChat();
   if (e.key === 'Escape' && ui.modal) {
     ui.modal = null;

@@ -17,7 +17,7 @@ import {
 import { chooseDraw, choosePlay, wantsToBuy, seesShanghai, shanghaiReaction } from './bot.js';
 import { DEFAULT_OPTIONS, MAX_PLAYERS, isLastRound } from './rules.js';
 import { openRoom, randomCode } from './net.js';
-import { cleanChat, ChatLimit, CHAT_KEEP, CHAT_MAX } from './chat.js';
+import { cleanChat, cleanReact, ChatLimit, CHAT_KEEP, CHAT_MAX } from './chat.js';
 import {
   MAX_TOUR_PLAYERS,
   MIN_TABLE,
@@ -65,6 +65,7 @@ export class HostSession {
     this.touched = new Set(); // games changed since the computers were last scheduled (none: all of them)
     this.chatListeners = new Set();
     this.chatLimit = new ChatLimit();
+    this.reactLimit = new ChatLimit();
     this.chat = Array.isArray(restore && restore.chat) ? restore.chat : [];
     this.chatSeq = this.chat.reduce((n, m) => Math.max(n, m.id + 1), 0);
     this.solo = solo;
@@ -240,6 +241,11 @@ export class HostSession {
       // marked as chat, with what they typed, so it shows in their chat and the text goes back in the box
       if (!res.ok) this.room.send(connId, { t: 'err', msg: res.error, chat: true, text: String(msg.text || '').slice(0, CHAT_MAX) });
     }
+    if (msg.t === 'react') {
+      if (!this.conns.has(connId)) return;
+      const res = this.react(this.conns.get(connId), msg.id, msg.e);
+      if (!res.ok) this.room.send(connId, { t: 'err', msg: res.error, chat: true, text: '' });
+    }
   }
 
   maxSeats() {
@@ -335,6 +341,33 @@ export class HostSession {
   sendChat(text, to) {
     const res = this.say(this.mySeat, text, to);
     return res.ok ? { ...res, sent: true } : res;
+  }
+
+  // A reaction to a message, like iMessage's: one each, a new one takes the place of the old, '' takes it back. Like a
+  // message, who it's from comes from the seat, and it's only ever one emoji. It goes to whoever can see the message.
+  react(seat, id, e) {
+    const s = seat != null && this.lobby.seats[seat];
+    if (!s || s.bot || !this.lobby.started) return { ok: false, error: 'You can chat once the game starts.' };
+    const m = this.chat.find((x) => x.id === id);
+    if (!m || !this.canSeeChat(m, seat)) return { ok: false, error: 'That message is gone.' };
+    e = cleanReact(e);
+    if (e == null) return { ok: false, error: 'Only an emoji fits there.' };
+    const had = (m.reacts || []).find((r) => r.seat === seat);
+    if ((had ? had.e : '') === e) return { ok: true };
+    if (!this.reactLimit.allow(seat)) return { ok: false, error: 'Hold on a second, then try that again.' };
+    const reacts = (m.reacts || []).filter((r) => r.seat !== seat);
+    if (e) reacts.push({ seat, name: s.name, e });
+    if (reacts.length) m.reacts = reacts;
+    else delete m.reacts;
+    this.save();
+    const out = { t: 'react', id, reacts };
+    if (this.room) for (const [connId, seat] of this.conns) if (this.canSeeChat(m, seat)) this.room.send(connId, out);
+    if (this.canSeeChat(m, this.mySeat)) this.chatListeners.forEach((fn) => fn(null));
+    return { ok: true };
+  }
+
+  sendReact(id, e) {
+    return this.react(this.mySeat, id, e);
   }
 
   // the table whose chat a seat is in: the one they're watching, else their own (none outside a Tables round)
@@ -1118,6 +1151,7 @@ export class ClientSession {
         else if (msg.t === 'bye') this.update({ ...this.snap, hostLeft: true });
         else if (msg.t === 'chat') this.gotChat([msg.m], true);
         else if (msg.t === 'chatAll') this.gotChat(msg.list, false, true);
+        else if (msg.t === 'react') this.gotReact(msg.id, msg.reacts);
       },
       onStatus: (status, detail) => {
         if (this.snap.status === 'kicked') return;
@@ -1138,6 +1172,22 @@ export class ClientSession {
     }
     saveJoinedChat(this.code, this.chat);
     this.chatListeners.forEach((fn) => fn(live ? ok[ok.length - 1] : null));
+  }
+
+  gotReact(id, reacts) {
+    const m = this.chat.find((x) => x.id === id);
+    if (!m || !Array.isArray(reacts)) return;
+    const ok = reacts.filter((r) => r && Number.isInteger(r.seat) && typeof r.name === 'string' && cleanReact(r.e));
+    if (ok.length) m.reacts = ok;
+    else delete m.reacts;
+    saveJoinedChat(this.code, this.chat);
+    this.chatListeners.forEach((fn) => fn(null));
+  }
+
+  sendReact(id, e) {
+    if (this.snap.status !== 'connected' || this.snap.hostLeft) return { ok: false, error: 'Chat is paused until the host is back.' };
+    this.link.send({ t: 'react', id, e });
+    return { ok: true, pending: true };
   }
 
   sendChat(text, to) {
