@@ -41,8 +41,20 @@ export function oneEmoji(text) {
   return m ? m[0] : '';
 }
 
-// Reactions to a message (press and hold it): these six, or any one emoji from the phone's keyboard
+// Reactions to a message (double-tap or press and hold it): these six, or any one emoji (REACT_MORE, or the phone's keyboard)
 export const REACT_EMOJI = ['❤️', '👍', '👎', '😂', '😮', '😢'];
+// + on the reactions: a grid of these in groups, tapped rather than typed (Other… still opens the phone's keyboard)
+export const REACT_MORE = [
+  ['Faces', '😀 😃 😄 😁 😆 😅 🤣 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 😌 😔 😪 ' +
+    '😴 😷 🤒 🤢 🤮 🥵 🥶 🥴 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 ' +
+    '😈 💀 🤡 👻 👽 🤖 💩 😺 😹 😻 🙈 🙉 🙊'],
+  ['Hands', '👏 🙌 👐 🤲 🤝 🙏 ✌️ 🤞 🤟 🤘 👌 🤌 🤏 👈 👉 👆 👇 ☝️ ✋ 🤚 👋 🤙 💪 🫡 🫶 ✍️ 🤦 🤷 🙋 🙇 💃 🕺'],
+  ['Hearts', '🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 💕 💞 💓 💗 💖 💘 💝 💯 💢 💥 💫 💦 💨 💤 💬 💭'],
+  ['Cards & fun', '♠️ ♥️ ♦️ ♣️ 🃏 🎴 🎲 🎯 🎰 🏆 🥇 🥈 🥉 🏅 🎉 🎊 🎈 🎁 👑 💰 💸 💎 🔥 ⭐ 🌟 ✨ ⚡ 🚨 🎵 🎶 🔔 📣 ⏰ ⌛ 🧠 👀 ' +
+    '🍀 🌈 ☀️ 🌙 ❄️ ☕ 🍷 🍺 🥂 🍾 🍕 🍔 🍿 🍩 🍪 🎂 🍰 🍫 🍭 🍎 🍋 🍆 🥑 🌶️'],
+  ['Animals', '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🦆 🦉 🦄 🐴 🐝 🦋 🐢 🐍 🦖 🐙 🦈 🐳 🐬 🐟 🦀 🐌 🐞 🦥 🦔'],
+].map(([name, list]) => [name, list.split(' ')]);
+
 // a reaction as sent: exactly one emoji, or '' to take yours back; null for anything else
 export function cleanReact(e) {
   if (e === '') return '';

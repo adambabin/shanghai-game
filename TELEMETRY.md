@@ -44,7 +44,7 @@ Every device in a game sends its own, so count games with `role` ≠ `joined`.
 | `tip` / `tips_off` | a one-time tip shows / tips are turned off | `tip` |
 | `feedback` | feedback is sent | `photos` |
 | `chat_sent` | you send a chat message (never what it says) | `kind` (emoji / saying / typed); in a Tables game, `to` (table / everyone) |
-| `chat_react` | you react to a chat message (never which emoji) | `kind` (quick: one of the six / any: from the emoji keyboard / undo: took yours back) |
+| `chat_react` | you react to a chat message (never which emoji) | `kind` (quick: one of the six / more: from the + grid / any: typed from the emoji keyboard / undo: took yours back) |
 | `js_error` | a code error (5 per page load at most) | `message`, `where` |
 
 ## Useful views in the dashboard

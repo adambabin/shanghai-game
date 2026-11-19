@@ -2985,7 +2985,17 @@ button.link-btn {
 .chat-msg.hl .t {
   box-shadow: 0 0 0 2px var(--gold);
 }
-/* reactions: press and hold a message (no text selection or the phone's own menu getting in the way) */
+/* reactions: double-tap or press and hold a message. Nothing in the chat selects as text (a hold that started a
+   selection painted the whole sheet blue and swallowed the taps on the reactions), except what you type */
+#chat-sheet {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+#chat-sheet input {
+  -webkit-user-select: text;
+  user-select: text;
+}
 .chat-msg > .t {
   -webkit-user-select: none;
   user-select: none;
@@ -3059,6 +3069,51 @@ button.link-btn {
   color: var(--ink);
   font-size: 22px;
   font-weight: 800;
+}
+/* + : the grid of emoji, scrolling under its group names, with Other emoji… at its foot */
+.react-pick.more {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px 6px 8px;
+  border-radius: 16px;
+}
+.react-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.react-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 4px 6px;
+  background-color: #24382c;
+  color: var(--ink-dim);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.react-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(42px, 1fr));
+  justify-items: center;
+  margin-bottom: 4px;
+}
+.react-pick .react-other {
+  flex: none;
+  width: auto;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background-color: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
 }
 .react-pick.typing {
   flex-direction: column;

@@ -6,7 +6,7 @@ import { buildSet, buildRun, addCards, wildSlotFor, fitsAnyMeld, couldBeSet, cou
 import { browserTracker, plainError } from './telemetry.js';
 import { gameAwards, playerFacts } from './awards.js';
 import { MAX_TOUR_PLAYERS, tableRange, moveCount, movesFrom } from './tournament.js';
-import { REACT_EMOJI, CHAT_MAX, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, cleanChat, cleanSaying, isEmojiOnly, oneEmoji, quickEmoji,
+import { REACT_EMOJI, REACT_MORE, CHAT_MAX, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, cleanChat, cleanSaying, isEmojiOnly, oneEmoji, quickEmoji,
   quickSayings } from './chat.js';
 import { ROUNDS, roundCfg, contractText, DEFAULT_OPTIONS, MAX_PLAYERS, SET_MIN, RUN_MIN, MIN_DECKS, MAX_DECKS, decksFor, BOT_LEVELS, botLevelFor } from './rules.js';
 
@@ -2572,7 +2572,7 @@ function syncChatSheet() {
   // Tables (BETA): the first time there are tabs, what each one is (the quick reactions line waits for another time)
   const tabsTip = !store.get('tipsOff', false) && chatTabs() && !seen.includes('chatTabs');
   const tip = !tabsTip && !store.get('tipsOff', false) && !seen.includes('quickChat') && !chatAway(ui.snap);
-  // and once there's a message from someone else to try it on, that you can press and hold one to react
+  // and once there's a message from someone else to try it on, that you can double-tap one to react
   const reactTip = !tip && !tabsTip && !store.get('tipsOff', false) && !seen.includes('reactChat') && !chatAway(ui.snap) &&
     chatList().some((m) => m.seat !== mySeat());
   if (tip || tabsTip || reactTip) {
@@ -2588,7 +2588,7 @@ function syncChatSheet() {
       <div class="chat-turn"></div>
       <div class="chat-msgs"></div>
       ${tip ? `<p class="chat-tip">You can change these quick reactions in Settings, or tap <span class="tip-icon">${GEAR_ICON}</span> up top.</p>` : ''}
-      ${reactTip ? '<p class="chat-tip">Press and hold a message to react to it.</p>' : ''}
+      ${reactTip ? '<p class="chat-tip">Double-tap a message to react to it.</p>' : ''}
       <p class="chat-away"></p>
       <div class="chat-quick">${quick}</div>
       <form class="chat-compose"><input data-field="chatText" maxlength="${CHAT_MAX}" placeholder="Say something…" autocomplete="off" enterkeyhint="send"
@@ -2598,9 +2598,11 @@ function syncChatSheet() {
     const b = e.target.closest('[data-chat]');
     if (!b) return;
     if (b.dataset.chat === 'close') return closeChat();
-    if (b.dataset.chat === 'react') return sendReact(ui.reactPick, b.dataset.e, 'quick');
+    if (b.dataset.chat === 'react') return sendReact(ui.reactPick, b.dataset.e, b.dataset.kind || 'quick');
     if (b.dataset.chat === 'reactAny') return reactAny();
-    if (b.dataset.chat === 'reactClose') return closeReactPick();
+    if (b.dataset.chat === 'reactType') return reactType();
+    // the click the phone sends after the tap that opened it lands on the scrim behind it: not a tap to close it
+    if (b.dataset.chat === 'reactClose') return Date.now() - reactOpenedAt > 400 && closeReactPick();
     if (b.dataset.chat === 'who') {
       ui.chatWho = ui.chatWho === Number(b.dataset.id) ? null : Number(b.dataset.id);
       return fillChatSheet();
@@ -2973,7 +2975,8 @@ function fillChatSheet(toEnd = false) {
 }
 
 // ---------- reactions ----------
-// Press and hold a message to react to it, like iMessage: six to pick from, or + for any emoji from the phone's keyboard.
+// Double-tap a message (or press and hold it) to react to it, like iMessage: six to pick from, or + for any emoji (a grid
+// of them, or the phone's own emoji keyboard through Other).
 // One each: another takes the place of yours, and yours again takes it back. Quiet: it only shows on the message.
 
 // the little pill on the message's lower corner (each emoji once, with how many when it's more than one), and, once
@@ -3005,36 +3008,61 @@ function reactsEls(m) {
 }
 
 const HOLD_MS = 450;
+const DOUBLE_TAP_MS = 350;
+// double-tap a message, or press and hold it, to react
 function holdToReact(box) {
   let hold = null;
+  let lastTap = null; // { id, x, y, at } of the last quick tap on a message, for a double tap
   const stop = () => {
     if (hold) clearTimeout(hold.timer);
     hold = null;
+  };
+  const open = (id) => {
+    stop();
+    lastTap = null;
+    // anything the phone had started selecting would swallow the taps on the reactions
+    const sel = window.getSelection && getSelection();
+    if (sel && sel.rangeCount) sel.removeAllRanges();
+    openReactPick(id);
   };
   box.addEventListener('pointerdown', (e) => {
     const bubble = e.target.closest('.chat-msg > .t');
     stop();
     if (!bubble || e.button > 0 || chatAway(ui.snap)) return;
     const id = Number(bubble.parentElement.dataset.id);
-    hold = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
-      hold = null;
+    hold = { id, x: e.clientX, y: e.clientY, at: Date.now(), timer: setTimeout(() => {
       if (navigator.vibrate) navigator.vibrate(10);
-      openReactPick(id);
+      open(id);
     }, HOLD_MS) };
   });
-  // moving the finger (scrolling) or letting go early isn't a hold
+  // moving the finger (scrolling) isn't a hold or a tap
   box.addEventListener('pointermove', (e) => hold && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 8 && stop());
-  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) box.addEventListener(ev, stop);
-  box.addEventListener('scroll', stop, { passive: true });
+  box.addEventListener('pointerup', (e) => {
+    const h = hold;
+    stop();
+    if (!h) return;
+    const now = Date.now();
+    if (lastTap && lastTap.id === h.id && now - lastTap.at < DOUBLE_TAP_MS && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+      return open(h.id);
+    }
+    lastTap = { id: h.id, x: e.clientX, y: e.clientY, at: now };
+  });
+  for (const ev of ['pointercancel', 'pointerleave']) box.addEventListener(ev, stop);
+  box.addEventListener('scroll', () => {
+    stop();
+    lastTap = null;
+  }, { passive: true });
   // the phone's own long-press menu (copy, look up) would cover the reactions
   box.addEventListener('contextmenu', (e) => e.target.closest('.chat-msg > .t') && e.preventDefault());
 }
 
+let reactOpenedAt = 0;
 function openReactPick(id) {
   const panel = document.querySelector('#chat-sheet .chat-panel');
   if (!panel) return;
   closeReactPick();
   ui.reactPick = id;
+  reactOpenedAt = Date.now();
   const m = chatList().find((x) => x.id === id);
   const mine = m && (m.reacts || []).find((r) => r.seat === mySeat());
   const scrim = document.createElement('div');
@@ -3072,9 +3100,15 @@ function placeReactPick() {
   const box = panel.querySelector('.chat-msgs');
   const p = panel.getBoundingClientRect();
   const top = box.getBoundingClientRect().top - p.top;
+  const more = pick.classList.contains('more');
+  // the grid: as wide as the chat allows (up to 360px), from the top of the messages down over the quick reactions
+  if (more) {
+    pick.style.width = `${Math.min(p.width - 16, 360)}px`;
+    pick.style.maxHeight = `${Math.max(160, p.height - top - 12)}px`;
+  }
   const w = pick.offsetWidth;
   const h = pick.offsetHeight;
-  const bubble = !pick.classList.contains('typing') && panel.querySelector(`.chat-msg[data-id="${ui.reactPick}"] > .t`);
+  const bubble = !more && !pick.classList.contains('typing') && panel.querySelector(`.chat-msg[data-id="${ui.reactPick}"] > .t`);
   let x, y;
   if (bubble) {
     const b = bubble.getBoundingClientRect();
@@ -3090,20 +3124,35 @@ function placeReactPick() {
   pick.style.top = `${Math.max(top, Math.min(y, p.height - h - 8))}px`;
 }
 
-// + : the phone's emoji keyboard, in a little box in the picker (focused inside the tap, so the keyboard comes up)
+// + : a grid of emoji to tap (REACT_MORE), at the top of the messages; Other… at its foot opens the phone's keyboard
+// for anything else (a web page can't open the emoji keyboard itself, so it says where the emoji key is)
 function reactAny() {
   const pick = document.querySelector('#chat-sheet .react-pick');
   if (!pick) return;
+  pick.classList.add('more');
+  pick.innerHTML = `<div class="react-grid">${REACT_MORE.map(([name, list]) =>
+    `<p class="react-group">${esc(name)}</p><div class="react-cells">${list.map((e) =>
+      `<button data-chat="react" data-kind="more" data-e="${esc(e)}" aria-label="React ${esc(e)}">${esc(e)}</button>`).join('')}</div>`
+  ).join('')}</div>
+    <button class="react-other" data-chat="reactType">Other emoji…</button>`;
+  placeReactPick();
+}
+
+// Other…: the phone's keyboard, in a little box (focused inside the tap, so the keyboard comes up)
+function reactType() {
+  const pick = document.querySelector('#chat-sheet .react-pick');
+  if (!pick) return;
+  pick.classList.remove('more');
   pick.classList.add('typing');
   pick.innerHTML = `<input class="react-any" data-field="reactAny" autocomplete="off" autocorrect="off" spellcheck="false"
-    placeholder="Pick any emoji" aria-label="Any emoji"><span class="react-msg" role="status"></span>`;
+    placeholder="Any emoji" aria-label="Any emoji"><span class="react-msg" role="status">Tap 😀 on your keyboard.</span>`;
   const input = pick.querySelector('input');
   input.addEventListener('input', () => {
     const e = oneEmoji(input.value);
     if (e) return sendReact(ui.reactPick, e, 'any');
     if (input.value.trim()) {
       input.value = '';
-      pick.querySelector('.react-msg').textContent = 'Only an emoji fits here.';
+      pick.querySelector('.react-msg').textContent = 'Only an emoji fits here. Tap 😀 on your keyboard.';
     }
   });
   input.focus();
@@ -5102,9 +5151,30 @@ async function share() {
   }
 }
 
+// With cards selected, a tap on nothing (the felt, the space around the hand) clears them, like Clear. A tap that lands
+// just beside something you can tap doesn't: that was meant for it.
+const TAPPABLE = 'a, button, input, select, textarea, label, [data-act], [data-card], [data-drop], [data-drag], [data-meld], ' +
+  '[data-staged-card], [data-grip], .card, .meld';
+const TAP_GRACE = 18;
+function nearTappable(x, y) {
+  const pts = [[0, 0]];
+  for (let i = 0; i < 8; i++) pts.push([Math.cos((i * Math.PI) / 4) * TAP_GRACE, Math.sin((i * Math.PI) / 4) * TAP_GRACE]);
+  return pts.some(([dx, dy]) => document.elementsFromPoint(x + dx, y + dy).some((el) => el.closest(TAPPABLE)));
+}
+function tapOffClears(e) {
+  if (!ui.selected.size || ui.modal || ui.drag || !ui.snap || !ui.snap.view) return;
+  if (e.target.closest(TAPPABLE) || nearTappable(e.clientX, e.clientY)) return;
+  ui.selected.clear();
+  render();
+}
+
 function onClick(e) {
   const t = e.target.closest('[data-act]');
-  if (!t) return;
+  if (!t) {
+    if (ui.swallowClick) ui.swallowClick = false;
+    else tapOffClears(e);
+    return;
+  }
   if (ui.swallowClick) {
     ui.swallowClick = false;
     return;

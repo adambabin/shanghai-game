@@ -14,7 +14,7 @@ globalThis.localStorage = {
 };
 
 const { cleanChat, isEmojiOnly, ChatLimit, CHAT_MAX, CHAT_KEEP, CHAT_EMOJI, CHAT_SAYINGS, CHAT_IDEAS, QUICK_COUNT, SAYING_MAX, oneEmoji, cleanSaying,
-  quickEmoji, quickSayings, cleanReact, REACT_EMOJI } = await import('../js/chat.js');
+  quickEmoji, quickSayings, cleanReact, REACT_EMOJI, REACT_MORE } = await import('../js/chat.js');
 const { HostSession } = await import('../js/host.js');
 
 const cp = (...codes) => String.fromCodePoint(...codes);
@@ -208,4 +208,12 @@ test('reactions: one each, from the seat they came in on, sent to whoever sees t
   h.sendReact(0, '🃏');
   h.close();
   assert.deepEqual(HostSession.saved(h.gameId).chat[0].reacts, [{ seat: 0, name: 'Ann', e: '🃏' }]);
+});
+
+test('the + grid of reactions: each one is a reaction the host takes, none twice, none of the usual six', () => {
+  const all = REACT_MORE.flatMap(([, list]) => list);
+  assert.ok(all.length > 100);
+  for (const e of all) assert.equal(cleanReact(e), e, `${e} should be a reaction`);
+  assert.equal(new Set(all).size, all.length);
+  assert.ok(!all.some((e) => REACT_EMOJI.includes(e)));
 });
