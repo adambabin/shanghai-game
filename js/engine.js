@@ -245,29 +245,36 @@ function finishRound(state, winner) {
     state.phase = 'roundOver';
     return;
   }
-  // the tiebreaker: lowest score in it wins; tied again is a shared win
+  // the tiebreaker: lowest score in it wins; tied again plays another one, just the ones still tied
   if (state.tiebreak && state.tiebreak.playing) {
     const tb = state.tiebreak;
     tb.points = state.players.map((_, i) => (tb.seats.includes(i) ? points[i] : null));
     tb.playing = false;
     const best = Math.min(...tb.seats.map((i) => points[i]));
-    return endGame(state, tb.seats.filter((i) => points[i] === best));
+    const tied = tb.seats.filter((i) => points[i] === best);
+    if (tied.length > 1) return tieFor(state, tied, best, true);
+    return endGame(state, tied);
   }
   settleGame(state);
 }
 
-// After the last round: lowest total wins; a tie for it goes to a vote among the tied people (all computers: shared)
+// After the last round: lowest total wins; a tie for it is always played off in a tiebreaker (never shared)
 function settleGame(state) {
   const t = totals(state);
   const best = Math.min(...t);
   const tied = t.map((_, i) => i).filter((i) => t[i] === best);
-  if (tied.length > 1 && tied.some((i) => !state.players[i].bot)) {
-    state.tiebreak = { seats: tied, votes: {}, playing: false, points: null };
-    state.phase = 'tieVote';
-    log(state, `It's a tie! ${listNames(state, tied)} both have ${best}. Share the win, or play a tiebreaker?`, 'tie');
-    return;
-  }
+  if (tied.length > 1) return tieFor(state, tied, best, false);
   endGame(state, tied);
+}
+
+// A tie for the win waits on the "It's a tie!" screen (phase tieVote, the name older saves know) until the host deals
+// the tiebreaker with nextRound: the last round's contract again, just the tied players
+function tieFor(state, seats, best, again) {
+  const prev = state.tiebreak;
+  state.tiebreak = { seats, votes: {}, playing: false, points: again ? prev.points : null, count: again ? (prev.count || 1) + 1 : 1 };
+  state.phase = 'tieVote';
+  const who = listNames(state, seats);
+  log(state, again ? `Tied again! ${who} play another tiebreaker.` : `It's a tie! ${who} ${seats.length > 2 ? 'all' : 'both'} have ${best}. They play a tiebreaker.`, 'tie');
 }
 
 function endGame(state, winners) {
@@ -276,26 +283,11 @@ function endGame(state, winners) {
   log(state, winners.length > 1 ? `${listNames(state, winners)} share the win!` : `${state.players[winners[0]].name} wins the game!`, 'gameover');
 }
 
-// After a tie for the win, each tied person votes: everyone picking the tiebreaker plays the last round again (just them);
-// anyone picking "share" makes it a shared win. Computers don't vote.
-function tieVote(state, seat, choice) {
-  const tb = state.tiebreak;
-  if (state.phase !== 'tieVote' || !tb) return err('There is no tie to settle.');
-  if (!tb.seats.includes(seat) || state.players[seat].bot) return err('Only the tied players choose.');
-  if (choice !== 'share' && choice !== 'tiebreak') return err('Unknown choice.');
-  tb.votes[seat] = choice;
-  const name = state.players[seat].name;
-  if (choice === 'share') {
-    log(state, `${name} chose to share the win.`, 'tievote', { seat });
-    endGame(state, tb.seats);
-    return { ok: true };
-  }
-  log(state, `${name} wants a tiebreaker.`, 'tievote', { seat });
-  const voters = tb.seats.filter((i) => !state.players[i].bot);
-  if (voters.every((i) => tb.votes[i] === 'tiebreak')) {
-    tb.playing = true;
-    startRound(state, { tiebreaker: true });
-  }
+function startTiebreaker(state) {
+  state.tiebreak.playing = true;
+  startRound(state, { tiebreaker: true });
+  // only computers in it: nobody needs to look over their cards
+  if (state.ready.every(Boolean)) beginPlay(state);
   return { ok: true };
 }
 
@@ -357,7 +349,6 @@ export function applyAction(state, seat, action) {
   const name = state.players[seat].name;
   const myTurn = state.turn === seat;
   const inRound = state.phase === 'draw' || state.phase === 'play';
-  if (action.type === 'tieVote') return tieVote(state, seat, action.choice);
   if (sittingOut(state, seat)) return err("You're sitting out the tiebreaker.");
 
   switch (action.type) {
@@ -654,6 +645,7 @@ export function endRoundNoWinner(state) {
 }
 
 export function nextRound(state) {
+  if (state.phase === 'tieVote' && state.tiebreak) return startTiebreaker(state);
   if (state.phase !== 'roundOver') return err('The round is not over.');
   if (endIfPastLastRound(state)) return { ok: true };
   startRound(state);

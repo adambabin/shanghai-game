@@ -1836,7 +1836,7 @@ function scoresTable(v) {
   // four players fit across a phone; a fifth or more scrolls sideways, with the rounds column held in place
   return `<div class="scores-wrap"><table class="scores" style="--n:${v.players.length}"><tr><th>Round</th>${head}</tr>${rows}<tr class="total"><td>Total</td>${totals
     .map((t, i) => `<td>${t}${scored && crowned(t, i) ? crown : ''}</td>`)
-    .join('')}</tr>${tbRow}</table></div><p class="muted">Lowest total after ${played} rounds wins. A tie for the win can be shared or played off in a tiebreaker.</p>`;
+    .join('')}</tr>${tbRow}</table></div><p class="muted">Lowest total after ${played} rounds wins. A tie for the win is played off in a tiebreaker.</p>`;
 }
 
 function resultModal(snap) {
@@ -1978,38 +1978,29 @@ function ordinal(n) {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
-// A tie for the win: the tied people each pick "Share the win" or "Play a tiebreaker" (everyone tied has to want the
-// tiebreaker; anyone sharing makes it shared). Computers don't vote; one person against the computer decides alone.
+// A tie for the win is always played off (never shared): the host deals a tiebreaker, the last round's contract again
+// for just the tied players. A tiebreaker that ties again comes back here for another, just the ones still tied.
 function tieModal(snap) {
   const v = snap.view;
   const tb = v.tiebreak;
-  const totals = totalsOf(v);
   const me = v.you;
-  const voters = tb.seats.filter((i) => !v.players[i].bot);
-  const iVote = me != null && voters.includes(me);
-  const just = tb.seats.length === 2 && voters.length === 2 && iVote ? 'just the two of you' : `just ${namesOf(v, tb.seats)}`;
-  const votes = voters.length > 1
-    ? `<div class="tie-votes">${voters
-        .map((i) => {
-          const c = tb.votes[i];
-          return `<span class="${c ? 'voted' : ''}">${i === me ? 'You' : esc(v.players[i].name)}: ${c === 'tiebreak' ? 'Tiebreaker' : c === 'share' ? 'Share' : 'deciding…'}</span>`;
-        })
-        .join('')}</div>`
-    : '';
-  let actions;
-  if (iVote && !tb.votes[me])
-    actions = '<button class="ghost" data-act="tieVote" data-choice="share">Share the win</button><button class="primary" data-act="tieVote" data-choice="tiebreak">Play a tiebreaker</button>';
-  else {
-    const waiting = voters.filter((i) => !tb.votes[i]);
-    actions = `<span class="muted">Waiting for ${namesOf(v, waiting)} to decide…</span>`;
-  }
+  const again = (tb.count || 1) > 1;
+  const mine = me != null && tb.seats.includes(me);
+  const others = tb.seats.filter((i) => i !== me);
+  const who = mine ? (others.length === 1 ? `You and ${esc(v.players[others[0]].name)}` : `You, ${namesOf(v, others)}`) : namesOf(v, tb.seats);
+  const all = tb.seats.length > 2 ? 'all' : 'both';
+  const sub = again
+    ? `${who} tied again in the tiebreaker, with ${tb.points[tb.seats[0]]}.`
+    : `${who} ${all} have ${totalsOf(v)[tb.seats[0]]}.`;
+  const just = mine && tb.seats.length === 2 ? 'just the two of you' : `just ${namesOf(v, tb.seats)}`;
+  const actions = snap.isHost
+    ? `<button class="primary" data-act="nextRound">Deal ${again ? 'another' : 'the'} tiebreaker</button>`
+    : `<span class="muted">Waiting for ${esc(hostName(snap))} to deal the tiebreaker…</span>`;
   return `<div class="overlay"><div class="modal framed">
-    ${modalHead("It's a tie!")}
+    ${modalHead(again ? 'Tied again!' : "It's a tie!")}
     <div class="modal-body result-body">
-    <p class="muted result-sub">${namesOf(v, tb.seats)} ${tb.seats.length > 2 ? 'all' : 'both'} have ${totals[tb.seats[0]]}.</p>
-    <p>${iVote ? 'Call it a shared win, or play a <b>tiebreaker</b>' : 'They can share the win or play a <b>tiebreaker</b>'}: round ${v.round + 1} (${contractText(v.round)}) again, ${just}. Lowest score in it wins.</p>
-    ${voters.length > 1 ? `<p class="muted">Everyone tied has to pick the tiebreaker to play it.</p>` : ''}
-    ${votes}
+    <p class="muted result-sub">${sub}</p>
+    <p>${mine ? 'You play' : 'They play'} a <b>tiebreaker</b>: round ${v.round + 1} (${contractText(v.round)}) again, ${just}. Lowest score in it wins.</p>
     </div>
     <div class="actions"><button class="ghost" data-act="modal" data-m="scores">Score sheet</button>${actions}</div>
   </div></div>`;
@@ -3484,7 +3475,7 @@ function rulesModal(o, bots = false) {
     'How to play',
     `<div class="rules">
     <p>Lowest score after ${ROUNDS.length} rounds wins. ${sameDeal ? `Everyone gets ${ROUNDS[0].deal} cards each round, and each` : 'Each'} round has a contract you must lay down before you can play on any piles.
-    If players tie for the win, they can share it or play a tiebreaker: round ${ROUNDS.length} again, just them.</p>
+    If players tie for the win, they play a tiebreaker: round ${ROUNDS.length} again, just them, until one of them wins.</p>
     <ul>${rounds}</ul>
     <h3>Around the table</h3>
     <ul><li><span class="dealer-badge inline">D</span> marks the dealer. The deal moves one seat each round, and the player after the dealer goes first.</li>
@@ -5383,8 +5374,6 @@ function onClick(e) {
       if (t.disabled || (t.dataset.buy !== 'clear' && buyLocked())) return;
       send({ type: 'buyAnswer', buy: t.dataset.buy === 'clear' ? null : t.dataset.buy === '1', card: t.dataset.card ? Number(t.dataset.card) : undefined });
       return render();
-    case 'tieVote':
-      send({ type: 'tieVote', choice: t.dataset.choice });
       return render();
     case 'swapOrAdd': {
       const wp = ui.wildPrompt;

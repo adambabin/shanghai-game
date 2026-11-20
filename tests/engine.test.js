@@ -529,7 +529,7 @@ function finalRound(players, earlier) {
   return g;
 }
 
-test('lowest total wins the game; a tie between people goes to a vote', () => {
+test('lowest total wins the game; any tie for it goes to a tiebreaker the host deals', () => {
   const people = [{ name: 'Adam' }, { name: 'Rebecca' }, { name: 'Lou', bot: true }];
   const clear = finalRound(people, [30, 40, 50]);
   assert.equal(clear.phase, 'gameOver');
@@ -538,24 +538,24 @@ test('lowest total wins the game; a tie between people goes to a vote', () => {
   const tie = finalRound(people, [34, 34, 50]);
   assert.equal(tie.phase, 'tieVote');
   assert.deepEqual(tie.tiebreak.seats, [0, 1]);
-  assert.equal(applyAction(tie, 2, { type: 'tieVote', choice: 'tiebreak' }).ok, false, 'only tied people vote');
-  // anyone choosing to share makes it a shared win
-  applyAction(tie, 0, { type: 'tieVote', choice: 'tiebreak' });
-  assert.equal(tie.phase, 'tieVote', 'still waiting on Rebecca');
-  applyAction(tie, 1, { type: 'tieVote', choice: 'share' });
-  assert.equal(tie.phase, 'gameOver');
-  assert.deepEqual(tie.winners, [0, 1]);
+  assert.equal(applyAction(tie, 0, { type: 'tieVote', choice: 'share' }).ok, false, 'no sharing any more');
+  assert.ok(nextRound(tie).ok);
+  assert.equal(tie.phase, 'ready');
+  assert.ok(tie.tiebreak.playing);
 
-  // computers tied with each other just share it
+  // computers tied with each other play it off too
   const bots = finalRound([{ name: 'Adam' }, { name: 'Lou', bot: true }, { name: 'Shark', bot: true }], [60, 20, 20]);
-  assert.equal(bots.phase, 'gameOver');
-  assert.deepEqual(bots.winners, [1, 2]);
+  assert.equal(bots.phase, 'tieVote');
+  assert.deepEqual(bots.tiebreak.seats, [1, 2]);
+  assert.ok(nextRound(bots).ok);
+  assert.equal(bots.phase, 'draw', 'computers are ready at once');
+  assert.equal(bots.hands[0].length, 0, 'Adam sits out');
 });
 
 test('a tiebreaker deals the last round again to just the tied players', () => {
   const g = finalRound([{ name: 'Adam' }, { name: 'Rebecca' }, { name: 'Lou', bot: true }, { name: 'Shark', bot: true }], [34, 50, 34, 60]);
-  assert.deepEqual(g.tiebreak.seats, [0, 2], 'Adam and the computer Lou are tied; only Adam votes');
-  applyAction(g, 0, { type: 'tieVote', choice: 'tiebreak' });
+  assert.deepEqual(g.tiebreak.seats, [0, 2], 'Adam and the computer Lou are tied');
+  nextRound(g);
   assert.equal(g.round, 6, 'still round 7, the same contract');
   assert.equal(g.hands[0].length, 11);
   assert.equal(g.phase, 'ready');
@@ -607,8 +607,7 @@ test('a game saved when there were 11 rounds ends after the round it is in', () 
   assert.ok(endIfPastLastRound(between));
   assert.equal(between.phase, 'tieVote');
   assert.deepEqual(between.tiebreak.seats, [0, 1]);
-  applyAction(between, 0, { type: 'tieVote', choice: 'tiebreak' });
-  applyAction(between, 1, { type: 'tieVote', choice: 'tiebreak' });
+  nextRound(between);
   assert.equal(between.phase, 'ready', 'the tiebreaker replays the round it was in');
   assert.equal(between.round, 7);
 
@@ -628,15 +627,21 @@ test('a game saved when there were 11 rounds ends after the round it is in', () 
   assert.equal(early.phase, 'roundOver');
 });
 
-test('a tiebreaker that ties again is a shared win', () => {
-  const g = finalRound([{ name: 'Adam' }, { name: 'Rebecca' }], [34, 34]);
-  applyAction(g, 0, { type: 'tieVote', choice: 'tiebreak' });
-  applyAction(g, 1, { type: 'tieVote', choice: 'tiebreak' });
-  g.hands[0] = [c(5, 'H')];
-  g.hands[1] = [c(5, 'S')];
+test('a tiebreaker that ties again plays another, just the ones still tied', () => {
+  const g = finalRound([{ name: 'Adam' }, { name: 'Rebecca' }, { name: 'Lou', bot: true }], [34, 34, 34]);
+  nextRound(g);
+  g.hands = [[c(5, 'H')], [c(5, 'S')], [c(9, 'S')]];
+  endRoundNoWinner(g);
+  assert.equal(g.phase, 'tieVote');
+  assert.deepEqual(g.tiebreak.seats, [0, 1]);
+  assert.deepEqual(g.tiebreak.points, [5, 5, 9]);
+  assert.equal(g.tiebreak.count, 2);
+  nextRound(g);
+  assert.equal(g.hands[2].length, 0, 'Lou is out of it now');
+  g.hands = [[c(3, 'H')], [c(8, 'S')], []];
   endRoundNoWinner(g);
   assert.equal(g.phase, 'gameOver');
-  assert.deepEqual(g.winners, [0, 1]);
+  assert.deepEqual(g.winners, [0]);
 });
 
 test('others can say Buy or No before the current player chooses; counted on Allow buy, dropped on Take it', () => {

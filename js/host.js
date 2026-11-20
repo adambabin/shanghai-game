@@ -480,10 +480,6 @@ export class HostSession {
         res = this.tieDraw(seat);
         break;
       default: {
-        if (this.tour && a.type === 'tieVote' && this.tour.phase === 'tieVote') {
-          res = this.tourTieVote(seat, a.choice);
-          break;
-        }
         const at = this.tour ? this.gameFor(seat) : this.game && seat != null ? { g: this.game, local: seat } : null;
         if (!at) return { ok: false, error: this.tour ? "You're not at a table right now." : 'The game has not started.' };
         this.touch(at.g);
@@ -772,6 +768,12 @@ export class HostSession {
 
   nextTourRound() {
     const t = this.tour;
+    if (t.phase === 'tieVote') return this.startTourTiebreak();
+    // the tiebreaker tied again: deal it again, just the ones still tied
+    if (t.phase === 'tiebreak' && t.tbGame.phase === 'tieVote') {
+      this.touch(t.tbGame);
+      return nextRound(t.tbGame);
+    }
     if (t.phase !== 'between') return { ok: false, error: 'The round is not over.' };
     t.tables = t.next;
     t.next = null;
@@ -781,13 +783,14 @@ export class HostSession {
     return { ok: true };
   }
 
-  // After the last round: lowest total wins. A tie for it goes to a vote among the tied people, as in a one-table game.
+  // After the last round: lowest total wins. A tie for it is played off in a tiebreaker the host deals, as in a
+  // one-table game (never shared).
   settleTour(totals) {
     const t = this.tour;
     t.stats.forEach((st, i) => Object.assign(st, tableStats(t.history, i)));
     const best = Math.min(...totals);
     const tied = totals.map((_, i) => i).filter((i) => totals[i] === best);
-    if (tied.length > 1 && tied.some((i) => !this.lobby.seats[i].bot)) {
+    if (tied.length > 1) {
       t.tiebreak = { seats: tied, votes: {}, playing: false, points: null };
       t.phase = 'tieVote';
       return;
@@ -796,28 +799,19 @@ export class HostSession {
     t.phase = 'gameOver';
   }
 
-  tourTieVote(seat, choice) {
+  // The last round's contract again, just the tied players at one table
+  startTourTiebreak() {
     const t = this.tour;
     const tb = t.tiebreak;
-    if (!tb.seats.includes(seat) || this.lobby.seats[seat].bot) return { ok: false, error: 'Only the tied players choose.' };
-    if (choice !== 'share' && choice !== 'tiebreak') return { ok: false, error: 'Unknown choice.' };
-    tb.votes[seat] = choice;
-    if (choice === 'share') {
-      t.winners = tb.seats;
-      t.phase = 'gameOver';
-      return { ok: true };
-    }
-    if (tb.seats.every((i) => this.lobby.seats[i].bot || tb.votes[i] === 'tiebreak')) {
-      // the last round's contract again, just the tied players at one table
-      const seats = this.lobby.seats;
-      const g = createGame(tb.seats.map((i) => ({ name: seats[i].name, bot: !!seats[i].bot })), this.lobby.options, Math.random, { round: t.round });
-      g.tiebreak = { seats: tb.seats.map((_, l) => l), votes: {}, playing: true, points: null };
-      g.stats = g.players.map(() => newStats());
-      startRound(g, { tiebreaker: true });
-      t.tbGame = g;
-      tb.playing = true;
-      t.phase = 'tiebreak';
-    }
+    const seats = this.lobby.seats;
+    const g = createGame(tb.seats.map((i) => ({ name: seats[i].name, bot: !!seats[i].bot })), this.lobby.options, Math.random, { round: t.round });
+    g.tiebreak = { seats: tb.seats.map((_, l) => l), votes: {}, playing: true, points: null };
+    g.stats = g.players.map(() => newStats());
+    startRound(g, { tiebreaker: true });
+    if (g.ready.every(Boolean)) beginPlay(g);
+    t.tbGame = g;
+    tb.playing = true;
+    t.phase = 'tiebreak';
     return { ok: true };
   }
 
