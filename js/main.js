@@ -2870,6 +2870,11 @@ function slideHand(dock, y, drop, ms = 0) {
 }
 
 function lowerHand(dock, drop) {
+  // putting your cards away lets go of any you'd picked, like Clear
+  if (ui.selected.size) {
+    ui.selected.clear();
+    if (dock) dock.querySelectorAll('.hand .card.sel').forEach((c) => c.classList.remove('sel'));
+  }
   if (!dock || calmMotion()) {
     ui.dockCollapsed = true;
     return render();
